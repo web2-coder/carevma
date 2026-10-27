@@ -1,0 +1,5 @@
+@extends('errors.layout')
+@section('title', 'Service temporarily unavailable')
+@section('code', '503')
+@section('heading', 'Service temporarily unavailable')
+@section('message', 'CareVMA is temporarily unavailable while maintenance or a service interruption is being handled. Please try again shortly.')

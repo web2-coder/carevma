@@ -1,0 +1,5 @@
+@extends('errors.layout')
+@section('title', 'Session expired')
+@section('code', '419')
+@section('heading', 'Session expired')
+@section('message', 'Your secure session or form token has expired. Return to CareVMA, refresh the page, and try the action again.')

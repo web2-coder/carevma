@@ -1,0 +1,104 @@
+.action-del-btn {
+    background: #ff6464;
+    border: none;
+    color: white;
+    border-radius: 50px;
+    width: 35px;
+    height: 35px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.action-del-btn i, .action-edit-btn i, .action-view-btn i{
+    font-size: 15px;
+    line-height: 20px;
+    text-align: center;
+}
+.action-edit-btn{
+    background: #649aff;
+    border: none;
+    color: white;
+    border-radius: 50px;
+    width: 35px;
+    height: 35px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.action-view-btn{
+    background: #64ff79;
+    border: none;
+    color: white;
+    border-radius: 50px;
+    width: 35px;
+    height: 35px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.current-gallery-imgs img{
+    width: 80px;
+    height: 80px;
+    object-fit: cover;
+    border-radius: 5px;
+}
+.fc-timegrid-slots td {
+    padding: 10px;
+}
+.fc-event-title-container {
+    cursor: pointer;
+}
+.employee-appointment-card span{
+    font-size:13px;
+}
+.stretched-link::after{
+    display: none !important;
+}
+ul.service-list {
+    list-style: none;
+    padding: 0;
+    margin-bottom: 0;
+}
+.service-list li {
+    display: inline-block;
+    padding: 4px 13px;
+    background: #d3d3d342;
+    color: #2f2b3d;
+    font-size: 13px;
+    border-radius: 3px;
+    margin-bottom: 4px;
+}
+.promo-para {
+    margin-top: 12px !important;
+    background: #80808070;
+    border-bottom-left-radius: 6px;
+    border-bottom-right-radius: 6px;
+    padding: 4px 0px;
+    color: #313131 !important;
+}
+
+.employee-avatar {
+    position: relative;
+    display: inline-block;
+}
+.online-badge {
+    position: absolute;
+    bottom: 5px;
+    right: 5px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 2px solid #fff;
+}
+.bg-success { background: #28a745; } /* online green */
+.bg-secondary { background: #6c757d; } /* offline gray */
+
+.btn-google {
+    background-color: #DB4437;
+    color: #fff;
+}
+
+.btn-google:hover {
+    background-color: #c13525;
+    color: #fff;
+}

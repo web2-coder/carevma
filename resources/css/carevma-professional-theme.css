@@ -1,0 +1,1760 @@
+/* =========================================================
+   CareVMA Professional Brand Theme
+   Palette derived from the CareVMA logo:
+   Navy #083589 | Blue #0352F0 | Sky #35A6F4 | Cyan #5DDBF0
+   This file intentionally loads after app.css so it can theme
+   all existing and future shared UI without changing business logic.
+========================================================= */
+
+:root {
+  --cv-navy-950: #06162f;
+  --cv-navy-900: #08254f;
+  --cv-navy-800: #083589;
+  --cv-blue-700: #0346d8;
+  --cv-blue-600: #0352f0;
+  --cv-blue-500: #1680f5;
+  --cv-sky-500: #35a6f4;
+  --cv-cyan-400: #5ddbf0;
+  --cv-cyan-200: #b9f0f8;
+  --cv-blue-100: #eaf3ff;
+  --cv-blue-50: #f4f8ff;
+  --cv-slate-950: #0a1730;
+  --cv-slate-800: #263a56;
+  --cv-slate-600: #61748d;
+  --cv-slate-400: #99a8b9;
+  --cv-border: #dce7f3;
+  --cv-surface: #ffffff;
+  --cv-bg: #f5f8fc;
+  --cv-success: #18a56f;
+  --cv-warning: #f59e0b;
+  --cv-danger: #dc4c55;
+
+  --bg: var(--cv-bg);
+  --surface: var(--cv-surface);
+  --surface-2: #f9fbfe;
+  --text: var(--cv-slate-950);
+  --muted: var(--cv-slate-600);
+  --border: var(--cv-border);
+  --brand: var(--cv-navy-800);
+  --brand-2: var(--cv-blue-600);
+  --brand-soft: var(--cv-blue-100);
+  --nav: var(--cv-navy-950);
+  --nav-2: var(--cv-navy-900);
+  --success: var(--cv-success);
+  --warning: var(--cv-warning);
+  --danger: var(--cv-danger);
+  --shadow: 0 18px 45px rgba(8, 53, 137, .09);
+  --radius: 18px;
+}
+
+html,
+body {
+  background:
+    radial-gradient(circle at 92% 2%, rgba(93, 219, 240, .08), transparent 26%),
+    var(--cv-bg);
+}
+
+body {
+  color: var(--cv-slate-950);
+  letter-spacing: -.005em;
+}
+
+::selection {
+  background: rgba(3, 82, 240, .16);
+  color: var(--cv-navy-950);
+}
+
+/* =========================================================
+   Sidebar / navigation
+========================================================= */
+.sidebar {
+  background:
+    radial-gradient(circle at 10% 2%, rgba(53, 166, 244, .20), transparent 25%),
+    linear-gradient(180deg, #071a39 0%, #082654 48%, #06162f 100%);
+  border-right: 1px solid rgba(93, 219, 240, .11);
+  box-shadow: 10px 0 34px rgba(4, 22, 48, .08);
+}
+
+.brand-row {
+  min-height: 66px;
+  height: auto;
+  padding: 6px 8px;
+}
+
+.brand-row .carevma-brand-logo:not(.is-compact) {
+  max-width: 196px;
+  padding: 7px 10px;
+  border-radius: 13px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .13);
+}
+
+.brand-row .carevma-brand-logo img {
+  width: 176px;
+}
+
+.brand-row .carevma-brand-logo.is-compact {
+  width: 46px;
+  height: 46px;
+  border-radius: 13px;
+  background: #fff;
+  padding: 5px;
+  box-shadow: 0 7px 18px rgba(0, 0, 0, .14);
+}
+
+.workspace-chip {
+  background: linear-gradient(135deg, rgba(53, 166, 244, .13), rgba(93, 219, 240, .07));
+  border-color: rgba(93, 219, 240, .15);
+  box-shadow: inset 0 1px rgba(255, 255, 255, .035);
+}
+
+.workspace-dot {
+  background: var(--cv-cyan-400);
+  box-shadow: 0 0 0 5px rgba(93, 219, 240, .11), 0 0 18px rgba(93, 219, 240, .45);
+}
+
+.workspace-chip strong,
+.user-mini strong {
+  color: #fff;
+}
+
+.workspace-chip small,
+.user-mini span {
+  color: #94b7d2;
+}
+
+.nav-link {
+  color: #a8bdd1;
+  border: 1px solid transparent;
+}
+
+.nav-link:hover {
+  color: #fff;
+  background: rgba(53, 166, 244, .10);
+  border-color: rgba(93, 219, 240, .08);
+  transform: translateX(2px);
+}
+
+.nav-link.active {
+  color: #fff;
+  background: linear-gradient(90deg, rgba(3, 82, 240, .38), rgba(53, 166, 244, .14));
+  border-color: rgba(93, 219, 240, .15);
+  box-shadow: inset 3px 0 var(--cv-cyan-400), 0 8px 20px rgba(3, 82, 240, .10);
+}
+
+.nav-link.active .nav-icon {
+  color: var(--cv-cyan-400);
+}
+
+.nav-children {
+  border-left-color: rgba(93, 219, 240, .17);
+}
+
+.nav-child {
+  color: #8eabc4;
+}
+
+.nav-child:hover,
+.nav-child.active {
+  color: #fff;
+  background: rgba(53, 166, 244, .10);
+}
+
+.sidebar-foot {
+  border-top-color: rgba(93, 219, 240, .11);
+}
+
+/* =========================================================
+   Topbar / header
+========================================================= */
+.topbar {
+  height: 78px;
+  background: rgba(255, 255, 255, .92);
+  border-bottom: 1px solid rgba(8, 53, 137, .09);
+  box-shadow: 0 7px 28px rgba(8, 53, 137, .035);
+  backdrop-filter: blur(18px) saturate(130%);
+}
+
+.icon-btn {
+  border-color: #dbe7f3;
+  background: #fff;
+  color: #415b78;
+  box-shadow: 0 4px 12px rgba(8, 53, 137, .035);
+}
+
+.icon-btn:hover,
+.notification-bell.active {
+  color: var(--cv-blue-600);
+  border-color: #b8d2f4;
+  background: var(--cv-blue-50);
+}
+
+.topbar-context span {
+  color: #8a9db1;
+}
+
+.topbar-context strong {
+  color: var(--cv-navy-900);
+}
+
+.status-pill {
+  color: #536c86;
+  background: #f7faff;
+  border-color: #dde9f5;
+}
+
+.status-pill span {
+  background: var(--cv-success);
+  box-shadow: 0 0 0 4px rgba(24, 165, 111, .09);
+}
+
+.avatar,
+.profile-photo,
+.client-va-avatar {
+  background: linear-gradient(145deg, #e7f2ff, #d8f7fb);
+  color: var(--cv-navy-800);
+}
+
+/* Live clock follows the same brand system */
+.navbar-live-clock {
+  border-color: #dce8f4;
+  background: linear-gradient(135deg, #fff, #f8fbff);
+  box-shadow: 0 5px 16px rgba(8, 53, 137, .05);
+}
+
+.navbar-live-clock-icon {
+  color: var(--cv-blue-600);
+  background: linear-gradient(135deg, #eaf3ff, #e8fbfe);
+}
+
+.navbar-live-clock-copy strong {
+  color: var(--cv-navy-900);
+}
+
+.navbar-live-clock-zone {
+  color: var(--cv-navy-800);
+  background: #edf5ff;
+}
+
+/* =========================================================
+   Layout / headings / cards
+========================================================= */
+.content {
+  padding: 32px;
+}
+
+.page-header {
+  margin-bottom: 26px;
+}
+
+.page-header h1,
+.client-profile-page-head h1,
+.employee-wizard-page.carevma-onboarding .employee-wizard-head h1 {
+  color: var(--cv-slate-950);
+  letter-spacing: -1.15px;
+}
+
+.eyebrow,
+.employee-wizard-page.carevma-onboarding .employee-wizard-head .eyebrow {
+  color: var(--cv-blue-600);
+}
+
+.page-header p,
+.client-profile-page-head p {
+  color: var(--cv-slate-600);
+}
+
+.card,
+.client-workspace-panel,
+.client-va-schedule-card,
+.employee-wizard-page.carevma-onboarding .carevma-onboarding-card {
+  border-color: #dfe9f4;
+  background: rgba(255, 255, 255, .97);
+  box-shadow: 0 8px 28px rgba(8, 53, 137, .055);
+}
+
+.card:hover {
+  border-color: #d3e3f4;
+}
+
+.card-head h3 {
+  color: var(--cv-navy-900);
+}
+
+.card-head p {
+  color: #75879b;
+}
+
+.metric-card {
+  position: relative;
+  overflow: hidden;
+  border-color: #dfe9f4;
+  background: linear-gradient(145deg, #fff 0%, #f9fbff 100%);
+  box-shadow: 0 7px 22px rgba(8, 53, 137, .05);
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+
+.metric-card::after {
+  content: "";
+  position: absolute;
+  width: 80px;
+  height: 80px;
+  right: -36px;
+  top: -38px;
+  border-radius: 50%;
+  background: rgba(93, 219, 240, .10);
+}
+
+.metric-card:hover {
+  transform: translateY(-2px);
+  border-color: #cbdff4;
+  box-shadow: 0 12px 30px rgba(8, 53, 137, .08);
+}
+
+.metric-icon {
+  color: var(--cv-blue-600);
+  background: linear-gradient(135deg, #e9f2ff, #e8fbfe);
+  border: 1px solid #d7ebfb;
+}
+
+.metric-copy strong {
+  color: var(--cv-navy-900);
+}
+
+/* =========================================================
+   Buttons
+========================================================= */
+.btn {
+  border-radius: 11px;
+  min-height: 40px;
+  letter-spacing: -.01em;
+}
+
+.btn-primary {
+  color: #fff;
+  background: linear-gradient(135deg, var(--cv-navy-800) 0%, var(--cv-blue-600) 58%, var(--cv-sky-500) 100%);
+  box-shadow: 0 8px 20px rgba(3, 82, 240, .20);
+}
+
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 27px rgba(3, 82, 240, .25);
+}
+
+.btn-secondary {
+  color: var(--cv-navy-800);
+  background: #edf5ff;
+  border: 1px solid #cfdef1;
+}
+
+.btn-secondary:hover {
+  background: #e5f0ff;
+  border-color: #b9d0ed;
+}
+
+.btn-ghost {
+  color: #536a82;
+  border-color: #dbe6f1;
+}
+
+.btn-ghost:hover {
+  color: var(--cv-blue-600);
+  border-color: #bdd3ee;
+  background: #f7faff;
+}
+
+/* =========================================================
+   Forms / inputs / filters
+========================================================= */
+.field > span {
+  color: #344a64;
+}
+
+.field input,
+.field select,
+.field textarea,
+input,
+select,
+textarea {
+  border-color: #d7e3ef;
+}
+
+.field input:hover,
+.field select:hover,
+.field textarea:hover {
+  border-color: #bfd2e7;
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus,
+.employee-wizard-page.carevma-onboarding .field input:focus,
+.employee-wizard-page.carevma-onboarding .field select:focus,
+.employee-wizard-page.carevma-onboarding .field textarea:focus {
+  border-color: var(--cv-sky-500);
+  box-shadow: 0 0 0 4px rgba(53, 166, 244, .11);
+}
+
+.search-box,
+.smart-table-search,
+.smart-table-filter {
+  border-color: #dce7f2;
+  background: #fff;
+}
+
+/* =========================================================
+   Tables / smart-table
+========================================================= */
+.table-wrap,
+.smart-table-shell {
+  border-color: #e0e8f2;
+  border-radius: 15px;
+}
+
+table thead th,
+.data-table thead th {
+  color: #597088;
+  background: #f6f9fd;
+  border-bottom-color: #dfe8f3;
+  text-transform: uppercase;
+  letter-spacing: .055em;
+  font-size: 9px;
+}
+
+table tbody td,
+.data-table tbody td {
+  border-bottom-color: #edf2f7;
+}
+
+table tbody tr:hover,
+.data-table tbody tr:hover {
+  background: #f8fbff;
+}
+
+.smart-table-toolbar,
+.table-toolbar {
+  background: linear-gradient(180deg, #fff, #fafcff);
+  border-color: #e2eaf3;
+}
+
+.smart-table-count,
+.table-count {
+  color: #71859a;
+}
+
+.pagination button,
+.smart-table-pagination button {
+  border-color: #dce6f1;
+  color: #526b84;
+  background: #fff;
+}
+
+.pagination button:hover,
+.smart-table-pagination button:hover {
+  color: var(--cv-blue-600);
+  border-color: #bdd2ec;
+  background: #f6faff;
+}
+
+.pagination button.active,
+.smart-table-pagination button.active {
+  color: #fff;
+  border-color: var(--cv-blue-600);
+  background: var(--cv-blue-600);
+}
+
+/* =========================================================
+   Status / badges / notices
+========================================================= */
+.badge-success,
+.badge.success,
+.status-enabled {
+  color: #087449;
+  background: #eaf9f2;
+  border-color: #c8eedc;
+}
+
+.badge-warning,
+.badge.warning {
+  color: #9b6500;
+  background: #fff7e7;
+  border-color: #f6ddb0;
+}
+
+.badge-danger,
+.badge.danger {
+  color: #b13c45;
+  background: #fff0f1;
+  border-color: #f5cdd0;
+}
+
+.notice-success {
+  border-color: #cceadf;
+  background: #f0faf6;
+}
+
+.notice-info {
+  border-color: #cee0f6;
+  background: #f2f7ff;
+}
+
+/* =========================================================
+   Employee dashboard / live session
+========================================================= */
+.live-banner {
+  background: linear-gradient(135deg, #f0f7ff, #effcff);
+  border-color: #d2e7f5;
+}
+
+.live-banner strong {
+  color: var(--cv-navy-900);
+}
+
+.pulse-dot {
+  background: var(--cv-blue-600);
+  box-shadow: 0 0 0 7px rgba(3, 82, 240, .11);
+}
+
+@keyframes pulse {
+  50% {
+    box-shadow: 0 0 0 12px rgba(3, 82, 240, 0);
+  }
+}
+
+.schedule-choice-card,
+.schedule-choice {
+  border-color: #dce7f2;
+}
+
+.schedule-choice-card:hover,
+.schedule-choice:hover {
+  border-color: #a9c9eb;
+  background: #f7fbff;
+}
+
+.agenda-time {
+  color: var(--cv-blue-600);
+}
+
+/* =========================================================
+   Doctor / employee cards
+========================================================= */
+.employee-card {
+  border-color: #dfe8f2;
+  box-shadow: 0 7px 22px rgba(8, 53, 137, .05);
+}
+
+.employee-card:hover {
+  border-color: #c5daef;
+  box-shadow: 0 16px 36px rgba(8, 53, 137, .10);
+}
+
+.employee-card-cover {
+  background:
+    radial-gradient(circle at 85% 10%, rgba(93, 219, 240, .35), transparent 32%),
+    linear-gradient(135deg, var(--cv-navy-900), var(--cv-blue-600));
+}
+
+.card-link {
+  color: var(--cv-blue-600);
+}
+
+/* =========================================================
+   Notifications / dropdown / modal
+========================================================= */
+.notification-dropdown,
+.modal,
+.client-schedule-drawer {
+  border: 1px solid #dfe8f3;
+  box-shadow: 0 24px 70px rgba(8, 34, 75, .18);
+}
+
+.notification-dropdown-item.unread,
+.notification-item.unread {
+  background: #f3f8ff;
+}
+
+.notification-dropdown-item > i,
+.notification-item > i {
+  background: var(--cv-blue-600);
+}
+
+.notification-icon,
+.notification-dropdown-icon {
+  color: var(--cv-blue-600);
+  background: #edf5ff;
+}
+
+.modal-backdrop,
+.client-schedule-drawer-backdrop {
+  background: rgba(5, 18, 42, .52);
+  backdrop-filter: blur(5px);
+}
+
+.modal-head,
+.modal-foot {
+  border-color: #e4ebf4;
+}
+
+.modal-foot {
+  background: #f9fbfe;
+}
+
+/* =========================================================
+   Employee onboarding wizard
+========================================================= */
+.employee-wizard-page.carevma-onboarding .employee-wizard-steps {
+  border-color: #dde8f3;
+  box-shadow: 0 13px 34px rgba(8, 53, 137, .06);
+}
+
+.employee-wizard-page.carevma-onboarding .wizard-step:hover {
+  background: #f5f9ff;
+  border-color: #e0eaf5;
+}
+
+.employee-wizard-page.carevma-onboarding .wizard-step.active {
+  color: var(--cv-navy-800);
+  background: linear-gradient(135deg, #eaf3ff, #effcff);
+  border-color: #bfd8f1;
+}
+
+.employee-wizard-page.carevma-onboarding .wizard-step.complete {
+  color: var(--cv-blue-600);
+}
+
+.employee-wizard-page.carevma-onboarding .wizard-step.active .wizard-step-icon {
+  color: var(--cv-blue-600);
+  box-shadow: 0 5px 15px rgba(3, 82, 240, .10);
+}
+
+.employee-wizard-page.carevma-onboarding .wizard-step.complete .wizard-step-icon {
+  color: var(--cv-navy-800);
+  background: #e2efff;
+}
+
+.employee-wizard-page.carevma-onboarding .wizard-progress > span {
+  background: linear-gradient(90deg, var(--cv-navy-800), var(--cv-blue-600), var(--cv-cyan-400));
+}
+
+.employee-wizard-page.carevma-onboarding .wizard-info-box,
+.employee-wizard-page.carevma-onboarding .wizard-review-box {
+  border-color: #d5e7f7;
+  color: #36536f;
+  background: #f4f9ff;
+}
+
+.employee-wizard-page.carevma-onboarding .wizard-info-box svg {
+  color: var(--cv-blue-600);
+}
+
+/* =========================================================
+   Client Profile Workspace
+========================================================= */
+.client-profile-tabs {
+  border-color: #dce7f3;
+  box-shadow: 0 10px 30px rgba(8, 53, 137, .045);
+}
+
+.client-profile-tabs button {
+  color: #334a65;
+}
+
+.client-profile-tabs button:hover {
+  color: var(--cv-navy-800);
+  background: #f4f8ff;
+}
+
+.client-profile-tabs button.active {
+  color: var(--cv-navy-900);
+  background: linear-gradient(135deg, #e7f1ff, #e9fbfe);
+  box-shadow: inset 3px 0 var(--cv-blue-600);
+}
+
+.client-va-header {
+  border-bottom-color: #e4ecf5;
+}
+
+.client-va-rate {
+  color: var(--cv-navy-900);
+}
+
+.client-schedule-row {
+  border-bottom-color: #edf2f7;
+}
+
+.schedule-timezone-chip {
+  color: #07366f;
+  background: linear-gradient(135deg, #cfeeff, #bcf2f8);
+  border: 1px solid #a7ddea;
+}
+
+.timezone-summary-card,
+.assigned-va-strip {
+  border-color: #dfe8f3;
+  background: #f8fbff;
+}
+
+.client-row-menu button:hover {
+  background: #f1f6fd;
+}
+
+/* =========================================================
+   Login / auth
+========================================================= */
+.auth-page {
+  background: var(--cv-navy-950);
+}
+
+.auth-visual {
+  background:
+    radial-gradient(circle at 18% 18%, rgba(93, 219, 240, .25), transparent 27%),
+    radial-gradient(circle at 82% 70%, rgba(3, 82, 240, .28), transparent 30%),
+    linear-gradient(145deg, #06162f, #082654 55%, #083589);
+}
+
+.auth-visual:after {
+  background-image:
+    linear-gradient(rgba(93, 219, 240, .045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(93, 219, 240, .045) 1px, transparent 1px);
+}
+
+.auth-kicker {
+  color: #d8f8fc;
+  border-color: rgba(93, 219, 240, .20);
+  background: rgba(53, 166, 244, .10);
+}
+
+.auth-hero > p,
+.auth-stats span {
+  color: #b8d5e8;
+}
+
+.auth-panel,
+.simple-auth {
+  background:
+    radial-gradient(circle at 100% 0%, rgba(93, 219, 240, .11), transparent 30%),
+    #f6f9fd;
+}
+
+.login-card {
+  border-color: #dfe8f3;
+  box-shadow: 0 24px 70px rgba(7, 37, 84, .14);
+}
+
+.auth-row a,
+.text-link {
+  color: var(--cv-blue-600);
+}
+
+/* =========================================================
+   Live workforce / live metrics
+========================================================= */
+.live-metric-card,
+.metric-card.live-metric-card {
+  border-color: #dce7f3;
+  background: linear-gradient(145deg, #fff, #f7fbff);
+}
+
+.live-metric-card .metric-icon {
+  color: var(--cv-blue-600);
+  background: linear-gradient(135deg, #e7f1ff, #e7fbfe);
+}
+
+.live-count-badge {
+  color: #fff;
+  background: var(--cv-danger);
+  border-color: #fff;
+}
+
+/* =========================================================
+   Scrollbar / small polish
+========================================================= */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #b8cce1 transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #b8cce1;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #9cb7d2;
+}
+
+/* =========================================================
+   Responsive polish
+========================================================= */
+@media (max-width: 900px) {
+  .sidebar {
+    box-shadow: 22px 0 70px rgba(5, 25, 56, .30);
+  }
+
+  .content {
+    padding: 23px 20px;
+  }
+}
+
+@media (max-width: 620px) {
+  .topbar {
+    height: 68px;
+  }
+
+  .content {
+    padding: 18px 13px;
+  }
+
+  .card,
+  .client-workspace-panel,
+  .client-va-schedule-card {
+    border-radius: 15px;
+  }
+
+  .brand-row .carevma-brand-logo:not(.is-compact) {
+    max-width: 172px;
+  }
+}
+
+/* =========================================================
+   Final CareVMA light navigation treatment
+   Keeps the portal visually lighter while preserving strong
+   blue/cyan brand contrast and accessible active states.
+========================================================= */
+.sidebar {
+  background: linear-gradient(180deg, #fbfdff 0%, #f4f8fe 55%, #eef5fc 100%);
+  color: var(--cv-navy-900);
+  border-right: 1px solid #dbe8f5;
+  box-shadow: 10px 0 34px rgba(8, 53, 137, .06);
+}
+.brand-row .carevma-brand-logo:not(.is-compact),
+.brand-row .carevma-brand-logo.is-compact {
+  background: transparent;
+  box-shadow: none;
+}
+.workspace-chip {
+  background: linear-gradient(135deg, #edf5ff, #ecfbfd);
+  border-color: #d8e8f6;
+  box-shadow: none;
+}
+.workspace-chip strong,
+.user-mini strong { color: var(--cv-navy-900); }
+.workspace-chip small,
+.user-mini span { color: #6f8299; }
+.nav-link {
+  color: #526b88;
+  border-color: transparent;
+}
+.nav-link:hover {
+  color: var(--cv-blue-700);
+  background: #edf5ff;
+  border-color: #d7e7f7;
+  transform: translateX(2px);
+}
+.nav-link.active {
+  color: #fff;
+  background: linear-gradient(135deg, var(--cv-blue-700), var(--cv-blue-500));
+  border-color: rgba(3, 82, 240, .18);
+  box-shadow: 0 10px 24px rgba(3, 82, 240, .18);
+}
+.nav-link.active .nav-icon { color: #fff; }
+.nav-children { border-left-color: #cbdff2; }
+.nav-child { color: #6c8199; }
+.nav-child:hover { color: var(--cv-blue-700); background: #edf5ff; }
+.nav-child.active { color: var(--cv-blue-700); background: #e7f1ff; font-weight: 800; }
+.sidebar-foot { border-top-color: #dbe8f5; }
+.danger-link { color: #a94a55; }
+.danger-link:hover { color: #b83242; background: #fff0f2; border-color: #ffd9df; }
+.sidebar .icon-btn { background: #fff; color: var(--cv-navy-800); border-color: #dce8f4; }
+
+
+/* =========================================================
+   Final profile photo + birthday + dashboard operation cards
+========================================================= */
+.user-photo-avatar {
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+.user-photo-avatar img,
+.avatar img,
+.birthday-dashboard-avatar img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.employee-birthday-banner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 0 0 18px;
+  padding: 18px 20px;
+  border: 1px solid #f1d897;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #fff9df 0%, #fff 50%, #edf8ff 100%);
+  box-shadow: 0 12px 28px rgba(8, 53, 137, .07);
+  overflow: hidden;
+}
+.employee-birthday-banner::after {
+  content: '';
+  position: absolute;
+  width: 150px;
+  height: 150px;
+  right: -55px;
+  top: -70px;
+  border-radius: 50%;
+  background: rgba(53, 166, 244, .10);
+}
+.employee-birthday-banner-icon {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 52px;
+  border-radius: 16px;
+  font-size: 27px;
+  background: #fff;
+  border: 1px solid #f3dfaa;
+  box-shadow: 0 8px 20px rgba(90, 71, 14, .08);
+}
+.employee-birthday-banner strong { display: block; color: var(--cv-navy-900); font-size: 16px; margin-bottom: 4px; }
+.employee-birthday-banner span { color: #62778e; line-height: 1.55; }
+
+.dashboard-notice-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr);
+  gap: 18px;
+  margin: 18px 0;
+}
+.billing-cycle-card,
+.birthday-dashboard-card { height: 100%; }
+.billing-cycle-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+.billing-cycle-summary > div {
+  padding: 12px;
+  border-radius: 13px;
+  background: #f6f9fd;
+  border: 1px solid #e1ebf5;
+}
+.billing-cycle-summary span { display: block; font-size: 11px; color: #7b8fa5; margin-bottom: 5px; }
+.billing-cycle-summary strong { color: var(--cv-navy-900); font-size: 16px; }
+.birthday-dashboard-list { display: grid; gap: 10px; }
+.birthday-dashboard-person {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 11px;
+  border: 1px solid #e1ebf5;
+  border-radius: 14px;
+  background: #fbfdff;
+}
+.birthday-dashboard-avatar {
+  width: 42px;
+  height: 42px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 800;
+  background: linear-gradient(135deg, var(--cv-blue-700), var(--cv-sky-500));
+}
+.birthday-dashboard-person strong,
+.birthday-dashboard-person span { display: block; }
+.birthday-dashboard-person span { color: #7a8da2; font-size: 12px; margin-top: 2px; }
+.birthday-dashboard-empty { padding: 18px 4px; }
+.birthday-dashboard-empty strong,
+.birthday-dashboard-empty span { display: block; }
+.birthday-dashboard-empty span { margin-top: 5px; color: #7b8fa5; }
+
+@media (max-width: 980px) {
+  .dashboard-notice-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 620px) {
+  .employee-birthday-banner { align-items: flex-start; padding: 15px; }
+  .billing-cycle-summary { grid-template-columns: 1fr; }
+  .birthday-dashboard-person { grid-template-columns: 40px minmax(0, 1fr); }
+  .birthday-dashboard-person .badge { grid-column: 2; justify-self: start; }
+}
+
+
+.billing-cycle-status-row {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+.billing-cycle-icon {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  color: var(--cv-blue-700);
+  background: linear-gradient(135deg, #e7f1ff, #e7fbfe);
+  border: 1px solid #d9e8f6;
+}
+.billing-cycle-copy span,
+.billing-cycle-copy strong,
+.billing-cycle-copy small { display: block; }
+.billing-cycle-copy span { color: #7a8da2; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.billing-cycle-copy strong { color: var(--cv-navy-900); margin-top: 3px; }
+.billing-cycle-copy small { color: #778ba1; margin-top: 3px; }
+.billing-cycle-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 15px;
+}
+.billing-cycle-stats > div {
+  padding: 12px;
+  border-radius: 13px;
+  background: #f6f9fd;
+  border: 1px solid #e1ebf5;
+}
+.billing-cycle-stats span,
+.billing-cycle-stats strong { display: block; }
+.billing-cycle-stats span { color: #7b8fa5; font-size: 11px; margin-bottom: 5px; }
+.billing-cycle-stats strong { color: var(--cv-navy-900); font-size: 17px; }
+.billing-cycle-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 13px;
+  border-top: 1px solid #e6eef7;
+}
+.billing-cycle-foot > span { color: #73879d; font-size: 12px; line-height: 1.45; }
+.billing-cycle-foot .btn-link { white-space: nowrap; text-decoration: none; }
+.client-schedule-cell small { display: block; margin-top: 4px; color: #8395a8; font-size: 11px; }
+
+@media (max-width: 620px) {
+  .billing-cycle-status-row { grid-template-columns: 42px minmax(0, 1fr); }
+  .billing-cycle-status-row .badge { grid-column: 2; justify-self: start; }
+  .billing-cycle-stats { grid-template-columns: 1fr; }
+  .billing-cycle-foot { align-items: flex-start; flex-direction: column; }
+}
+
+/* =========================================================
+   Active shift right-side live summary
+========================================================= */
+.shift-control-pro-grid{grid-template-columns:minmax(0,1fr) 360px}
+.shift-live-summary-card{display:grid;gap:12px;padding:15px;border:1px solid #cfe0f3;border-radius:17px;background:linear-gradient(145deg,#fff,#f3f8ff);box-shadow:0 8px 22px rgba(8,53,137,.06)}
+.shift-live-summary-head{display:flex;align-items:flex-start;gap:10px}.shift-live-summary-head>.pulse-dot{margin-top:5px;flex:0 0 auto}.shift-live-summary-head>div{display:grid;gap:2px;min-width:0}.shift-live-summary-head span:not(.pulse-dot){font-size:9px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:#66809f}.shift-live-summary-head strong{font-size:15px;color:#071a3d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.shift-live-summary-head small{font-size:9.5px;color:#7a8da5}
+.shift-live-summary-card .dual-timezone-clock{display:grid;grid-template-columns:1fr;gap:8px;margin:0}.shift-live-summary-card .dual-timezone-clock>div{padding:10px 11px;border-radius:13px;background:#fff;border:1px solid #dce8f5}.shift-live-summary-card .dual-timezone-clock span{font-size:9px}.shift-live-summary-card .dual-timezone-clock strong{font-size:13px}.shift-live-summary-card .dual-timezone-clock small{font-size:9px}
+@media(max-width:1080px){.shift-control-pro-grid{grid-template-columns:1fr}.shift-control-side{grid-template-columns:repeat(3,minmax(0,1fr))}.shift-live-summary-card{grid-column:1/-1}.shift-live-summary-card .dual-timezone-clock{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){.shift-control-side{grid-template-columns:1fr}.shift-live-summary-card{grid-column:auto}.shift-live-summary-card .dual-timezone-clock{grid-template-columns:1fr}}
+
+/* =========================================================
+   CareVMA Employee / VA My Workday layout repair
+   Keeps existing attendance logic untouched.
+========================================================= */
+.employee-dashboard-pro{
+  display:grid;
+  gap:20px;
+  width:100%;
+  min-width:0;
+}
+.employee-dashboard-pro .shift-control-card{
+  overflow:visible;
+}
+.employee-dashboard-pro .shift-control-card > .card-body,
+.employee-dashboard-pro .shift-control-card .card-content{
+  min-width:0;
+}
+.shift-control-pro-grid{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(300px,360px);
+  gap:20px;
+  align-items:start;
+  width:100%;
+  min-width:0;
+}
+.shift-control-main,
+.shift-control,
+.shift-control-side{
+  min-width:0;
+}
+.shift-control-main{
+  width:100%;
+}
+.shift-control{
+  display:grid;
+  gap:16px;
+}
+.shift-control .live-session-counter,
+.shift-control .break-usage-panel{
+  margin-top:0;
+}
+.shift-control .live-session-counter{
+  width:100%;
+}
+.shift-control .live-counter-digits{
+  max-width:none;
+  width:100%;
+}
+.shift-control .shift-actions{
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:10px;
+  margin-top:0;
+}
+.shift-control .shift-actions .btn{
+  min-width:145px;
+  justify-content:center;
+}
+.shift-control .session-stats{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:10px;
+  margin-top:0;
+}
+.shift-control .session-stats > div{
+  min-width:0;
+  padding:14px 15px;
+  border:1px solid #e0e9f2;
+  border-radius:14px;
+  background:#fff;
+  box-shadow:0 5px 16px rgba(8,53,137,.035);
+}
+.shift-control .session-stats span{
+  display:block;
+  font-size:10px;
+  line-height:1.3;
+  font-weight:700;
+  color:#7b8da2;
+  text-transform:uppercase;
+  letter-spacing:.045em;
+}
+.shift-control .session-stats strong{
+  display:block;
+  margin-top:6px;
+  font-size:14px;
+  line-height:1.35;
+  color:#071a3d;
+  overflow-wrap:anywhere;
+}
+
+.shift-control-side{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:12px;
+  position:sticky;
+  top:88px;
+}
+.shift-live-summary-card{
+  width:100%;
+  box-sizing:border-box;
+}
+.shift-side-card{
+  display:grid;
+  grid-template-columns:42px minmax(0,1fr);
+  gap:12px;
+  align-items:center;
+  min-height:82px;
+  padding:14px;
+  border:1px solid #dde8f3;
+  border-radius:16px;
+  background:#fff;
+  box-shadow:0 6px 18px rgba(8,53,137,.04);
+}
+.shift-side-card.is-ready{
+  border-color:#b7dfd3;
+  background:linear-gradient(145deg,#fff,#f5fbf8);
+}
+.shift-side-card.is-live{
+  border-color:#a7d5c9;
+  background:linear-gradient(145deg,#fff,#eff9f5);
+}
+.shift-side-icon{
+  width:42px;
+  height:42px;
+  border-radius:13px;
+  display:grid;
+  place-items:center;
+  color:#0f5d50;
+  background:#edf7f4;
+  border:1px solid #d7ebe5;
+}
+.shift-side-card > div{
+  min-width:0;
+}
+.shift-side-card > div > span,
+.shift-side-card > div > strong,
+.shift-side-card > div > small{
+  display:block;
+}
+.shift-side-card > div > span{
+  font-size:10px;
+  font-weight:800;
+  letter-spacing:.055em;
+  text-transform:uppercase;
+  color:#7a8da2;
+}
+.shift-side-card > div > strong{
+  margin-top:3px;
+  font-size:15px;
+  line-height:1.3;
+  color:#071a3d;
+  overflow-wrap:anywhere;
+}
+.shift-side-card > div > small{
+  margin-top:3px;
+  font-size:10px;
+  line-height:1.35;
+  color:#7b8da2;
+}
+
+.shift-live-summary-head{
+  min-width:0;
+}
+.shift-live-summary-head strong,
+.shift-live-summary-head small{
+  overflow-wrap:anywhere;
+}
+.shift-live-summary-card .dual-timezone-clock{
+  width:100%;
+  min-width:0;
+}
+.shift-live-summary-card .dual-timezone-clock > div{
+  min-width:0;
+}
+.shift-live-summary-card .dual-timezone-clock strong,
+.shift-live-summary-card .dual-timezone-clock small{
+  overflow-wrap:anywhere;
+  white-space:normal;
+}
+
+.break-usage-panel{
+  width:100%;
+  box-sizing:border-box;
+}
+.break-usage-grid > div{
+  min-width:0;
+}
+
+@media(max-width:1180px){
+  .shift-control-pro-grid{
+    grid-template-columns:minmax(0,1fr) 320px;
+    gap:16px;
+  }
+}
+
+@media(max-width:1024px){
+  .shift-control-pro-grid{
+    grid-template-columns:1fr;
+  }
+  .shift-control-side{
+    position:static;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+  }
+  .shift-live-summary-card{
+    grid-column:1/-1;
+  }
+  .shift-live-summary-card .dual-timezone-clock{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+}
+
+@media(max-width:760px){
+  .shift-control-side{
+    grid-template-columns:1fr;
+  }
+  .shift-live-summary-card{
+    grid-column:auto;
+  }
+  .shift-live-summary-card .dual-timezone-clock{
+    grid-template-columns:1fr;
+  }
+  .shift-control .session-stats{
+    grid-template-columns:1fr;
+  }
+  .shift-control .shift-actions{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+  }
+  .shift-control .shift-actions .btn{
+    width:100%;
+    min-width:0;
+  }
+}
+
+@media(max-width:560px){
+  .employee-dashboard-pro{
+    gap:14px;
+  }
+  .shift-control-pro-grid{
+    gap:14px;
+  }
+  .shift-control .shift-actions{
+    grid-template-columns:1fr;
+  }
+  .shift-side-card{
+    min-height:74px;
+    grid-template-columns:38px minmax(0,1fr);
+    padding:12px;
+  }
+  .shift-side-icon{
+    width:38px;
+    height:38px;
+  }
+  .shift-live-summary-card{
+    padding:13px;
+  }
+}
+
+
+/* Client-driven break allowance + My Workday layout reinforcement */
+.break-source-note{display:block;margin-top:10px;color:var(--muted,#64748b);font-size:12px;line-height:1.45}
+.shift-control-pro-grid{display:grid!important;grid-template-columns:minmax(0,1.35fr) minmax(300px,.65fr);gap:20px;align-items:start}
+.shift-control-pro-grid>*{min-width:0}
+.break-usage-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.break-usage-grid>div{min-width:0}
+.dual-timezone-clock{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+@media(max-width:980px){.shift-control-pro-grid{grid-template-columns:1fr}.dual-timezone-clock{grid-template-columns:1fr}}
+@media(max-width:640px){.break-usage-grid{grid-template-columns:1fr}.live-counter-digits{gap:6px}.live-counter-segment strong{font-size:clamp(28px,10vw,42px)}}
+
+/* =========================================================
+   Admin Operations Dashboard - layout hardening
+   ========================================================= */
+.admin-ops-dashboard {
+  width: 100%;
+  min-width: 0;
+}
+.admin-ops-dashboard .metrics-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px;
+  align-items: stretch;
+}
+.admin-ops-dashboard .metric-card {
+  min-height: 104px;
+  height: 100%;
+}
+.admin-ops-dashboard .dashboard-notice-grid {
+  align-items: stretch;
+  margin: 0 0 18px;
+}
+.admin-ops-dashboard .dashboard-notice-grid > .card,
+.admin-ops-dashboard .dashboard-grid > .card {
+  margin-bottom: 0;
+}
+.admin-ops-dashboard .billing-cycle-card,
+.admin-ops-dashboard .birthday-dashboard-card,
+.admin-ops-dashboard .dashboard-finance-card {
+  border-color: #dfe9f3;
+  box-shadow: 0 10px 28px rgba(18, 53, 83, .055);
+}
+.admin-ops-dashboard .billing-cycle-status-row {
+  min-width: 0;
+}
+.admin-ops-dashboard .billing-cycle-copy {
+  min-width: 0;
+}
+.admin-ops-dashboard .billing-cycle-copy strong,
+.admin-ops-dashboard .billing-cycle-copy small {
+  overflow-wrap: anywhere;
+}
+
+.admin-ops-dashboard .dashboard-finance-card {
+  margin-bottom: 18px;
+  overflow: hidden;
+}
+.dashboard-finance-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 16px;
+}
+.finance-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.finance-kpi-row > div {
+  min-width: 0;
+  padding: 13px 14px;
+  border: 1px solid #e2ebf4;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #fbfdff, #f5f9fd);
+}
+.finance-kpi-row span,
+.finance-kpi-row strong {
+  display: block;
+}
+.finance-kpi-row span {
+  margin-bottom: 5px;
+  color: #788da3;
+  font-size: 11px;
+  font-weight: 700;
+}
+.finance-kpi-row strong {
+  color: var(--cv-navy-900);
+  font-size: 18px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.finance-kpi-row .negative strong {
+  color: #b42318;
+}
+.dashboard-finance-top > .btn-link {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.finance-mini-legend {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 2px 0 8px;
+  color: #74889d;
+  font-size: 11px;
+  font-weight: 700;
+}
+.finance-mini-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.finance-mini-legend i {
+  width: 9px;
+  height: 9px;
+  display: inline-block;
+  border-radius: 999px;
+}
+.finance-mini-legend i.income { background: #159a78; }
+.finance-mini-legend i.expense { background: #ff9d5c; }
+.finance-dashboard-chart {
+  height: 220px;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(48px, 1fr));
+  align-items: end;
+  gap: 12px;
+  padding: 18px 8px 4px;
+  border-top: 1px solid #edf2f7;
+  background: linear-gradient(to bottom, rgba(247,250,253,.65), rgba(255,255,255,0));
+  overflow-x: auto;
+}
+.finance-chart-column {
+  height: 100%;
+  min-width: 48px;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 22px;
+  gap: 7px;
+  align-items: end;
+  text-align: center;
+}
+.finance-chart-bars {
+  height: 100%;
+  display: flex;
+  align-items: end;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 6px;
+  border-radius: 9px 9px 4px 4px;
+  background: linear-gradient(to top, #f4f8fb, transparent 75%);
+}
+.finance-chart-bars > span {
+  width: min(18px, 36%);
+  min-height: 4px;
+  border-radius: 6px 6px 2px 2px;
+  transition: height .2s ease;
+}
+.finance-chart-bars > .income { background: linear-gradient(to top, #0f7e66, #3fc0a0); }
+.finance-chart-bars > .expense { background: linear-gradient(to top, #dd6b35, #ffad73); }
+.finance-chart-column small {
+  color: #72879c;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.admin-ops-dashboard .dashboard-grid {
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, .85fr);
+  gap: 18px;
+  align-items: stretch;
+}
+.admin-ops-dashboard .dashboard-grid > .card {
+  height: 100%;
+}
+.admin-ops-dashboard .mini-chart {
+  min-height: 235px;
+  height: 235px;
+}
+.admin-ops-dashboard .activity-list {
+  min-height: 235px;
+}
+.admin-ops-dashboard .activity-row {
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  gap: 11px;
+  padding: 12px 0;
+}
+.admin-ops-dashboard .activity-row .avatar {
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+}
+.admin-ops-dashboard .activity-row > div:nth-child(2) {
+  min-width: 0;
+}
+.admin-ops-dashboard .activity-row strong,
+.admin-ops-dashboard .activity-row span {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 1280px) {
+  .admin-ops-dashboard .metrics-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .finance-kpi-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 980px) {
+  .admin-ops-dashboard .dashboard-grid,
+  .admin-ops-dashboard .dashboard-notice-grid {
+    grid-template-columns: 1fr;
+  }
+  .dashboard-finance-top {
+    flex-direction: column;
+  }
+  .dashboard-finance-top > .btn-link {
+    width: 100%;
+    justify-content: center;
+  }
+}
+@media (max-width: 700px) {
+  .admin-ops-dashboard .metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .admin-ops-dashboard .billing-cycle-status-row {
+    grid-template-columns: 42px minmax(0, 1fr);
+  }
+  .admin-ops-dashboard .billing-cycle-status-row > .badge {
+    grid-column: 2;
+    justify-self: start;
+  }
+  .admin-ops-dashboard .billing-cycle-stats,
+  .finance-kpi-row {
+    grid-template-columns: 1fr;
+  }
+  .admin-ops-dashboard .billing-cycle-foot {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .admin-ops-dashboard .billing-cycle-foot .btn-link {
+    width: 100%;
+    justify-content: center;
+  }
+  .finance-mini-legend {
+    justify-content: flex-start;
+  }
+}
+@media (max-width: 520px) {
+  .admin-ops-dashboard .metrics-grid {
+    grid-template-columns: 1fr;
+  }
+  .admin-ops-dashboard .dashboard-grid {
+    gap: 14px;
+  }
+  .finance-dashboard-chart {
+    grid-template-columns: repeat(6, minmax(44px, 1fr));
+    gap: 8px;
+    padding-inline: 0;
+  }
+}
+
+/* =========================================================
+   Company Finance - full page responsive layout
+========================================================= */
+.finance-filter-card{
+  margin-bottom:18px;
+  overflow:visible;
+}
+.finance-filter-card .card-body{overflow:visible}
+.finance-filter-row{
+  display:grid;
+  grid-template-columns:minmax(180px,.8fr) minmax(180px,.8fr) minmax(260px,1.4fr) auto;
+  gap:14px;
+  align-items:end;
+}
+.finance-filter-row .field{margin:0;min-width:0}
+.finance-period-label{
+  min-height:44px;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  gap:3px;
+  padding:8px 13px;
+  border:1px solid #dfe9f4;
+  border-radius:12px;
+  background:linear-gradient(145deg,#fbfdff,#f6faff);
+  min-width:0;
+}
+.finance-period-label span{
+  color:#7b8ea3;
+  font-size:10px;
+  font-weight:800;
+  letter-spacing:.055em;
+  text-transform:uppercase;
+}
+.finance-period-label strong{
+  color:var(--cv-navy-900,#08254f);
+  font-size:13px;
+  line-height:1.25;
+  overflow-wrap:anywhere;
+}
+.finance-metrics-grid{
+  display:grid!important;
+  grid-template-columns:repeat(5,minmax(0,1fr))!important;
+  gap:13px!important;
+  margin-bottom:18px;
+  align-items:stretch;
+}
+.finance-metrics-grid .metric-card{
+  min-height:112px;
+  height:100%;
+}
+.finance-main-chart{
+  height:310px;
+  display:grid;
+  grid-auto-flow:column;
+  grid-auto-columns:minmax(58px,1fr);
+  align-items:end;
+  gap:10px;
+  padding:20px 10px 6px;
+  overflow-x:auto;
+  border-top:1px solid #edf2f7;
+  background:
+    linear-gradient(to top,rgba(241,247,252,.72),rgba(255,255,255,0) 75%);
+}
+.finance-main-chart.is-dense{
+  grid-auto-columns:minmax(38px,1fr);
+  gap:6px;
+}
+.finance-main-column{
+  height:100%;
+  min-width:0;
+  display:grid;
+  grid-template-rows:minmax(0,1fr) 26px;
+  gap:7px;
+  align-items:end;
+  text-align:center;
+}
+.finance-main-bars{
+  height:100%;
+  display:flex;
+  align-items:end;
+  justify-content:center;
+  gap:5px;
+  padding:0 5px;
+  border-radius:10px 10px 4px 4px;
+  background:linear-gradient(to top,#f4f8fb,rgba(255,255,255,0) 72%);
+}
+.finance-main-bars>span{
+  width:min(19px,38%);
+  min-width:5px;
+  min-height:3px;
+  border-radius:7px 7px 2px 2px;
+  transition:height .2s ease;
+}
+.finance-main-bars .income{background:linear-gradient(to top,#0d7f65,#48c7a6)}
+.finance-main-bars .expense{background:linear-gradient(to top,#d96b35,#ffae74)}
+.finance-main-column small{
+  display:block;
+  color:#71869b;
+  font-size:10px;
+  font-weight:800;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.finance-income-text{color:#0c8a69}
+.finance-expense-text{color:#c95d30}
+.finance-delete-btn{
+  width:34px;
+  height:34px;
+  display:grid;
+  place-items:center;
+  border:1px solid #e3eaf2;
+  border-radius:9px;
+  background:#fff;
+  color:#8091a3;
+}
+.finance-delete-btn:hover{color:#d04e57;border-color:#efc5ca;background:#fff7f8}
+
+/* Prevent finance tables/cards from visually collapsing into the chart */
+.finance-main-chart + *{min-width:0}
+
+@media(max-width:1280px){
+  .finance-metrics-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+  .finance-filter-row{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .finance-period-label{grid-column:1/2}
+  .finance-filter-row>.btn{justify-self:stretch}
+}
+@media(max-width:900px){
+  .finance-metrics-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .finance-main-chart{height:270px;grid-auto-columns:minmax(52px,1fr)}
+}
+@media(max-width:620px){
+  .finance-filter-row{grid-template-columns:1fr}
+  .finance-period-label{grid-column:auto}
+  .finance-filter-row>.btn{width:100%;justify-content:center}
+  .finance-metrics-grid{grid-template-columns:1fr!important}
+  .finance-main-chart{height:240px;padding-inline:0;grid-auto-columns:minmax(46px,1fr);gap:7px}
+  .finance-main-chart.is-dense{grid-auto-columns:minmax(36px,1fr)}
+}
+
+/* =========================================================
+   Client Profile schedule page - layout hardening
+========================================================= */
+.client-schedule-workspace{width:100%;min-width:0}
+.client-schedule-hero,.client-schedule-toolbar,.client-va-schedule-card{min-width:0}
+.client-schedule-metrics{align-items:stretch}
+.client-schedule-metric{height:100%}
+.client-schedule-metric>div:last-child{min-width:0}
+.client-schedule-row>*{min-width:0}
+.client-va-header{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:16px!important}
+.client-va-identity{display:flex;align-items:center;gap:12px;min-width:0}
+.client-va-identity>div:last-child{min-width:0}
+.client-va-identity span{display:block;overflow-wrap:anywhere}
+.client-schedule-columns,.client-schedule-row{width:100%;box-sizing:border-box}
+.client-schedule-row .client-row-menu{justify-content:flex-end}
+
+@media(max-width:900px){
+  .client-va-header{align-items:flex-start!important;flex-direction:column!important}
+  .client-schedule-row .client-row-menu{justify-content:flex-start}
+}
+
+/* =========================================================
+   Global confirmation + toast feedback
+   ========================================================= */
+.carevma-confirm-backdrop{position:fixed;inset:0;z-index:99990;background:rgba(9,18,32,.48);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:20px}
+.carevma-confirm-dialog{width:min(460px,100%);background:#fff;border:1px solid #e4e9f0;border-radius:18px;box-shadow:0 28px 70px rgba(9,18,32,.22);padding:24px;display:grid;grid-template-columns:auto 1fr;gap:16px}
+.carevma-confirm-icon{width:46px;height:46px;border-radius:14px;display:grid;place-items:center;background:#edf7ff;color:#1268a8}.carevma-confirm-icon.danger{background:#fff0f0;color:#c53030}
+.carevma-confirm-copy h2{margin:0 0 7px;font-size:19px;color:#10243e}.carevma-confirm-copy p{margin:0;color:#627083;line-height:1.55}
+.carevma-confirm-actions{grid-column:1/-1;display:flex;justify-content:flex-end;gap:10px;padding-top:8px}.btn-danger{background:#c53030!important;color:#fff!important;border-color:#c53030!important}
+.carevma-toast-stack{position:fixed;right:22px;top:84px;z-index:99999;display:grid;gap:10px;width:min(390px,calc(100vw - 32px));pointer-events:none}
+.carevma-toast{pointer-events:auto;background:#fff;border:1px solid #dfe6ee;border-radius:13px;box-shadow:0 14px 36px rgba(9,18,32,.16);padding:13px 14px;display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:10px;color:#26364a}.carevma-toast-success{border-left:4px solid #24955d}.carevma-toast-error{border-left:4px solid #cc3f3f}.carevma-toast-warning{border-left:4px solid #d9901a}.carevma-toast-info{border-left:4px solid #2577b8}.carevma-toast button{border:0;background:transparent;color:#7b8795;cursor:pointer;padding:3px}
+@media(max-width:640px){.carevma-toast-stack{right:16px;top:72px}.carevma-confirm-dialog{padding:20px;grid-template-columns:1fr}.carevma-confirm-icon{margin-bottom:-4px}.carevma-confirm-actions{grid-column:1;flex-direction:column-reverse}.carevma-confirm-actions .btn{width:100%}}

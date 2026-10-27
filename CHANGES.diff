@@ -1,0 +1,113 @@
+--- /mnt/data/latest_patch/routes/console.php	2026-10-26 17:56:10.000000000 +0000
++++ /mnt/data/carevma_integrated/routes/console.php	2026-10-26 18:16:45.859452225 +0000
+@@ -119,7 +119,7 @@
+     // Send any time after 09:00 on the day-before window. Duplicate protection
+     // above guarantees one reminder even though this condition is checked every minute.
+     return $now->hour >= 9;
+-})->withoutOverlapping(30);
++})->name('carevma-birthday-tomorrow-reminders')->withoutOverlapping(30);
+ 
+ /* Existing probation reminder, also tied to the trusted business date. */
+ Schedule::call(function () {
+@@ -169,4 +169,4 @@
+ })->everyMinute()->when(function () {
+     $now = app(TrustedTimeService::class)->now(config('app.timezone', 'Asia/Karachi'));
+     return $now->format('H:i') === '09:15';
+-})->withoutOverlapping(30);
++})->name('carevma-probation-reminders')->withoutOverlapping(30);
+--- /mnt/data/carevma_patch_work/CareVMA_FINAL/resources/views/invoices/invoice.blade.php	2026-10-26 15:25:15.000000000 +0000
++++ /mnt/data/carevma_integrated/resources/views/invoices/invoice.blade.php	2026-10-26 18:16:46.920770644 +0000
+@@ -64,7 +64,9 @@
+             <thead>
+                 <tr>
+                     <th>VA Name</th>
+-                    <th>Minutes</th>
++                    <th>Worked Time</th>
++                    <th>Break Time</th>
++                    <th>Work + Break</th>
+                     <th>Rate/h</th>
+                     <th>From</th>
+                     <th>To</th>
+@@ -75,10 +77,24 @@
+                 @foreach($invoice->salaries as $salary)
+                 @php
+                     $rate = isset($clientEmployeeRates[$salary->employee_id]) ? $clientEmployeeRates[$salary->employee_id]->per_hour_rate : 0;
++                    $workedMinutes = max(0, (int) round(((float) $salary->total_hours) * 60));
++                    $breakSeconds = (int) $salary->employee->attendances->sum(function ($attendance) {
++                        return max(0, (int) ($attendance->break_taken ?? 0));
++                    });
++                    $breakMinutes = (int) round($breakSeconds / 60);
++                    $workPlusBreakMinutes = $workedMinutes + $breakMinutes;
++                    $formatMinutes = function (int $minutes): string {
++                        $minutes = max(0, $minutes);
++                        $hours = intdiv($minutes, 60);
++                        $mins = $minutes % 60;
++                        return $hours > 0 ? sprintf('%dh %02dm', $hours, $mins) : sprintf('%dm', $mins);
++                    };
+                 @endphp
+                 <tr>
+                     <td>{{ $salary->employee->first_name }} {{ $salary->employee->last_name }}</td>
+-                    <td>{{ (int) round(((float) $salary->total_hours) * 60) }} min</td>
++                    <td>{{ $formatMinutes($workedMinutes) }}</td>
++                    <td>{{ $formatMinutes($breakMinutes) }}</td>
++                    <td><strong>{{ $formatMinutes($workPlusBreakMinutes) }}</strong></td>
+                     <td>${{ number_format($rate, 2) }}</td>
+                     <td>{{ \Carbon\Carbon::parse($salary->period_start)->format('d-M') }}</td>
+                     <td>{{ \Carbon\Carbon::parse($salary->period_end)->format('d-M') }}</td>
+@@ -86,11 +102,11 @@
+                 </tr>
+                 @endforeach
+                 <tr>
+-                    <td colspan="5" class="text-right"><strong>Subtotal</strong></td>
++                    <td colspan="7" class="text-right"><strong>Subtotal</strong></td>
+                     <td class="text-right">${{ number_format($invoice->salaries->sum('salary_amount'), 2) }}</td>
+                 </tr>
+                 <tr class="blue-total">
+-                    <td colspan="5" class="text-right"><strong>TOTAL COST</strong></td>
++                    <td colspan="7" class="text-right"><strong>TOTAL COST</strong></td>
+                     <td class="text-right"><strong>${{ number_format($invoice->salaries->sum('salary_amount'), 2) }}</strong></td>
+                 </tr>
+             </tbody>
+@@ -139,6 +155,8 @@
+                             <th>Clock In</th>
+                             <th>Clock Out</th>
+                             <th>Worked Time</th>
++                            <th>Break Time</th>
++                            <th>Work + Break</th>
+                             <th>Late (mins)</th>
+                             <th>Overtime (mins)</th>
+                         </tr>
+@@ -176,6 +194,17 @@
+                                     $workedHours = $minutes . ' min';
+                                 }
+ 
++                                $workedMinutesValue = max(0, (int) ($attendance->total_minutes ?? 0));
++                                $breakMinutesValue = max(0, (int) round(((int) ($attendance->break_taken ?? 0)) / 60));
++                                $workPlusBreakMinutes = $workedMinutesValue + $breakMinutesValue;
++
++                                $formatAttendanceMinutes = function (int $minutes): string {
++                                    $minutes = max(0, $minutes);
++                                    $hours = intdiv($minutes, 60);
++                                    $mins = $minutes % 60;
++                                    return $hours > 0 ? sprintf('%dh %02dm', $hours, $mins) : sprintf('%dm', $mins);
++                                };
++
+                                 $lateMinutes = (int) ($attendance->late_minutes ?? 0);
+                                 $overtimeMinutes = (int) ($attendance->approved_overtime_minutes ?? $attendance->overtime ?? 0);
+                             @endphp
+@@ -184,12 +213,14 @@
+                                 <td>{{ $clockIn }}</td>
+                                 <td>{{ $clockOut }}</td>
+                                 <td>{{ $workedHours }}</td>
++                                <td>{{ $formatAttendanceMinutes($breakMinutesValue) }}</td>
++                                <td><strong>{{ $formatAttendanceMinutes($workPlusBreakMinutes) }}</strong></td>
+                                 <td>{{ $lateMinutes > 0 ? $lateMinutes : '-' }}</td>
+                                 <td>{{ $overtimeMinutes > 0 ? $overtimeMinutes : '-' }}</td>
+                             </tr>
+                         @empty
+                             <tr>
+-                                <td colspan="6" class="text-center">No attendance records found for this period</td>
++                                <td colspan="8" class="text-center">No attendance records found for this period</td>
+                             </tr>
+                         @endforelse
+                     </tbody>

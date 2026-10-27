@@ -1,0 +1,2696 @@
+--- a/.env.example
++++ b/.env.example
+@@ -3,8 +3,9 @@
+ APP_KEY=
+ APP_DEBUG=true
+ APP_URL=http://127.0.0.1:8000
+-APP_TIMEZONE=Asia/Karachi
++APP_TIMEZONE=UTC
+ VITE_DEFAULT_TIMEZONE=Asia/Karachi
++CARE_VMA_BUSINESS_TIMEZONE=Asia/Karachi
+ APP_LOCALE=en
+ APP_FALLBACK_LOCALE=en
+ APP_FAKER_LOCALE=en_US
+--- a/app/Console/Commands/GenerateMonthlyInvoices.php
++++ b/app/Console/Commands/GenerateMonthlyInvoices.php
+@@ -5,37 +5,53 @@
+ use App\Models\Client;
+ use App\Models\Invoice;
+ use App\Models\User;
++use App\Services\ClientTimezoneService;
+ use App\Services\InvoiceGenerator;
+ use App\Services\OperationalNotifier;
+-use App\Services\TrustedTimeService;
+ use Carbon\Carbon;
+ use Illuminate\Console\Command;
+ use Illuminate\Support\Facades\Log;
+ 
+ class GenerateMonthlyInvoices extends Command
+ {
+-    protected $signature = 'invoices:generate-monthly {--date= : Override business run date for testing (Y-m-d)}';
+-    protected $description = 'Generate editable draft invoices for all billable clients on the monthly CareVMA billing cycle';
+-
+-    public function handle(InvoiceGenerator $generator, OperationalNotifier $notifier, TrustedTimeService $clock): int
+-    {
+-        $businessTimezone = config('app.timezone', 'Asia/Karachi');
+-        $runDate = $this->option('date')
+-            ? Carbon::parse($this->option('date'), $businessTimezone)
+-            : $clock->now($businessTimezone);
+-
+-        // CareVMA generates the monthly draft on the 26th for work completed
+-        // from the 1st through the 25th inclusive. Active/unclosed sessions never
+-        // enter a draft invoice.
+-        $periodStart = $runDate->copy()->startOfMonth()->toDateString();
+-        $periodEnd = $runDate->copy()->day(25)->toDateString();
+-
++    protected $signature = 'invoices:generate-monthly
++        {--date= : Override each client local run date for testing (Y-m-d)}
++        {--force : Run regardless of the client-local day/time gate}';
++
++    protected $description = 'Generate duplicate-safe monthly draft invoices in each client/doctor timezone';
++
++    public function handle(
++        InvoiceGenerator $generator,
++        OperationalNotifier $notifier,
++        ClientTimezoneService $timezones,
++    ): int {
+         $created = collect();
+         $skipped = 0;
+         $noBillableAttendance = 0;
+         $failed = 0;
++        $notDue = 0;
+ 
+         foreach (Client::query()->orderBy('id')->cursor() as $client) {
++            $zone = $timezones->forClient($client);
++            $localNow = $this->option('date')
++                ? Carbon::parse($this->option('date').' 00:15:00', $zone)
++                : $timezones->now($client);
++
++            // Automatic generation is evaluated in every client's own timezone.
++            // The global scheduler may run every minute; only a client whose local
++            // clock is 27th 00:15 enters the billing close.
++            if (!$this->option('force') && !$this->option('date')) {
++                if ($localNow->day !== 27 || $localNow->format('H:i') !== '00:15') {
++                    $notDue++;
++                    continue;
++                }
++            }
++
++            // On local 27th, close the cycle from previous-month 25th through
++            // current-month 26th, inclusive.
++            $periodEnd = $localNow->copy()->subDay()->toDateString();
++            $periodStart = $localNow->copy()->subMonthNoOverflow()->day(25)->toDateString();
++
+             if (Invoice::where('client_id', $client->id)
+                 ->whereDate('period_start', $periodStart)
+                 ->whereDate('period_end', $periodEnd)
+@@ -47,7 +63,7 @@
+             try {
+                 $invoice = $generator->generate($client, $periodStart, $periodEnd, true);
+                 if ($invoice) {
+-                    $created->push($invoice);
++                    $created->push($invoice->loadMissing('salaries'));
+                 } else {
+                     $noBillableAttendance++;
+                 }
+@@ -55,9 +71,10 @@
+                 $failed++;
+                 Log::error('Automatic invoice generation failed for client.', [
+                     'client_id' => $client->id,
++                    'client_timezone' => $zone,
+                     'period_start' => $periodStart,
+                     'period_end' => $periodEnd,
+-                    'error' => $e->getMessage(),
++                    'exception' => $e,
+                 ]);
+             }
+         }
+@@ -66,16 +83,13 @@
+             $invoiceCount = $created->count();
+             $vaCount = $created
+                 ->flatMap(fn ($invoice) => $invoice->salaries ?? collect())
+-                ->pluck('employee_id')
+-                ->filter()
+-                ->unique()
+-                ->count();
++                ->pluck('employee_id')->filter()->unique()->count();
+             $totalAmount = round((float) $created->sum('total_amount'), 2);
+ 
+-            $message = "Monthly invoice close completed for {$periodStart} to {$periodEnd}: "
+-                ."{$invoiceCount} draft invoice(s), {$vaCount} VA(s), total $".number_format($totalAmount, 2)
+-                .". {$skipped} duplicate(s) skipped, {$noBillableAttendance} client(s) had no completed billable attendance"
+-                .($failed ? ", {$failed} failed" : '').'.';
++            $message = "Monthly invoice run: {$invoiceCount} draft invoice(s), {$vaCount} VA(s), total $"
++                .number_format($totalAmount, 2)
++                .". {$skipped} duplicate(s) skipped, {$noBillableAttendance} client(s) had no completed unbilled attendance"
++                .($failed ? ", {$failed} failed" : '').'. Each client was evaluated in its assigned timezone.';
+ 
+             $admins = User::query()->whereIn('role', ['admin', 'superadmin'])->get();
+             if ($admins->isNotEmpty()) {
+@@ -86,8 +100,6 @@
+                     'InvoiceMonthlyRun',
+                     '/admin/invoices',
+                     [
+-                        'period_start' => $periodStart,
+-                        'period_end' => $periodEnd,
+                         'invoice_ids' => $created->pluck('id')->all(),
+                         'generated_count' => $invoiceCount,
+                         'billed_va_count' => $vaCount,
+@@ -96,32 +108,9 @@
+                     ]
+                 );
+             }
+-
+-            $hrUsers = User::query()->where('role', 'hr')->get();
+-            if ($hrUsers->isNotEmpty()) {
+-                $notifier->send(
+-                    $hrUsers,
+-                    $failed ? 'Monthly invoice run completed with warnings' : 'Monthly invoices generated',
+-                    $message.' Admin can review/edit the invoice drafts before issue.',
+-                    'InvoiceMonthlyRun',
+-                    '/hr/dashboard',
+-                    [
+-                        'period_start' => $periodStart,
+-                        'period_end' => $periodEnd,
+-                        'generated_count' => $invoiceCount,
+-                        'billed_va_count' => $vaCount,
+-                        'total_amount' => $totalAmount,
+-                        'failed_count' => $failed,
+-                    ]
+-                );
+-            }
+         }
+ 
+-        $this->info(
+-            "Invoice run complete: {$created->count()} created, {$skipped} duplicate(s) skipped, "
+-            ."{$noBillableAttendance} without billable attendance, {$failed} failed."
+-        );
+-
++        $this->info("Invoice run complete: {$created->count()} created, {$skipped} duplicate(s), {$noBillableAttendance} without billable attendance, {$notDue} not due, {$failed} failed.");
+         return $failed > 0 ? self::FAILURE : self::SUCCESS;
+     }
+ }
+--- a/app/Http/Controllers/Admin/Client/AdminClientController.php
++++ b/app/Http/Controllers/Admin/Client/AdminClientController.php
+@@ -161,7 +161,8 @@
+         return redirect()->back()->with('success', 'Client added successfully! Set-password email sent.');
+     } catch (\Throwable $e) {
+         DB::rollBack();
+-        return redirect()->back()->with('error', $e->getMessage());
++        \Log::error('Client operation failed.', ['exception' => $e]);
++            return redirect()->back()->with('error', 'The client could not be updated. Please check the form and try again.');
+     }
+ }
+ 
+@@ -282,14 +283,14 @@
+                     return \Carbon\Carbon::parse($row->date)->format('d M Y');
+                 })
+                 ->editColumn('clock_in', function ($row) {
+-                    $clientTz = optional($row->employee->clientSchedules->first()->client ?? null)->timezone ?? config('app.timezone');
++                    $clientTz = optional($row->employee->clientSchedules->first()->client ?? null)->timezone ?? config('carevma.business_timezone', 'Asia/Karachi');
+                 
+                     return $row->clock_in
+                         ? \Carbon\Carbon::parse($row->clock_in)->timezone($clientTz)->format('h:i A')
+                         : '-';
+                 })
+                 ->editColumn('clock_out', function ($row) {
+-                    $clientTz = optional($row->employee->clientSchedules->first()->client ?? null)->timezone ?? config('app.timezone');
++                    $clientTz = optional($row->employee->clientSchedules->first()->client ?? null)->timezone ?? config('carevma.business_timezone', 'Asia/Karachi');
+                 
+                     return $row->clock_out
+                         ? \Carbon\Carbon::parse($row->clock_out)->timezone($clientTz)->format('h:i A')
+--- a/app/Http/Controllers/Admin/Client/AdminClientControllerold.php
++++ b/app/Http/Controllers/Admin/Client/AdminClientControllerold.php
+@@ -161,7 +161,8 @@
+             return redirect()->back()->with('success', 'Client added successfully! Set-password email sent.');
+         } catch (\Throwable $e) {
+             DB::rollBack();
+-            return redirect()->back()->with('error', $e->getMessage());
++            \Log::error('Client operation failed.', ['exception' => $e]);
++            return redirect()->back()->with('error', 'The client could not be updated. Please check the form and try again.');
+         }
+     }
+ 
+@@ -283,14 +284,14 @@
+                     return \Carbon\Carbon::parse($row->date)->format('d M Y');
+                 })
+                 ->editColumn('clock_in', function ($row) {
+-                    $clientTz = optional($row->employee->clientSchedules->first()->client ?? null)->timezone ?? config('app.timezone');
++                    $clientTz = optional($row->employee->clientSchedules->first()->client ?? null)->timezone ?? config('carevma.business_timezone', 'Asia/Karachi');
+ 
+                     return $row->clock_in
+                         ? \Carbon\Carbon::parse($row->clock_in)->timezone($clientTz)->format('h:i A')
+                         : '-';
+                 })
+                 ->editColumn('clock_out', function ($row) {
+-                    $clientTz = optional($row->employee->clientSchedules->first()->client ?? null)->timezone ?? config('app.timezone');
++                    $clientTz = optional($row->employee->clientSchedules->first()->client ?? null)->timezone ?? config('carevma.business_timezone', 'Asia/Karachi');
+ 
+                     return $row->clock_out
+                         ? \Carbon\Carbon::parse($row->clock_out)->timezone($clientTz)->format('h:i A')
+--- a/app/Http/Controllers/Api/AdminApiController.php
++++ b/app/Http/Controllers/Api/AdminApiController.php
+@@ -27,6 +27,7 @@
+ use App\Services\InvoiceGenerator;
+ use App\Services\FxRateService;
+ use App\Services\TrustedTimeService;
++use App\Services\ClientTimezoneService;
+ use DateTimeZone;
+ use App\Mail\EmployeeInvitationMail;
+ use Carbon\Carbon;
+@@ -43,8 +44,10 @@
+ 
+ class AdminApiController extends Controller
+ {
+-    public function __construct(private TrustedTimeService $clock)
+-    {
++    public function __construct(
++        private TrustedTimeService $clock,
++        private ClientTimezoneService $timezones,
++    ) {
+     }
+ 
+     private array $referenceMap = [
+@@ -60,18 +63,49 @@
+         'contracts' => ContractType::class,
+     ];
+ 
++    private function attendanceSummaryForClientLocalDate(string $localDate): array
++    {
++        $sessions = 0;
++        $minutes = 0;
++
++        if (Schema::hasColumn('attendances', 'client_id') && Schema::hasColumn('attendances', 'clock_in')) {
++            foreach (Client::query()->get(['id', 'timezone']) as $client) {
++                [$startUtc, $endUtc] = $this->timezones->utcBoundsForLocalDates($localDate, $localDate, $client);
++                $base = Attendance::query()
++                    ->where('client_id', $client->id)
++                    ->whereBetween('clock_in', [$startUtc, $endUtc]);
++                $sessions += (clone $base)->count();
++                $minutes += (int) (clone $base)->sum('total_minutes');
++            }
++
++            // Legacy/unassigned records have no client timezone; use CareVMA business date only.
++            $legacy = Attendance::query()->whereNull('client_id')->whereDate('date', $localDate);
++            $sessions += (clone $legacy)->count();
++            $minutes += (int) (clone $legacy)->sum('total_minutes');
++
++            return compact('sessions', 'minutes');
++        }
++
++        $legacy = Attendance::query()->whereDate('date', $localDate);
++        return [
++            'sessions' => (clone $legacy)->count(),
++            'minutes' => (int) (clone $legacy)->sum('total_minutes'),
++        ];
++    }
++
+     public function dashboard(Request $request)
+     {
+-        $appNow = $this->clock->now(config('app.timezone', 'Asia/Karachi'));
++        $appNow = $this->clock->now($this->timezones->businessTimezone());
+         $today = $appNow->toDateString();
+         $weekStart = $appNow->copy()->startOfWeek();
+         $trend = collect(range(0, 6))->map(function ($offset) use ($weekStart) {
+             $date = $weekStart->copy()->addDays($offset);
++            $summary = $this->attendanceSummaryForClientLocalDate($date->toDateString());
+             return [
+                 'label' => $date->format('D'),
+                 'date' => $date->toDateString(),
+-                'sessions' => Attendance::whereDate('date', $date)->count(),
+-                'minutes' => (int) Attendance::whereDate('date', $date)->sum('total_minutes'),
++                'sessions' => $summary['sessions'],
++                'minutes' => $summary['minutes'],
+             ];
+         });
+ 
+@@ -84,13 +118,13 @@
+             ->whereNotNull('date_of_birth')
+             ->get(['id', 'first_name', 'last_name', 'date_of_birth', 'timezone', 'profile_picture'])
+             ->filter(function (Employee $employee) {
+-                $timezone = $this->validTimezoneValue($employee->timezone ?: config('app.timezone', 'Asia/Karachi'), config('app.timezone', 'Asia/Karachi'));
++                $timezone = $this->validTimezoneValue($employee->timezone ?: $this->timezones->businessTimezone(), $this->timezones->businessTimezone());
+                 $localToday = $this->clock->now($timezone);
+                 return (int) $employee->date_of_birth->format('m') === (int) $localToday->format('m')
+                     && (int) $employee->date_of_birth->format('d') === (int) $localToday->format('d');
+             })
+             ->map(function (Employee $employee) {
+-                $timezone = $this->validTimezoneValue($employee->timezone ?: config('app.timezone', 'Asia/Karachi'), config('app.timezone', 'Asia/Karachi'));
++                $timezone = $this->validTimezoneValue($employee->timezone ?: $this->timezones->businessTimezone(), $this->timezones->businessTimezone());
+                 return [
+                     'id' => $employee->id,
+                     'name' => trim($employee->first_name.' '.$employee->last_name),
+@@ -148,13 +182,24 @@
+                 'employees' => Employee::count(),
+                 'clients' => Client::count(),
+                 'active' => $activeQuery->count(),
+-                'today_sessions' => Attendance::whereDate('date', $today)->count(),
++                'today_sessions' => $this->attendanceSummaryForClientLocalDate($today)['sessions'],
+                 'pending_overtime' => $pendingOvertime,
+                 'invoices' => Invoice::count(),
+             ],
+             'trend' => $trend,
+-            'recent_attendance' => Attendance::with('employee:id,first_name,last_name,profile_picture')
+-                ->latest('id')->limit(8)->get(),
++            'recent_attendance' => Attendance::with([
++                'employee:id,first_name,last_name,profile_picture,timezone',
++                'client:id,name,business_name,timezone',
++            ])->latest('id')->limit(8)->get()->map(function (Attendance $row) {
++                $clientZone = $this->timezones->forAttendance($row, true);
++                $row->setAttribute('client_timezone', $clientZone);
++                $row->setAttribute('client_local_date', $row->clock_in
++                    ? $this->timezones->localDate($row->clock_in, $clientZone)
++                    : optional($row->date)->toDateString());
++                $row->setAttribute('clock_in_client', $this->timezones->isoInZone($row->clock_in, $clientZone));
++                $row->setAttribute('clock_out_client', $this->timezones->isoInZone($row->clock_out, $clientZone));
++                return $row;
++            }),
+             'birthdays_today' => $birthdaysToday,
+             'auto_invoice_cycle' => [
+                 'period_start' => $cycleStart,
+@@ -523,8 +568,16 @@
+             'ring_center' => ['nullable', 'boolean'],
+         ]);
+         DB::transaction(function () use ($data, $client) {
++            $previousTimezone = $client->timezone;
+             $client->update($data);
+             $client->user?->update(['name' => $data['name'], 'email' => $data['email']]);
++
++            // Schedule wall-clock values are Doctor-local/canonical. If the client changes
++            // timezone, keep the same wall-clock schedule and synchronize legacy metadata so
++            // every downstream path resolves the new IANA timezone consistently.
++            if ($previousTimezone !== $client->timezone && Schema::hasColumn('employee_client_schedules', 'timezone')) {
++                EmployeeClientSchedule::where('client_id', $client->id)->update(['timezone' => $client->timezone]);
++            }
+         });
+         return response()->json(['message' => 'Client updated.', 'client' => $client->fresh()]);
+     }
+@@ -613,9 +666,18 @@
+         $query = Attendance::with(['employee:id,first_name,last_name,employee_code,timezone,profile_picture', 'breaks']);
+         if (Schema::hasColumn('attendances', 'client_id')) $query->with('client:id,name,business_name,timezone');
+         if ($request->filled('employee_id')) $query->where('employee_id', $request->integer('employee_id'));
+-        if ($request->filled('client_id') && Schema::hasColumn('attendances', 'client_id')) $query->where('client_id', $request->integer('client_id'));
+-        if ($request->filled('from')) $query->whereDate('date', '>=', $request->input('from'));
+-        if ($request->filled('to')) $query->whereDate('date', '<=', $request->input('to'));
++        $selectedClientId = $request->filled('client_id') && Schema::hasColumn('attendances', 'client_id')
++            ? $request->integer('client_id')
++            : null;
++        if ($selectedClientId) {
++            $query->where('client_id', $selectedClientId);
++        }
++        $this->applyAttendanceLocalDateFilter(
++            $query,
++            $request->input('from'),
++            $request->input('to'),
++            $selectedClientId
++        );
+         if ($search = trim((string) $request->query('search'))) {
+             $query->where(function ($q) use ($search) {
+                 $q->where('date', 'like', "%{$search}%")
+@@ -624,7 +686,54 @@
+                     ->orWhereHas('employee', fn ($e) => $e->where('first_name', 'like', "%{$search}%")->orWhere('last_name', 'like', "%{$search}%"));
+             });
+         }
+-        return response()->json($query->latest('date')->latest('id')->paginate(min((int) $request->query('per_page', 25), 100)));
++        $attendance = $query->latest('date')->latest('id')->paginate(min((int) $request->query('per_page', 25), 100));
++        $attendance->through(function (Attendance $row) {
++            $clientZone = $this->timezones->forAttendance($row, true);
++            $employeeZone = $this->timezones->valid($row->employee?->timezone, 'UTC');
++            $row->setAttribute('client_timezone', $clientZone);
++            $row->setAttribute('employee_timezone', $employeeZone);
++            $row->setAttribute('clock_in_client', $this->timezones->isoInZone($row->clock_in, $clientZone));
++            $row->setAttribute('clock_out_client', $this->timezones->isoInZone($row->clock_out, $clientZone));
++            $row->setAttribute('clock_in_employee', $this->timezones->isoInZone($row->clock_in, $employeeZone));
++            $row->setAttribute('clock_out_employee', $this->timezones->isoInZone($row->clock_out, $employeeZone));
++            return $row;
++        });
++        return response()->json($attendance);
++    }
++
++    private function applyAttendanceLocalDateFilter($query, ?string $from, ?string $to, ?int $clientId = null): void
++    {
++        if (!$from && !$to) {
++            return;
++        }
++
++        if (!Schema::hasColumn('attendances', 'client_id') || !Schema::hasColumn('attendances', 'clock_in')) {
++            if ($from) $query->whereDate('date', '>=', $from);
++            if ($to) $query->whereDate('date', '<=', $to);
++            return;
++        }
++
++        $clients = $clientId
++            ? Client::query()->whereKey($clientId)->get(['id', 'timezone'])
++            : Client::query()->get(['id', 'timezone']);
++
++        $query->where(function ($outer) use ($clients, $from, $to) {
++            foreach ($clients as $client) {
++                [$startUtc, $endUtc] = $this->timezones->utcRangeForLocalFilters($from, $to, $client);
++                $outer->orWhere(function ($clientQuery) use ($client, $startUtc, $endUtc) {
++                    $clientQuery->where('client_id', $client->id);
++                    if ($startUtc) $clientQuery->where('clock_in', '>=', $startUtc);
++                    if ($endUtc) $clientQuery->where('clock_in', '<=', $endUtc);
++                });
++            }
++
++            // Keep legacy/unassigned attendance queryable without pretending it has a client timezone.
++            $outer->orWhere(function ($legacy) use ($from, $to) {
++                $legacy->whereNull('client_id');
++                if ($from) $legacy->whereDate('date', '>=', $from);
++                if ($to) $legacy->whereDate('date', '<=', $to);
++            });
++        });
+     }
+ 
+     public function changeRequests(Request $request)
+@@ -643,7 +752,7 @@
+             if ($data['decision'] === 'approved') {
+                 $attendance = $changeRequest->attendance;
+                 $date = Carbon::parse($changeRequest->date)->toDateString();
+-                $timezone = $attendance->timezone_snapshot ?? $attendance->employee?->timezone ?? 'UTC';
++                $timezone = $this->timezones->forAttendance($attendance, false);
+                 $requestedIn = Carbon::parse($date.' '.$changeRequest->requested_clock_in, $timezone);
+                 $requestedOut = Carbon::parse($date.' '.$changeRequest->requested_clock_out, $timezone);
+                 if ($requestedOut->lte($requestedIn)) $requestedOut->addDay();
+@@ -692,8 +801,8 @@
+             ? $request->query('view')
+             : 'month';
+         $anchor = $request->filled('date')
+-            ? Carbon::parse($request->query('date'), config('app.timezone', 'Asia/Karachi'))
+-            : $this->clock->now(config('app.timezone', 'Asia/Karachi'));
++            ? Carbon::parse($request->query('date'), $this->timezones->businessTimezone())
++            : $this->clock->now($this->timezones->businessTimezone());
+ 
+         [$from, $to] = match ($view) {
+             'day' => [$anchor->copy()->startOfDay(), $anchor->copy()->endOfDay()],
+@@ -817,14 +926,6 @@
+             'period_end' => ['required', 'date', 'after_or_equal:period_start'],
+         ]);
+ 
+-        $periodStart = Carbon::parse($data['period_start'])->startOfDay();
+-        $expectedEnd = $periodStart->copy()->addMonthNoOverflow()->day(26);
+-        if ($periodStart->day !== 25 || Carbon::parse($data['period_end'])->toDateString() !== $expectedEnd->toDateString()) {
+-            return response()->json([
+-                'message' => 'CareVMA invoices must use the billing cycle from the 25th through the 26th of the following month.',
+-            ], 422);
+-        }
+-
+         if (Invoice::where('client_id', $data['client_id'])
+             ->where('period_start', $data['period_start'])
+             ->where('period_end', $data['period_end'])
+@@ -836,7 +937,7 @@
+         $invoice = $generator->generate($client, $data['period_start'], $data['period_end'], false);
+ 
+         if (!$invoice) {
+-            return response()->json(['message' => 'No completed billable attendance exists for this client and period.'], 422);
++            return response()->json(['message' => 'No completed, unbilled attendance exists for this client in the selected client-local date range.'], 422);
+         }
+ 
+         return response()->json([
+@@ -948,7 +1049,8 @@
+         } catch (\Throwable $e) {
+             report($e);
+             return response()->json([
+-                'message' => $e->getMessage(),
++                'message' => 'The live PKR/USD rate is temporarily unavailable. Please try again shortly; the last cached rate will continue to be used where available.',
++                'code' => 'FX_RATE_UNAVAILABLE',
+             ], 503);
+         }
+     }
+@@ -963,6 +1065,7 @@
+             'designations' => Designation::orderBy('name')->get(), 'employee_statuses' => EmployeeStatus::orderBy('name')->get(),
+             'expertises' => Expertise::orderBy('name')->get(), 'reporting_managers' => ReportingManager::orderBy('name')->get(),
+             'services' => Service::orderBy('name')->get(), 'contracts' => ContractType::orderBy('name')->get(),
++            'business_timezone' => $this->timezones->businessTimezone(),
+         ]);
+     }
+ 
+@@ -1089,7 +1192,7 @@
+         }
+ 
+         $client = Client::find($data['client_id'] ?? null);
+-        $timezone = $this->validTimezoneValue($client?->timezone ?: config('app.timezone', 'Asia/Karachi'), config('app.timezone', 'Asia/Karachi'));
++        $timezone = $this->validTimezoneValue($client?->timezone ?: $this->timezones->businessTimezone(), $this->timezones->businessTimezone());
+         $weekday = $this->normalizeScheduleWeekday($data['weekday'] ?? null);
+         if (!$weekday) {
+             return $data;
+@@ -1276,7 +1379,13 @@
+         $tz = $attendance->timezone_snapshot ?? $schedule?->timezone ?? $attendance->employee?->timezone ?? 'UTC';
+         $in = $attendance->clock_in->copy()->setTimezone($tz)->startOfMinute(); $out = $attendance->clock_out->copy()->setTimezone($tz)->startOfMinute();
+         $regularStart = $in->copy(); $regularEnd = $out->copy(); $overtime = 0; $late = 0;
+-        if ($schedule) {
++        if ($attendance->shift_start_snapshot && $attendance->shift_end_snapshot) {
++            $shiftStart = $attendance->shift_start_snapshot->copy()->setTimezone($tz)->startOfMinute();
++            $shiftEnd = $attendance->shift_end_snapshot->copy()->setTimezone($tz)->startOfMinute();
++            if ($regularStart->lt($shiftStart)) $regularStart = $shiftStart->copy();
++            if ($regularEnd->gt($shiftEnd)) { $overtime = (int) $shiftEnd->diffInMinutes($regularEnd); $regularEnd = $shiftEnd->copy(); }
++            if ($in->gt($shiftStart)) $late = (int) $shiftStart->diffInMinutes($in);
++        } elseif ($schedule) {
+             $shiftStart = Carbon::parse($attendance->date->format('Y-m-d').' '.$schedule->start_time, $tz)->startOfMinute();
+             $shiftEnd = Carbon::parse($attendance->date->format('Y-m-d').' '.$schedule->end_time, $tz)->startOfMinute(); if ($shiftEnd->lte($shiftStart)) $shiftEnd->addDay();
+             if ($regularStart->lt($shiftStart)) $regularStart = $shiftStart->copy();
+--- a/app/Http/Controllers/Api/AuthApiController.php
++++ b/app/Http/Controllers/Api/AuthApiController.php
+@@ -6,6 +6,8 @@
+ use App\Models\User;
+ use App\Models\Employee;
+ use App\Services\TrustedTimeService;
++use App\Services\BirthdayReminderService;
++use App\Services\ClientTimezoneService;
+ use Carbon\Carbon;
+ use Illuminate\Auth\Events\PasswordReset;
+ use Illuminate\Http\Request;
+@@ -14,12 +16,14 @@
+ use Illuminate\Support\Facades\Password;
+ use Illuminate\Support\Str;
+ use Illuminate\Validation\Rules\Password as PasswordRule;
+-use DateTimeZone;
+ 
+ class AuthApiController extends Controller
+ {
+-    public function __construct(private TrustedTimeService $clock)
+-    {
++    public function __construct(
++        private TrustedTimeService $clock,
++        private BirthdayReminderService $birthdayReminders,
++        private ClientTimezoneService $timezones,
++    ) {
+     }
+ 
+     public function login(Request $request)
+@@ -58,7 +62,7 @@
+     {
+         return response()->json([
+             'utc' => $this->clock->now('UTC')->toIso8601ZuluString(),
+-            'time_source' => $this->clock->source(),
++            'source' => $this->clock->source(),
+             'timezone' => $this->assignedTimezone($request->user()->loadMissing(['employee', 'client'])),
+         ]);
+     }
+@@ -137,11 +141,16 @@
+ 
+         $assignedTimezone = $this->assignedTimezone($user);
+ 
++        if (in_array($user->role, ['admin', 'superadmin'], true)) {
++            $this->birthdayReminders->ensureForUser($user);
++        }
++
+         return [
+             'id' => $user->id,
+             'name' => $user->name,
+             'email' => $user->email,
+             'role' => $user->role,
++            'profile_picture' => $user->profile_picture,
+             'last_seen_at' => optional($user->last_seen_at)->toIso8601String(),
+             'employee' => $user->employee,
+             'client' => $user->client,
+@@ -183,7 +192,7 @@
+                 ->whereNotNull('date_of_birth')
+                 ->get(['id', 'first_name', 'last_name', 'date_of_birth', 'timezone', 'profile_picture'])
+                 ->filter(function (Employee $employee) {
+-                    $timezone = $this->validTimezone($employee->timezone ?: config('app.timezone', 'Asia/Karachi'));
++                    $timezone = $this->timezones->valid($employee->timezone, $this->timezones->businessTimezone());
+                     $today = $this->clock->now($timezone);
+                     $birthDate = $employee->date_of_birth;
+ 
+@@ -192,7 +201,7 @@
+                         && (int) $birthDate->format('d') === (int) $today->format('d');
+                 })
+                 ->map(function (Employee $employee) {
+-                    $timezone = $this->validTimezone($employee->timezone ?: config('app.timezone', 'Asia/Karachi'));
++                    $timezone = $this->timezones->valid($employee->timezone, $this->timezones->businessTimezone());
+                     $today = $this->clock->now($timezone);
+ 
+                     return [
+@@ -208,7 +217,7 @@
+ 
+             return [
+                 'today' => count($birthdays) > 0,
+-                'date_key' => $this->clock->now(config('app.timezone', 'Asia/Karachi'))->toDateString(),
++                'date_key' => $this->clock->now($this->timezones->businessTimezone())->toDateString(),
+                 'employees' => $birthdays,
+             ];
+         }
+@@ -220,39 +229,13 @@
+         ];
+     }
+ 
+-    private function validTimezone(?string $timezone): string
+-    {
+-        $timezone = trim((string) $timezone);
+-        if ($timezone === '') {
+-            return config('app.timezone', 'Asia/Karachi');
+-        }
+-
+-        try {
+-            new DateTimeZone($timezone);
+-            return $timezone;
+-        } catch (\Throwable) {
+-            return config('app.timezone', 'Asia/Karachi');
+-        }
+-    }
+-
+     private function assignedTimezone(User $user): string
+     {
+-        $candidate = match ($user->role) {
+-            'employee' => $user->employee?->timezone,
+-            'client' => $user->client?->timezone,
+-            default => config('app.timezone', 'Asia/Karachi'),
++        return match ($user->role) {
++            'employee' => $this->timezones->valid($user->employee?->timezone, $this->timezones->businessTimezone()),
++            'client' => $this->timezones->valid($user->client?->timezone, $this->timezones->businessTimezone()),
++            default => $this->timezones->businessTimezone(),
+         };
+-
+-        $candidate = trim((string) $candidate);
+-        if ($candidate === '') {
+-            return config('app.timezone', 'Asia/Karachi');
+-        }
+-
+-        try {
+-            new DateTimeZone($candidate);
+-            return $candidate;
+-        } catch (\Throwable) {
+-            return config('app.timezone', 'Asia/Karachi');
+-        }
+     }
++
+ }
+--- a/app/Http/Controllers/Api/DoctorApiController.php
++++ b/app/Http/Controllers/Api/DoctorApiController.php
+@@ -6,6 +6,7 @@
+ use App\Models\Attendance;
+ use App\Models\Client;
+ use App\Models\Employee;
++use App\Services\ClientTimezoneService;
+ use Illuminate\Http\Request;
+ use Illuminate\Support\Facades\Hash;
+ use Illuminate\Support\Facades\Schema;
+@@ -14,6 +15,10 @@
+ 
+ class DoctorApiController extends Controller
+ {
++    public function __construct(private ClientTimezoneService $timezones)
++    {
++    }
++
+     public function dashboard(Request $request)
+     {
+         $client = $this->client($request);
+@@ -40,6 +45,7 @@
+             ->get();
+         return response()->json([
+             'client' => $client,
++            'client_local_now' => $this->timezones->now($client)->toIso8601String(),
+             'employees' => $employees,
+             'metrics' => [
+                 'assigned_employees' => $employees->count(),
+@@ -53,13 +59,29 @@
+         $client = $this->client($request); $this->assertAssigned($client, $employee);
+         $query = Attendance::with('breaks')->where('employee_id', $employee->id);
+         if (Schema::hasColumn('attendances', 'client_id')) $query->where('client_id', $client->id);
+-        if ($request->filled('from')) $query->whereDate('date', '>=', $request->input('from'));
+-        if ($request->filled('to')) $query->whereDate('date', '<=', $request->input('to'));
++        [$filterStartUtc, $filterEndUtc] = $this->timezones->utcRangeForLocalFilters(
++            $request->input('from'),
++            $request->input('to'),
++            $client
++        );
++        if ($filterStartUtc) $query->where('clock_in', '>=', $filterStartUtc);
++        if ($filterEndUtc) $query->where('clock_in', '<=', $filterEndUtc);
+         if ($search = trim((string) $request->query('search'))) $query->where(fn ($q) => $q->where('date', 'like', "%{$search}%")->orWhere('clock_in', 'like', "%{$search}%")->orWhere('clock_out', 'like', "%{$search}%"));
++        $attendance = $query->latest('date')->latest('id')->paginate(min(max((int) $request->query('per_page', 25), 1), 100));
++        $attendance->through(function (Attendance $row) use ($client, $employee) {
++            $zone = $this->timezones->forClient($client);
++            $row->setAttribute('client_timezone', $zone);
++            $row->setAttribute('employee_timezone', $employee->timezone ?: 'UTC');
++            $row->setAttribute('clock_in_client', $this->timezones->isoInZone($row->clock_in, $zone));
++            $row->setAttribute('clock_out_client', $this->timezones->isoInZone($row->clock_out, $zone));
++            $row->setAttribute('client_date', $row->clock_in ? $this->timezones->localDate($row->clock_in, $zone) : optional($row->date)->toDateString());
++            return $row;
++        });
++
+         return response()->json([
+             'client' => $client->only(['id', 'name', 'business_name', 'timezone']),
+             'employee' => $employee,
+-            'attendance' => $query->latest('date')->latest('id')->paginate(min(max((int) $request->query('per_page', 25), 1), 100)),
++            'attendance' => $attendance,
+         ]);
+     }
+ 
+--- a/app/Http/Controllers/Api/EmployeeApiController.php
++++ b/app/Http/Controllers/Api/EmployeeApiController.php
+@@ -5,10 +5,12 @@
+ use App\Http\Controllers\Controller;
+ use App\Models\Attendance;
+ use App\Models\AttendanceChangeRequest;
++use App\Models\Client;
+ use App\Models\Employee;
+ use App\Models\EmployeeClientSchedule;
+ use App\Support\MediaUrl;
+ use App\Services\TrustedTimeService;
++use App\Services\ClientTimezoneService;
+ use DateTimeZone;
+ use Carbon\Carbon;
+ use Illuminate\Http\Request;
+@@ -19,8 +21,10 @@
+ 
+ class EmployeeApiController extends Controller
+ {
+-    public function __construct(private TrustedTimeService $clock)
+-    {
++    public function __construct(
++        private TrustedTimeService $clock,
++        private ClientTimezoneService $timezones,
++    ) {
+     }
+ 
+     public function dashboard(Request $request)
+@@ -121,13 +125,31 @@
+             'now_utc' => $nowUtc->toIso8601ZuluString(),
+             'time_source' => $this->clock->source(),
+             'server_weekday' => $employeeNow->format('l'),
+-            'completed_today' => Attendance::where('employee_id', $employee->id)
+-                ->whereDate('date', $employeeNow->toDateString())
+-                ->whereNotNull('clock_out')
+-                ->exists(),
++            'completed_today' => $this->hasCompletedAttendanceOnCurrentClientDay($employee->id),
+         ]);
+     }
+ 
++    private function hasCompletedAttendanceOnCurrentClientDay(int $employeeId): bool
++    {
++        $rows = Attendance::with('client:id,timezone')
++            ->where('employee_id', $employeeId)
++            ->whereNotNull('clock_out')
++            ->where('clock_in', '>=', $this->clock->now('UTC')->copy()->subDays(2))
++            ->latest('clock_in')
++            ->limit(50)
++            ->get();
++
++        foreach ($rows as $row) {
++            $zone = $this->timezones->forAttendance($row, true);
++            $recordDate = $this->timezones->localDate($row->clock_in, $zone);
++            if ($recordDate && $recordDate === $this->timezones->now($zone)->toDateString()) {
++                return true;
++            }
++        }
++
++        return false;
++    }
++
+     public function schedules(Request $request)
+     {
+         $employee = $this->employee($request);
+@@ -156,13 +178,66 @@
+     public function attendance(Request $request)
+     {
+         $employee = $this->employee($request);
+-        $query = Attendance::with(['breaks', 'client'])->where('employee_id', $employee->id);
+-        if ($request->filled('from')) $query->whereDate('date', '>=', $request->input('from'));
+-        if ($request->filled('to')) $query->whereDate('date', '<=', $request->input('to'));
++        $query = Attendance::with(['breaks', 'client:id,name,business_name,timezone', 'schedule:id,client_id,employee_id,timezone,start_time,end_time,weekday'])->where('employee_id', $employee->id);
++        $this->applyEmployeeAttendanceLocalDateFilter(
++            $query,
++            $employee->id,
++            $request->input('from'),
++            $request->input('to')
++        );
+         if ($search = trim((string) $request->query('search'))) {
+             $query->where(fn ($q) => $q->where('date', 'like', "%{$search}%")->orWhere('clock_in', 'like', "%{$search}%")->orWhere('clock_out', 'like', "%{$search}%"));
+         }
+-        return response()->json($query->latest('date')->latest('id')->paginate(min((int) $request->query('per_page', 25), 100)));
++        $attendance = $query->latest('date')->latest('id')->paginate(min((int) $request->query('per_page', 25), 100));
++        $attendance->through(function (Attendance $row) use ($employee) {
++            $clientZone = $this->timezones->forAttendance($row, true);
++            $employeeZone = $this->timezones->valid($employee->timezone, 'UTC');
++            $row->setAttribute('client_timezone', $clientZone);
++            $row->setAttribute('employee_timezone', $employeeZone);
++            $row->setAttribute('clock_in_client', $this->timezones->isoInZone($row->clock_in, $clientZone));
++            $row->setAttribute('clock_out_client', $this->timezones->isoInZone($row->clock_out, $clientZone));
++            $row->setAttribute('clock_in_employee', $this->timezones->isoInZone($row->clock_in, $employeeZone));
++            $row->setAttribute('clock_out_employee', $this->timezones->isoInZone($row->clock_out, $employeeZone));
++            return $row;
++        });
++        return response()->json($attendance);
++    }
++
++    private function applyEmployeeAttendanceLocalDateFilter($query, int $employeeId, ?string $from, ?string $to): void
++    {
++        if (!$from && !$to) {
++            return;
++        }
++
++        if (!Schema::hasColumn('attendances', 'client_id') || !Schema::hasColumn('attendances', 'clock_in')) {
++            if ($from) $query->whereDate('date', '>=', $from);
++            if ($to) $query->whereDate('date', '<=', $to);
++            return;
++        }
++
++        $clientIds = Attendance::query()
++            ->where('employee_id', $employeeId)
++            ->whereNotNull('client_id')
++            ->distinct()
++            ->pluck('client_id');
++        $clients = Client::query()->whereIn('id', $clientIds)->get(['id', 'timezone']);
++
++        $query->where(function ($outer) use ($clients, $from, $to) {
++            foreach ($clients as $client) {
++                [$startUtc, $endUtc] = $this->timezones->utcRangeForLocalFilters($from, $to, $client);
++                $outer->orWhere(function ($clientQuery) use ($client, $startUtc, $endUtc) {
++                    $clientQuery->where('client_id', $client->id);
++                    if ($startUtc) $clientQuery->where('clock_in', '>=', $startUtc);
++                    if ($endUtc) $clientQuery->where('clock_in', '<=', $endUtc);
++                });
++            }
++
++            $outer->orWhere(function ($legacy) use ($from, $to) {
++                $legacy->whereNull('client_id');
++                if ($from) $legacy->whereDate('date', '>=', $from);
++                if ($to) $legacy->whereDate('date', '<=', $to);
++            });
++        });
+     }
+ 
+     public function changeRequests(Request $request)
+@@ -187,7 +262,8 @@
+         $change = AttendanceChangeRequest::create([
+             'attendance_id' => $attendance->id, 'employee_id' => $employee->id, 'date' => $attendance->date,
+             'requested_clock_in' => $data['clock_in'], 'requested_clock_out' => $data['clock_out'],
+-            'old_clock_in' => optional($attendance->clock_in)->format('H:i:s'), 'old_clock_out' => optional($attendance->clock_out)->format('H:i:s'),
++            'old_clock_in' => $attendance->clock_in ? $this->timezones->toZone($attendance->clock_in, $this->timezones->forAttendance($attendance, false))?->format('H:i:s') : null,
++            'old_clock_out' => $attendance->clock_out ? $this->timezones->toZone($attendance->clock_out, $this->timezones->forAttendance($attendance, false))?->format('H:i:s') : null,
+             'reason' => $data['reason'], 'status' => 'pending',
+         ]);
+         return response()->json(['message' => 'Attendance correction request submitted.', 'request' => $change], 201);
+@@ -209,8 +285,23 @@
+         if (!$window) return response()->json(['message' => 'This schedule is not available for the current day.'], 422);
+         [$start, $end] = $window;
+         $date = $start->toDateString();
+-        if ($now->lt($start->copy()->subMinutes(15))) return response()->json(['message' => 'Check-in opens 15 minutes before the scheduled start time.'], 422);
+-        if ($now->gte($end)) return response()->json(['message' => 'This scheduled shift has already ended.'], 422);
++        if ($now->lt($start->copy()->subMinutes(15))) {
++            $employeeZone = $this->timezones->valid($employee->timezone, 'UTC');
++            $opens = $start->copy()->subMinutes(15);
++            return response()->json([
++                'message' => 'Check-in is not open yet. It opens at '.$opens->format('D, M j, g:i A').' ('.$tz.') / '.$opens->copy()->setTimezone($employeeZone)->format('D, M j, g:i A').' ('.$employeeZone.').',
++                'code' => 'CHECK_IN_NOT_OPEN',
++                'check_in_opens_at_client' => $opens->toIso8601String(),
++                'check_in_opens_at_employee' => $opens->copy()->setTimezone($employeeZone)->toIso8601String(),
++            ], 422);
++        }
++        if ($now->gte($end)) {
++            $employeeZone = $this->timezones->valid($employee->timezone, 'UTC');
++            return response()->json([
++                'message' => 'This shift ended at '.$end->format('D, M j, g:i A').' ('.$tz.') / '.$end->copy()->setTimezone($employeeZone)->format('D, M j, g:i A').' ('.$employeeZone.'). Use the next scheduled shift to check in.',
++                'code' => 'SHIFT_ENDED',
++            ], 422);
++        }
+ 
+         $alreadyCompleted = Attendance::where('employee_id', $employee->id)
+             ->where('schedule_id', $schedule->id)
+@@ -235,6 +326,8 @@
+         if (Schema::hasColumn('attendances', 'client_id')) $payload['client_id'] = $schedule->client_id;
+         if (Schema::hasColumn('attendances', 'schedule_id')) $payload['schedule_id'] = $schedule->id;
+         if (Schema::hasColumn('attendances', 'timezone_snapshot')) $payload['timezone_snapshot'] = $tz;
++        if (Schema::hasColumn('attendances', 'shift_start_snapshot')) $payload['shift_start_snapshot'] = $start->copy()->utc();
++        if (Schema::hasColumn('attendances', 'shift_end_snapshot')) $payload['shift_end_snapshot'] = $end->copy()->utc();
+         if (Schema::hasColumn('attendances', 'overtime_status')) $payload['overtime_status'] = 'none';
+         $attendance = Attendance::create($payload);
+ 
+@@ -275,7 +368,8 @@
+         $employee = $this->employee($request);
+         $attendance = Attendance::where('employee_id', $employee->id)->whereNull('clock_out')->latest('id')->first();
+         if (!$attendance) return response()->json(['message' => 'No active attendance session.'], 422);
+-        $tz = $attendance->timezone_snapshot ?? $employee->timezone ?? 'Asia/Karachi';
++        $attendance->loadMissing(['client', 'schedule']);
++        $tz = $this->timezones->forAttendance($attendance, false);
+         $now = $this->clock->now($tz);
+         $openBreak = $attendance->breaks()->whereNull('end_time')->latest('id')->first();
+         if ($openBreak) {
+@@ -287,7 +381,13 @@
+         $attendance->clock_out = $now->copy()->utc();
+         $schedule = $attendance->schedule_id ? EmployeeClientSchedule::find($attendance->schedule_id) : null;
+         $clockIn = $attendance->clock_in->copy()->setTimezone($tz); $regularStart = $clockIn->copy()->startOfMinute(); $regularEnd = $now->copy()->startOfMinute(); $overtime = 0; $late = 0;
+-        if ($schedule) {
++        if ($attendance->shift_start_snapshot && $attendance->shift_end_snapshot) {
++            $shiftStart = $attendance->shift_start_snapshot->copy()->setTimezone($tz)->startOfMinute();
++            $shiftEnd = $attendance->shift_end_snapshot->copy()->setTimezone($tz)->startOfMinute();
++            if ($regularStart->lt($shiftStart)) $regularStart = $shiftStart->copy();
++            if ($regularStart->gt($shiftStart)) $late = (int) $shiftStart->diffInMinutes($regularStart);
++            if ($regularEnd->gt($shiftEnd)) { $overtime = (int) $shiftEnd->diffInMinutes($regularEnd); $regularEnd = $shiftEnd->copy(); }
++        } elseif ($schedule) {
+             $shiftStart = Carbon::parse($attendance->date->format('Y-m-d').' '.$schedule->start_time, $tz)->startOfMinute();
+             $shiftEnd = Carbon::parse($attendance->date->format('Y-m-d').' '.$schedule->end_time, $tz)->startOfMinute(); if ($shiftEnd->lte($shiftStart)) $shiftEnd->addDay();
+             if ($regularStart->lt($shiftStart)) $regularStart = $shiftStart->copy();
+@@ -499,12 +599,7 @@
+         // CareVMA scheduling/calculation source of truth is always the Client / Doctor timezone.
+         // Use the IANA timezone name so DST is resolved automatically for the actual date
+         // (for example America/New_York is GMT-4 on Oct 26, 2026, while Asia/Karachi is GMT+5).
+-        $clientTimezone = $schedule->client?->timezone;
+-
+-        return $this->validTimezone(
+-            $clientTimezone ?: $schedule->timezone ?: $fallbackTimezone ?: 'UTC',
+-            'UTC'
+-        );
++        return $this->timezones->forSchedule($schedule, $schedule->client);
+     }
+ 
+     private function breakCodeToHms(mixed $value): string
+--- a/app/Http/Controllers/Api/InvoicePdfController.php
++++ b/app/Http/Controllers/Api/InvoicePdfController.php
+@@ -5,12 +5,17 @@
+ use App\Http\Controllers\Controller;
+ use App\Models\ClientEmployeeRate;
+ use App\Models\Invoice;
++use App\Services\ClientTimezoneService;
+ use Barryvdh\DomPDF\Facade\Pdf;
+ use Illuminate\Http\Request;
+ use Illuminate\Support\Facades\Schema;
+ 
+ class InvoicePdfController extends Controller
+ {
++    public function __construct(private ClientTimezoneService $timezones)
++    {
++    }
++
+     public function __invoke(Request $request, Invoice $invoice)
+     {
+         $user = $request->user();
+@@ -28,8 +33,13 @@
+             }]);
+         }
+         $rates = ClientEmployeeRate::where('client_id', $invoice->client_id)->get()->keyBy('employee_id');
++        $clientTimezone = $this->timezones->forClient($invoice->client);
+         return Pdf::loadView('invoices.invoice', [
+-            'invoice' => $invoice, 'client' => $invoice->client, 'salaries' => $invoice->salaries, 'clientEmployeeRates' => $rates,
++            'invoice' => $invoice,
++            'client' => $invoice->client,
++            'salaries' => $invoice->salaries,
++            'clientEmployeeRates' => $rates,
++            'clientTimezone' => $clientTimezone,
+         ])->stream("invoice-{$invoice->invoice_number}.pdf");
+     }
+ }
+--- a/app/Http/Controllers/EmployeeClientScheduleController.php
++++ b/app/Http/Controllers/EmployeeClientScheduleController.php
+@@ -31,7 +31,7 @@
+     $clientId  = $request->client_id;
+ 
+     $client = Client::findOrFail($clientId);
+-    $clientTimezone = $client->timezone ?? config('app.timezone'); 
++    $clientTimezone = $client->timezone ?? config('carevma.business_timezone', 'Asia/Karachi'); 
+ 
+     DB::beginTransaction();
+ 
+@@ -99,7 +99,8 @@
+ 
+     } catch (\Exception $e) {
+         DB::rollBack();
+-        return redirect()->back()->withErrors(['error' => $e->getMessage()]);
++        \Log::error('Schedule operation failed.', ['exception' => $e]);
++        return redirect()->back()->withErrors(['error' => 'The schedule could not be saved. Please review the selected employee, client, timezone, and times, then try again.']);
+     }
+ }
+ 
+@@ -115,7 +116,7 @@
+         $schedule = EmployeeClientSchedule::findOrFail($request->id);
+ 
+         $client = Client::findOrFail($schedule->client_id);
+-        $tz     = $client->timezone ?? config('app.timezone');
++        $tz     = $client->timezone ?? config('carevma.business_timezone', 'Asia/Karachi');
+ 
+         $schedule->start_time  = Carbon::parse($request->start_time, $tz)
+             ->format('H:i:s');
+@@ -138,7 +139,8 @@
+ 
+             return redirect()->back()->with('success', 'Schedule deleted successfully.');
+         } catch (\Exception $e) {
+-            return redirect()->back()->withErrors(['error' => 'Failed to delete schedule: ' . $e->getMessage()]);
++            \Log::error('Schedule deletion failed.', ['exception' => $e]);
++            return redirect()->back()->withErrors(['error' => 'The schedule could not be deleted. It may be linked to attendance or another protected record.']);
+         }
+     }
+ 
+--- a/app/Mail/AttendanceChangeRequestMail.php
++++ b/app/Mail/AttendanceChangeRequestMail.php
+@@ -15,9 +15,14 @@
+ 
+     public function build(): self
+     {
++        $this->changeRequest->loadMissing(['employee', 'attendance.client']);
++        $timezone = $this->changeRequest->attendance?->client?->timezone
++            ?: $this->changeRequest->attendance?->timezone_snapshot
++            ?: 'UTC';
+         $employee = trim(($this->changeRequest->employee?->first_name ?? '').' '.($this->changeRequest->employee?->last_name ?? ''));
+ 
+         return $this->subject('[CareVMA] Attendance change request'.($employee ? ' - '.$employee : ''))
+-            ->view('emails.attendance_change_request');
++            ->view('emails.attendance_change_request')
++            ->with(['clientTimezone' => $timezone]);
+     }
+ }
+--- a/app/Mail/AttendanceStatusMail.php
++++ b/app/Mail/AttendanceStatusMail.php
+@@ -18,7 +18,12 @@
+ 
+     public function build(): self
+     {
++        $this->changeRequest->loadMissing(['employee', 'attendance.client']);
++        $timezone = $this->changeRequest->attendance?->client?->timezone
++            ?: $this->changeRequest->attendance?->timezone_snapshot
++            ?: 'UTC';
+         return $this->subject('[CareVMA] Attendance request '.ucfirst($this->status))
+-            ->view('emails.attendance.status');
++            ->view('emails.attendance.status')
++            ->with(['clientTimezone' => $timezone]);
+     }
+ }
+--- a/app/Models/Attendance.php
++++ b/app/Models/Attendance.php
+@@ -10,7 +10,7 @@
+ class Attendance extends Model
+ {
+     protected $fillable = [
+-        'employee_id','client_id','schedule_id','date','timezone_snapshot','clock_in','clock_out',
++        'employee_id','client_id','schedule_id','date','timezone_snapshot','shift_start_snapshot','shift_end_snapshot','clock_in','clock_out',
+         'break_limit','break_taken','total_minutes','overtime','is_late','late_minutes',
+         'overtime_status','approved_overtime_minutes','overtime_amount','overtime_approved_by','overtime_approved_at'
+     ];
+@@ -18,6 +18,8 @@
+     protected $casts = [
+         'date' => 'date',
+         'overtime_approved_at' => 'datetime',
++        'shift_start_snapshot' => 'datetime',
++        'shift_end_snapshot' => 'datetime',
+     ];
+ 
+     /**
+--- a/app/Services/BirthdayReminderService.php
++++ b/app/Services/BirthdayReminderService.php
+@@ -0,0 +1,84 @@
++<?php
++
++namespace App\Services;
++
++use App\Events\CareVmaNotificationBroadcast;
++use App\Models\Employee;
++use App\Models\Notification;
++use App\Models\User;
++use Illuminate\Support\Facades\Log;
++
++class BirthdayReminderService
++{
++    public function __construct(private TrustedTimeService $clock)
++    {
++    }
++
++    public function ensureForAllAdmins(): void
++    {
++        User::query()
++            ->whereIn('role', ['admin', 'superadmin'])
++            ->get()
++            ->each(fn (User $user) => $this->ensureForUser($user));
++    }
++
++    public function ensureForUser(User $user): void
++    {
++        if (!in_array($user->role, ['admin', 'superadmin'], true)) {
++            return;
++        }
++
++        Employee::query()
++            ->whereNotNull('date_of_birth')
++            ->get(['id', 'first_name', 'last_name', 'date_of_birth', 'timezone', 'profile_picture'])
++            ->each(function (Employee $employee) use ($user) {
++                $timezone = $employee->timezone ?: config('carevma.business_timezone', 'Asia/Karachi');
++                $tomorrow = $this->clock->now($timezone)->addDay();
++                $birthDate = $employee->date_of_birth;
++
++                if (!$birthDate
++                    || (int) $birthDate->format('m') !== (int) $tomorrow->format('m')
++                    || (int) $birthDate->format('d') !== (int) $tomorrow->format('d')) {
++                    return;
++                }
++
++                $birthdayDate = $tomorrow->toDateString();
++                $exists = Notification::query()
++                    ->where('user_id', $user->id)
++                    ->where('type', 'BirthdayTomorrow')
++                    ->where('data->employee_id', $employee->id)
++                    ->where('data->birthday_date', $birthdayDate)
++                    ->exists();
++
++                if ($exists) {
++                    return;
++                }
++
++                $name = trim($employee->first_name.' '.$employee->last_name);
++                $notification = Notification::create([
++                    'user_id' => $user->id,
++                    'type' => 'BirthdayTomorrow',
++                    'title' => 'Birthday tomorrow: '.$name,
++                    'message' => $name.' has a birthday tomorrow ('.$birthdayDate.', '.$timezone.').',
++                    'action_url' => '/admin/dashboard',
++                    'data' => [
++                        'employee_id' => $employee->id,
++                        'employee_name' => $name,
++                        'birthday_date' => $birthdayDate,
++                        'timezone' => $timezone,
++                        'profile_picture' => $employee->profile_picture,
++                    ],
++                    'is_read' => false,
++                ]);
++
++                try {
++                    CareVmaNotificationBroadcast::dispatch($notification);
++                } catch (\Throwable $exception) {
++                    Log::warning('Birthday reminder saved but realtime broadcast failed.', [
++                        'notification_id' => $notification->id,
++                        'error' => $exception->getMessage(),
++                    ]);
++                }
++            });
++    }
++}
+--- a/app/Services/BirthdayService.php
++++ b/app/Services/BirthdayService.php
+@@ -35,7 +35,7 @@
+ 
+         if (in_array($user->role, ['admin', 'superadmin', 'hr'], true)) {
+             $employees = $this->todayBirthdays();
+-            $appNow = $this->clock->now(config('app.timezone', 'Asia/Karachi'));
++            $appNow = $this->clock->now(config('carevma.business_timezone', 'Asia/Karachi'));
+ 
+             return [
+                 'today' => $employees->isNotEmpty(),
+@@ -44,7 +44,7 @@
+             ];
+         }
+ 
+-        $timezone = $user->client?->timezone ?: config('app.timezone', 'Asia/Karachi');
++        $timezone = $user->client?->timezone ?: config('carevma.business_timezone', 'Asia/Karachi');
+         return [
+             'today' => false,
+             'date_key' => $this->clock->now($timezone)->toDateString(),
+@@ -146,12 +146,12 @@
+ 
+     private function employeeTimezone(?Employee $employee): string
+     {
+-        $timezone = trim((string) ($employee?->timezone ?: config('app.timezone', 'Asia/Karachi')));
++        $timezone = trim((string) ($employee?->timezone ?: config('carevma.business_timezone', 'Asia/Karachi')));
+         try {
+             new \DateTimeZone($timezone);
+             return $timezone;
+         } catch (\Throwable) {
+-            return config('app.timezone', 'Asia/Karachi');
++            return config('carevma.business_timezone', 'Asia/Karachi');
+         }
+     }
+ 
+--- a/app/Services/ClientTimezoneService.php
++++ b/app/Services/ClientTimezoneService.php
+@@ -0,0 +1,186 @@
++<?php
++
++namespace App\Services;
++
++use App\Models\Attendance;
++use App\Models\Client;
++use App\Models\EmployeeClientSchedule;
++use Carbon\Carbon;
++use DateTimeInterface;
++use DateTimeZone;
++use Illuminate\Support\Facades\Log;
++
++/**
++ * Canonical timezone gateway for CareVMA.
++ *
++ * Rules:
++ * - persisted timestamp instants are UTC;
++ * - client/doctor local time is the canonical business/display timezone for
++ *   client-owned attendance, invoices and schedules;
++ * - historical attendance keeps timezone_snapshot for calculation safety;
++ * - IANA timezone names are always used so DST is resolved for the actual date.
++ */
++class ClientTimezoneService
++{
++    public function __construct(private TrustedTimeService $clock)
++    {
++    }
++
++    public function businessTimezone(): string
++    {
++        return $this->valid(
++            config('carevma.business_timezone', 'Asia/Karachi'),
++            'UTC'
++        );
++    }
++
++    public function valid(?string $timezone, string $fallback = 'UTC'): string
++    {
++        $candidate = trim((string) $timezone);
++        if ($candidate !== '') {
++            try {
++                new DateTimeZone($candidate);
++                return $candidate;
++            } catch (\Throwable $e) {
++                Log::warning('CareVMA ignored an invalid timezone.', [
++                    'timezone' => $candidate,
++                    'fallback' => $fallback,
++                ]);
++            }
++        }
++
++        if ($fallback !== $candidate) {
++            try {
++                new DateTimeZone($fallback);
++                return $fallback;
++            } catch (\Throwable) {
++                // Fall through to UTC.
++            }
++        }
++
++        return 'UTC';
++    }
++
++    public function forClient(Client|string|null $clientOrTimezone): string
++    {
++        if ($clientOrTimezone instanceof Client) {
++            return $this->valid($clientOrTimezone->timezone, 'UTC');
++        }
++
++        return $this->valid($clientOrTimezone, 'UTC');
++    }
++
++    public function forSchedule(?EmployeeClientSchedule $schedule, ?Client $client = null): string
++    {
++        return $this->valid(
++            $client?->timezone ?: $schedule?->client?->timezone ?: $schedule?->timezone,
++            'UTC'
++        );
++    }
++
++    public function forAttendance(Attendance $attendance, bool $preferCurrentClient = true): string
++    {
++        $currentClientZone = $attendance->client?->timezone;
++        $snapshot = $attendance->timezone_snapshot;
++        $scheduleZone = $attendance->schedule?->timezone;
++
++        return $this->valid(
++            $preferCurrentClient
++                ? ($currentClientZone ?: $snapshot ?: $scheduleZone)
++                : ($snapshot ?: $currentClientZone ?: $scheduleZone),
++            'UTC'
++        );
++    }
++
++    public function now(Client|string|null $clientOrTimezone = null): Carbon
++    {
++        $zone = $clientOrTimezone instanceof Client
++            ? $this->forClient($clientOrTimezone)
++            : $this->valid($clientOrTimezone, $this->businessTimezone());
++
++        return $this->clock->now($zone);
++    }
++
++    public function utcNow(): Carbon
++    {
++        return $this->clock->now('UTC')->utc();
++    }
++
++    public function toZone(mixed $value, Client|string|null $clientOrTimezone, string $assume = 'UTC'): ?Carbon
++    {
++        if ($value === null || $value === '') {
++            return null;
++        }
++
++        $zone = $clientOrTimezone instanceof Client
++            ? $this->forClient($clientOrTimezone)
++            : $this->valid($clientOrTimezone, 'UTC');
++
++        try {
++            if ($value instanceof Carbon) {
++                return $value->copy()->setTimezone($zone);
++            }
++            if ($value instanceof DateTimeInterface) {
++                return Carbon::instance($value)->setTimezone($zone);
++            }
++            return Carbon::parse((string) $value, $this->valid($assume, 'UTC'))->setTimezone($zone);
++        } catch (\Throwable $e) {
++            Log::warning('CareVMA could not convert a date/time value.', [
++                'value' => is_scalar($value) ? (string) $value : get_debug_type($value),
++                'timezone' => $zone,
++            ]);
++            return null;
++        }
++    }
++
++    public function utcFromLocalDateTime(string $date, string $time, Client|string $clientOrTimezone): Carbon
++    {
++        $zone = $clientOrTimezone instanceof Client
++            ? $this->forClient($clientOrTimezone)
++            : $this->valid($clientOrTimezone, 'UTC');
++
++        return Carbon::createFromFormat('Y-m-d H:i', trim($date).' '.substr(trim($time), 0, 5), $zone)->utc();
++    }
++
++    /** @return array{0:Carbon,1:Carbon} */
++    public function utcBoundsForLocalDates(string $from, string $to, Client|string $clientOrTimezone): array
++    {
++        $zone = $clientOrTimezone instanceof Client
++            ? $this->forClient($clientOrTimezone)
++            : $this->valid($clientOrTimezone, 'UTC');
++
++        return [
++            Carbon::parse($from, $zone)->startOfDay()->utc(),
++            Carbon::parse($to, $zone)->endOfDay()->utc(),
++        ];
++    }
++
++
++    /** @return array{0:?Carbon,1:?Carbon} */
++    public function utcRangeForLocalFilters(?string $from, ?string $to, Client|string $clientOrTimezone): array
++    {
++        $zone = $clientOrTimezone instanceof Client
++            ? $this->forClient($clientOrTimezone)
++            : $this->valid($clientOrTimezone, 'UTC');
++
++        $start = $from ? Carbon::parse($from, $zone)->startOfDay()->utc() : null;
++        $end = $to ? Carbon::parse($to, $zone)->endOfDay()->utc() : null;
++
++        return [$start, $end];
++    }
++
++    public function localDate(mixed $utcValue, Client|string $clientOrTimezone): ?string
++    {
++        return $this->toZone($utcValue, $clientOrTimezone, 'UTC')?->toDateString();
++    }
++
++    public function isoInZone(mixed $utcValue, Client|string $clientOrTimezone): ?string
++    {
++        return $this->toZone($utcValue, $clientOrTimezone, 'UTC')?->toIso8601String();
++    }
++
++    public function label(mixed $utcValue, Client|string $clientOrTimezone, string $format = 'M d, Y, g:i A'): ?string
++    {
++        return $this->toZone($utcValue, $clientOrTimezone, 'UTC')?->format($format);
++    }
++}
+--- a/app/Services/InvoiceGenerator.php
++++ b/app/Services/InvoiceGenerator.php
+@@ -13,8 +13,10 @@
+ 
+ class InvoiceGenerator
+ {
+-    public function __construct(private TrustedTimeService $clock)
+-    {
++    public function __construct(
++        private TrustedTimeService $clock,
++        private ClientTimezoneService $timezones,
++    ) {
+     }
+ 
+     public function generate(Client $client, string $periodStart, string $periodEnd, bool $autoGenerated = false): ?Invoice
+@@ -28,8 +30,9 @@
+             return $existing;
+         }
+ 
++        [$periodStartUtc, $periodEndUtc] = $this->timezones->utcBoundsForLocalDates($periodStart, $periodEnd, $client);
+         $attendanceQuery = Attendance::query()
+-            ->whereBetween('date', [$periodStart, $periodEnd])
++            ->whereBetween('clock_in', [$periodStartUtc, $periodEndUtc])
+             ->whereNotNull('clock_out');
+ 
+         // A requested 25th -> next-month 26th cycle overlaps the adjacent calendar cycle.
+@@ -45,10 +48,12 @@
+             ->get(['period_start', 'period_end']);
+ 
+         foreach ($coveredPeriods as $covered) {
+-            $attendanceQuery->whereNotBetween('date', [
++            [$coveredStartUtc, $coveredEndUtc] = $this->timezones->utcBoundsForLocalDates(
+                 $covered->period_start->toDateString(),
+                 $covered->period_end->toDateString(),
+-            ]);
++                $client
++            );
++            $attendanceQuery->whereNotBetween('clock_in', [$coveredStartUtc, $coveredEndUtc]);
+         }
+ 
+         if (Schema::hasColumn('attendances', 'client_id')) {
+@@ -68,7 +73,7 @@
+         return DB::transaction(function () use ($attendance, $client, $periodStart, $periodEnd, $autoGenerated) {
+             $invoice = Invoice::create([
+                 'client_id' => $client->id,
+-                'invoice_number' => $this->nextNumber(),
++                'invoice_number' => $this->nextNumber($client),
+                 'period_start' => $periodStart,
+                 'period_end' => $periodEnd,
+                 'total_hours' => 0,
+@@ -127,10 +132,10 @@
+         });
+     }
+ 
+-    private function nextNumber(): string
++    private function nextNumber(Client $client): string
+     {
+         do {
+-            $number = 'INV-'.$this->clock->now(config('app.timezone', 'Asia/Karachi'))->format('Ym').'-'.strtoupper(Str::random(6));
++            $number = 'INV-'.$this->timezones->now($client)->format('Ym').'-'.strtoupper(Str::random(6));
+         } while (Invoice::where('invoice_number', $number)->exists());
+ 
+         return $number;
+--- a/bootstrap/app.php
++++ b/bootstrap/app.php
+@@ -1,8 +1,16 @@
+ <?php
+ 
++use Illuminate\Auth\Access\AuthorizationException;
++use Illuminate\Auth\AuthenticationException;
++use Illuminate\Database\Eloquent\ModelNotFoundException;
++use Illuminate\Database\QueryException;
+ use Illuminate\Foundation\Application;
+ use Illuminate\Foundation\Configuration\Exceptions;
+ use Illuminate\Foundation\Configuration\Middleware;
++use Illuminate\Http\Request;
++use Illuminate\Support\Facades\Log;
++use Illuminate\Validation\ValidationException;
++use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
+ 
+ return Application::configure(basePath: dirname(__DIR__))
+     ->withRouting(
+@@ -24,5 +32,93 @@
+         ]);
+     })
+     ->withExceptions(function (Exceptions $exceptions): void {
+-        //
++        $exceptions->shouldRenderJsonWhen(
++            fn (Request $request, Throwable $e) => $request->is('api/*') || $request->expectsJson()
++        );
++
++        $exceptions->render(function (ValidationException $e, Request $request) {
++            if (!$request->is('api/*') && !$request->expectsJson()) return null;
++
++            $errors = $e->errors();
++            $first = collect($errors)->flatten()->first();
++            return response()->json([
++                'message' => $first ?: 'Please review the highlighted fields and try again.',
++                'errors' => $errors,
++                'code' => 'VALIDATION_FAILED',
++            ], 422);
++        });
++
++        $exceptions->render(function (AuthenticationException $e, Request $request) {
++            if (!$request->is('api/*') && !$request->expectsJson()) return null;
++            return response()->json([
++                'message' => 'Your session has expired. Please sign in again.',
++                'code' => 'AUTHENTICATION_REQUIRED',
++            ], 401);
++        });
++
++        $exceptions->render(function (AuthorizationException $e, Request $request) {
++            if (!$request->is('api/*') && !$request->expectsJson()) return null;
++            return response()->json([
++                'message' => 'You do not have permission to perform this action.',
++                'code' => 'PERMISSION_DENIED',
++            ], 403);
++        });
++
++        $exceptions->render(function (ModelNotFoundException $e, Request $request) {
++            if (!$request->is('api/*') && !$request->expectsJson()) return null;
++            return response()->json([
++                'message' => 'The requested record could not be found. It may have been removed or changed.',
++                'code' => 'RECORD_NOT_FOUND',
++            ], 404);
++        });
++
++        $exceptions->render(function (QueryException $e, Request $request) {
++            if (!$request->is('api/*') && !$request->expectsJson()) return null;
++
++            Log::error('CareVMA database operation failed.', [
++                'request_id' => $request->headers->get('X-Request-ID'),
++                'method' => $request->method(),
++                'path' => $request->path(),
++                'user_id' => $request->user()?->id,
++                'sql_state' => $e->errorInfo[0] ?? null,
++                'driver_code' => $e->errorInfo[1] ?? null,
++                'exception' => $e,
++            ]);
++
++            return response()->json([
++                'message' => 'We could not save your changes because the database rejected the request. Please refresh and try again. If the problem continues, contact an administrator.',
++                'code' => 'DATABASE_OPERATION_FAILED',
++            ], 500);
++        });
++
++        $exceptions->render(function (\Throwable $e, Request $request) {
++            if (!$request->is('api/*') && !$request->expectsJson()) return null;
++
++            $status = $e instanceof HttpExceptionInterface ? $e->getStatusCode() : 500;
++            if ($status < 500) {
++                $message = match ($status) {
++                    403 => 'You do not have permission to perform this action.',
++                    404 => 'The requested page or record could not be found.',
++                    405 => 'This action is not available from the current page.',
++                    409 => 'This record changed while you were working. Refresh the page and try again.',
++                    419 => 'Your session security token expired. Refresh the page and try again.',
++                    429 => 'Too many requests were sent. Please wait a moment and try again.',
++                    default => 'The request could not be completed. Please review your input and try again.',
++                };
++                return response()->json(['message' => $message, 'code' => 'REQUEST_FAILED'], $status);
++            }
++
++            Log::error('Unexpected CareVMA API failure.', [
++                'request_id' => $request->headers->get('X-Request-ID'),
++                'method' => $request->method(),
++                'path' => $request->path(),
++                'user_id' => $request->user()?->id,
++                'exception' => $e,
++            ]);
++
++            return response()->json([
++                'message' => 'CareVMA could not complete this request because of an unexpected server problem. Your data was not intentionally changed. Please try again, and contact an administrator if it continues.',
++                'code' => 'UNEXPECTED_SERVER_ERROR',
++            ], 500);
++        });
+     })->create();
+--- a/config/app.php
++++ b/config/app.php
+@@ -65,7 +65,7 @@
+     |
+     */
+ 
+-    'timezone' => env('APP_TIMEZONE', 'Asia/Karachi'),
++    'timezone' => 'UTC',
+ 
+     /*
+     |--------------------------------------------------------------------------
+--- a/config/carevma.php
++++ b/config/carevma.php
+@@ -0,0 +1,10 @@
++<?php
++
++return [
++    // Admin/HR operational clock only. Client-owned records never inherit this
++    // timezone; they always use the client's assigned IANA timezone.
++    'business_timezone' => env('CARE_VMA_BUSINESS_TIMEZONE', 'Asia/Karachi'),
++
++    // Database/application timestamp baseline. Keep this UTC.
++    'storage_timezone' => 'UTC',
++];
+--- a/database/migrations/2026_10_27_220000_add_shift_snapshots_to_attendances.php
++++ b/database/migrations/2026_10_27_220000_add_shift_snapshots_to_attendances.php
+@@ -0,0 +1,75 @@
++<?php
++
++use Carbon\Carbon;
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\DB;
++use Illuminate\Support\Facades\Schema;
++
++return new class extends Migration
++{
++    public function up(): void
++    {
++        if (!Schema::hasTable('attendances')) return;
++
++        Schema::table('attendances', function (Blueprint $table) {
++            if (!Schema::hasColumn('attendances', 'shift_start_snapshot')) {
++                $table->dateTime('shift_start_snapshot')->nullable()->after('timezone_snapshot');
++            }
++            if (!Schema::hasColumn('attendances', 'shift_end_snapshot')) {
++                $table->dateTime('shift_end_snapshot')->nullable()->after('shift_start_snapshot');
++            }
++        });
++
++        if (!Schema::hasColumn('attendances', 'schedule_id') || !Schema::hasTable('employee_client_schedules')) return;
++
++        DB::table('attendances as a')
++            ->join('employee_client_schedules as s', 's.id', '=', 'a.schedule_id')
++            ->whereNotNull('a.date')
++            ->whereNull('a.shift_start_snapshot')
++            ->select(['a.id', 'a.date', 'a.timezone_snapshot', 's.timezone', 's.start_time', 's.end_time'])
++            ->orderBy('a.id')
++            ->chunkById(200, function ($rows) {
++                foreach ($rows as $row) {
++                    $timezone = $this->validTimezone($row->timezone_snapshot ?: $row->timezone);
++                    if (!$timezone || !$row->start_time || !$row->end_time) continue;
++
++                    try {
++                        $start = Carbon::parse($row->date.' '.$row->start_time, $timezone);
++                        $end = Carbon::parse($row->date.' '.$row->end_time, $timezone);
++                        if ($end->lte($start)) $end->addDay();
++
++                        DB::table('attendances')->where('id', $row->id)->update([
++                            'shift_start_snapshot' => $start->utc()->format('Y-m-d H:i:s'),
++                            'shift_end_snapshot' => $end->utc()->format('Y-m-d H:i:s'),
++                        ]);
++                    } catch (\Throwable) {
++                        // Leave malformed legacy rows nullable; runtime keeps a safe fallback.
++                    }
++                }
++            }, 'a.id', 'id');
++    }
++
++    public function down(): void
++    {
++        if (!Schema::hasTable('attendances')) return;
++        Schema::table('attendances', function (Blueprint $table) {
++            $columns = [];
++            if (Schema::hasColumn('attendances', 'shift_start_snapshot')) $columns[] = 'shift_start_snapshot';
++            if (Schema::hasColumn('attendances', 'shift_end_snapshot')) $columns[] = 'shift_end_snapshot';
++            if ($columns) $table->dropColumn($columns);
++        });
++    }
++
++    private function validTimezone(?string $timezone): ?string
++    {
++        $timezone = trim((string) $timezone);
++        if ($timezone === '') return null;
++        try {
++            new DateTimeZone($timezone);
++            return $timezone;
++        } catch (\Throwable) {
++            return null;
++        }
++    }
++};
+--- a/resources/css/carevma-professional-theme.css
++++ b/resources/css/carevma-professional-theme.css
+@@ -1746,3 +1746,15 @@
+   .client-va-header{align-items:flex-start!important;flex-direction:column!important}
+   .client-schedule-row .client-row-menu{justify-content:flex-start}
+ }
++
++/* =========================================================
++   Global confirmation + toast feedback
++   ========================================================= */
++.carevma-confirm-backdrop{position:fixed;inset:0;z-index:99990;background:rgba(9,18,32,.48);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:20px}
++.carevma-confirm-dialog{width:min(460px,100%);background:#fff;border:1px solid #e4e9f0;border-radius:18px;box-shadow:0 28px 70px rgba(9,18,32,.22);padding:24px;display:grid;grid-template-columns:auto 1fr;gap:16px}
++.carevma-confirm-icon{width:46px;height:46px;border-radius:14px;display:grid;place-items:center;background:#edf7ff;color:#1268a8}.carevma-confirm-icon.danger{background:#fff0f0;color:#c53030}
++.carevma-confirm-copy h2{margin:0 0 7px;font-size:19px;color:#10243e}.carevma-confirm-copy p{margin:0;color:#627083;line-height:1.55}
++.carevma-confirm-actions{grid-column:1/-1;display:flex;justify-content:flex-end;gap:10px;padding-top:8px}.btn-danger{background:#c53030!important;color:#fff!important;border-color:#c53030!important}
++.carevma-toast-stack{position:fixed;right:22px;top:84px;z-index:99999;display:grid;gap:10px;width:min(390px,calc(100vw - 32px));pointer-events:none}
++.carevma-toast{pointer-events:auto;background:#fff;border:1px solid #dfe6ee;border-radius:13px;box-shadow:0 14px 36px rgba(9,18,32,.16);padding:13px 14px;display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:10px;color:#26364a}.carevma-toast-success{border-left:4px solid #24955d}.carevma-toast-error{border-left:4px solid #cc3f3f}.carevma-toast-warning{border-left:4px solid #d9901a}.carevma-toast-info{border-left:4px solid #2577b8}.carevma-toast button{border:0;background:transparent;color:#7b8795;cursor:pointer;padding:3px}
++@media(max-width:640px){.carevma-toast-stack{right:16px;top:72px}.carevma-confirm-dialog{padding:20px;grid-template-columns:1fr}.carevma-confirm-icon{margin-bottom:-4px}.carevma-confirm-actions{grid-column:1;flex-direction:column-reverse}.carevma-confirm-actions .btn{width:100%}}
+--- a/resources/js/api.js
++++ b/resources/js/api.js
+@@ -1,4 +1,5 @@
+ import axios from 'axios';
++import { confirmationForRequest, emitToast, requestConfirmation } from './feedback';
+ 
+ const api = axios.create({
+   baseURL: '/api',
+@@ -16,17 +17,29 @@
+   }
+ };
+ 
+-api.interceptors.request.use(config => {
++api.interceptors.request.use(async config => {
++  config.headers = config.headers || {};
++  config.headers['X-Request-ID'] = config.headers['X-Request-ID'] || (globalThis.crypto?.randomUUID?.() || `cvma-${Date.now()}-${Math.random().toString(36).slice(2)}`);
++
++  const confirmation = confirmationForRequest(config);
++  if (confirmation) {
++    const confirmed = await requestConfirmation(confirmation);
++    if (!confirmed) {
++      const error = new axios.CanceledError('Action cancelled by user.');
++      error.carevmaCancelled = true;
++      throw error;
++    }
++    config.carevmaConfirmed = true;
++  }
++
+   const method = String(config?.method || 'get').toLowerCase();
+   const navigationActive = typeof window !== 'undefined' && window.__carevmaPageNavigationActive === true;
+   const silent = config?.carevmaSilent === true;
+-
+   if (method === 'get' && navigationActive && !silent) {
+     config.__carevmaPageTracked = true;
+     pagePendingRequests += 1;
+     emitPageRequestState();
+   }
+-
+   return config;
+ });
+ 
+@@ -39,13 +52,16 @@
+ api.interceptors.response.use(
+   response => {
+     settlePageRequest(response?.config);
++    const method = String(response?.config?.method || 'get').toLowerCase();
++    if (response?.config?.carevmaAutoToast !== false && (['put', 'patch', 'delete'].includes(method) || response?.config?.carevmaConfirmed)) {
++      emitToast(response?.data?.message || (method === 'delete' ? 'Record deleted successfully.' : 'Changes saved successfully.'), 'success');
++    }
+     return response;
+   },
+   error => {
+     settlePageRequest(error?.config);
+-    if (error?.response?.status === 401) {
+-      window.dispatchEvent(new CustomEvent('carevma:unauthorized'));
+-    }
++    if (error?.carevmaCancelled || axios.isCancel(error)) return Promise.reject(error);
++    if (error?.response?.status === 401) window.dispatchEvent(new CustomEvent('carevma:unauthorized'));
+     if (error?.response?.status === 423 && error?.response?.data?.code === 'PROFILE_INCOMPLETE') {
+       window.dispatchEvent(new CustomEvent('carevma:profile-incomplete', { detail: error.response.data }));
+       if (window.location.pathname !== '/employee/profile') {
+@@ -53,13 +69,32 @@
+         window.dispatchEvent(new PopStateEvent('popstate'));
+       }
+     }
++    emitToast(messageFrom(error), 'error');
+     return Promise.reject(error);
+   },
+ );
+ 
+-export const messageFrom = error =>
+-  error?.response?.data?.message ||
+-  Object.values(error?.response?.data?.errors || {}).flat()[0] ||
+-  'Something went wrong. Please try again.';
++export const isCancelled = error => Boolean(error?.carevmaCancelled || axios.isCancel(error));
++
++export const messageFrom = error => {
++  if (isCancelled(error)) return '';
++  if (!error?.response) return 'CareVMA could not reach the server. Check your internet connection and try again.';
++
++  const status = Number(error.response.status || 0);
++  const serverMessage = String(error?.response?.data?.message || '').trim();
++  const validationMessage = Object.values(error?.response?.data?.errors || {}).flat().find(Boolean);
++  if (validationMessage) return String(validationMessage);
++  if (serverMessage) return serverMessage;
++
++  if (status === 401) return 'Your session has expired. Please sign in again.';
++  if (status === 403) return 'You do not have permission to perform this action.';
++  if (status === 404) return 'The requested record could not be found. Refresh the page and try again.';
++  if (status === 409) return 'This record changed while you were working. Refresh the page and try again.';
++  if (status === 419) return 'Your session security token expired. Refresh the page and try again.';
++  if (status === 422) return 'Please review the information you entered and try again.';
++  if (status === 429) return 'Too many requests were sent. Please wait a moment and try again.';
++  if (status >= 500) return 'CareVMA encountered a server problem. Please try again; if it continues, contact an administrator.';
++  return 'The request could not be completed. Please try again.';
++};
+ 
+ export default api;
+--- a/resources/js/app.jsx
++++ b/resources/js/app.jsx
+@@ -15,6 +15,7 @@
+ import ClientProfilePage from './pages/ClientProfile';
+ import '../css/app.css';
+ import '../css/carevma-professional-theme.css';
++import GlobalFeedbackHost from './components/GlobalFeedbackHost';
+ 
+ function dashboardFor(user) {
+   if (!user) return '/login';
+@@ -150,6 +151,7 @@
+ createRoot(document.getElementById('app')).render(
+   <React.StrictMode>
+     <BrowserRouter>
++      <GlobalFeedbackHost/>
+       <AuthProvider><AppRoutes/></AuthProvider>
+     </BrowserRouter>
+   </React.StrictMode>
+--- a/resources/js/components/AppShell.jsx
++++ b/resources/js/components/AppShell.jsx
+@@ -12,6 +12,8 @@
+ import LiveNavbarClock from './LiveNavbarClock';
+ import BirthdayPopup from './BirthdayPopup';
+ import { AvatarMedia } from './ui';
++import { formatDate } from '../timezone';
++import { emitToast } from '../feedback';
+ import '../../css/live-workforce-badge.css';
+ import '../../css/carevma-brand-clock.css';
+ import '../../css/birthday-popup.css';
+@@ -207,6 +209,7 @@
+       setNotificationRows((data?.data || []).slice(0, 8));
+     } catch {
+       setNotificationRows([]);
++      emitToast('Notifications could not be loaded. Check your connection and try again.', 'error');
+     } finally {
+       setNotificationLoading(false);
+     }
+@@ -306,7 +309,9 @@
+         await api.post(`/notifications/${row.id}/read`);
+         setNotificationRows(current => current.map(item => item.id === row.id ? { ...item, is_read: true } : item));
+         setUnread(current => Math.max(0, current - 1));
+-      } catch {}
++      } catch {
++        emitToast('This notification could not be marked as read. Please try again.', 'error');
++      }
+     }
+     setNotificationOpen(false);
+     if (row.action_url) { beginPageLoad(); navigate(row.action_url); }
+@@ -318,7 +323,9 @@
+       setNotificationRows(current => current.map(item => ({ ...item, is_read: true })));
+       setUnread(0);
+       window.dispatchEvent(new Event('carevma:notifications-read'));
+-    } catch {}
++    } catch {
++      emitToast('Notifications could not be marked as read. Please try again.', 'error');
++    }
+   };
+ 
+   const formatNotificationTime = value => {
+@@ -333,7 +340,7 @@
+     if (hours < 24) return `${hours}h ago`;
+     const days = Math.floor(hours / 24);
+     if (days < 7) return `${days}d ago`;
+-    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
++    return formatDate(value, user?.assigned_timezone || user?.timezone || 'UTC', { month: 'short', day: 'numeric' });
+   };
+ 
+   useEffect(() => {
+--- a/resources/js/components/GlobalFeedbackHost.jsx
++++ b/resources/js/components/GlobalFeedbackHost.jsx
+@@ -0,0 +1,59 @@
++import { useEffect, useRef, useState } from 'react';
++import { AlertTriangle, CheckCircle2, Info, X, XCircle } from 'lucide-react';
++
++export default function GlobalFeedbackHost() {
++  const [confirm, setConfirm] = useState(null);
++  const [toasts, setToasts] = useState([]);
++  const lastToast = useRef({ message: '', at: 0 });
++
++  useEffect(() => {
++    const onConfirm = event => setConfirm(event.detail || null);
++    const onToast = event => {
++      const message = String(event.detail?.message || '').trim();
++      if (!message) return;
++      const now = Date.now();
++      if (lastToast.current.message === message && now - lastToast.current.at < 1200) return;
++      lastToast.current = { message, at: now };
++      const id = `${now}-${Math.random().toString(36).slice(2)}`;
++      setToasts(current => [...current.slice(-3), { id, message, type: event.detail?.type || 'success' }]);
++      window.setTimeout(() => setToasts(current => current.filter(item => item.id !== id)), 4500);
++    };
++    window.addEventListener('carevma:confirm-request', onConfirm);
++    window.addEventListener('carevma:toast', onToast);
++    return () => {
++      window.removeEventListener('carevma:confirm-request', onConfirm);
++      window.removeEventListener('carevma:toast', onToast);
++    };
++  }, []);
++
++  const resolveConfirm = confirmed => {
++    if (!confirm?.id) return;
++    window.dispatchEvent(new CustomEvent('carevma:confirm-result', { detail: { id: confirm.id, confirmed } }));
++    setConfirm(null);
++  };
++
++  const iconFor = type => type === 'error' ? <XCircle size={18}/> : type === 'warning' ? <AlertTriangle size={18}/> : type === 'info' ? <Info size={18}/> : <CheckCircle2 size={18}/>;
++
++  return <>
++    {confirm && <div className="carevma-confirm-backdrop" role="presentation" onMouseDown={event => event.target === event.currentTarget && resolveConfirm(false)}>
++      <div className="carevma-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="carevma-confirm-title">
++        <div className={`carevma-confirm-icon ${confirm.danger ? 'danger' : ''}`}><AlertTriangle size={24}/></div>
++        <div className="carevma-confirm-copy">
++          <h2 id="carevma-confirm-title">{confirm.title}</h2>
++          <p>{confirm.message}</p>
++        </div>
++        <div className="carevma-confirm-actions">
++          <button type="button" className="btn btn-ghost" onClick={() => resolveConfirm(false)}>{confirm.cancelLabel || 'Cancel'}</button>
++          <button type="button" className={`btn ${confirm.danger ? 'btn-danger' : 'btn-primary'}`} onClick={() => resolveConfirm(true)}>{confirm.confirmLabel || 'Confirm'}</button>
++        </div>
++      </div>
++    </div>}
++
++    <div className="carevma-toast-stack" aria-live="polite">
++      {toasts.map(toast => <div className={`carevma-toast carevma-toast-${toast.type}`} key={toast.id}>
++        {iconFor(toast.type)}<span>{toast.message}</span>
++        <button type="button" aria-label="Dismiss" onClick={() => setToasts(current => current.filter(item => item.id !== toast.id))}><X size={15}/></button>
++      </div>)}
++    </div>
++  </>;
++}
+--- a/resources/js/components/SalaryConverter.jsx
++++ b/resources/js/components/SalaryConverter.jsx
+@@ -2,6 +2,7 @@
+ import { RefreshCw } from 'lucide-react';
+ import api, { messageFrom } from '../api';
+ import { Input } from './ui';
++import { DEFAULT_TIMEZONE, formatDateTime } from '../timezone';
+ 
+ export default function SalaryConverter({ pkr, usd, onPkrChange, onUsdChange }) {
+   const [fx, setFx] = useState({ loading: true, rate: null, source: null, updated_at: null, error: null });
+@@ -41,7 +42,7 @@
+     <div className={`salary-fx-note ${fx.error ? 'error' : ''}`}>
+       <div>
+         {fx.loading && <span>Loading PKR → USD rate…</span>}
+-        {!fx.loading && fx.rate && <span><strong>1 PKR = {fx.rate.toFixed(6)} USD</strong>{fx.updated_at ? ` · updated ${new Date(fx.updated_at).toLocaleString()}` : ''}</span>}
++        {!fx.loading && fx.rate && <span><strong>1 PKR = {fx.rate.toFixed(6)} USD</strong>{fx.updated_at ? ` · updated ${formatDateTime(fx.updated_at, DEFAULT_TIMEZONE)}` : ''}</span>}
+         {!fx.loading && fx.error && <span>{fx.error}</span>}
+         <a href="https://www.exchangerate-api.com" target="_blank" rel="noreferrer">Rates by ExchangeRate-API</a>
+       </div>
+--- a/resources/js/components/ui.jsx
++++ b/resources/js/components/ui.jsx
+@@ -1,5 +1,6 @@
+ import { useEffect, useMemo, useState } from 'react';
+ import { LoaderCircle, Search, X, CheckCircle2, AlertCircle } from 'lucide-react';
++import { formatDateTime, formatTime24 } from '../timezone';
+ 
+ 
+ function normalizeMediaSrc(value) {
+@@ -258,20 +259,6 @@
+   const minutes = total % 60;
+   return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
+ };
+-export const dateTime = (value, timeZone) => {
+-  if (!value) return '—';
+-  try {
+-    return new Date(value).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short', ...(timeZone ? { timeZone } : {}) });
+-  } catch {
+-    return new Date(value).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+-  }
+-};
++export const dateTime = (value, timeZone = 'UTC') => formatDateTime(value, timeZone);
+ 
+-export const timeValue = (value, timeZone) => {
+-  if (!value) return '';
+-  try {
+-    return new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', ...(timeZone ? { timeZone } : {}) }).format(new Date(value));
+-  } catch {
+-    return new Date(value).toTimeString().slice(0, 5);
+-  }
+-};
++export const timeValue = (value, timeZone = 'UTC') => formatTime24(value, timeZone);
+--- a/resources/js/feedback.js
++++ b/resources/js/feedback.js
+@@ -0,0 +1,86 @@
++let confirmSequence = 0;
++
++export function requestConfirmation(options = {}) {
++  if (typeof window === 'undefined') return Promise.resolve(true);
++  const id = `carevma-confirm-${++confirmSequence}`;
++  return new Promise(resolve => {
++    const handler = event => {
++      if (event.detail?.id !== id) return;
++      window.removeEventListener('carevma:confirm-result', handler);
++      resolve(Boolean(event.detail?.confirmed));
++    };
++    window.addEventListener('carevma:confirm-result', handler);
++    window.dispatchEvent(new CustomEvent('carevma:confirm-request', {
++      detail: {
++        id,
++        title: options.title || 'Confirm action',
++        message: options.message || 'Are you sure you want to continue?',
++        confirmLabel: options.confirmLabel || 'Confirm',
++        cancelLabel: options.cancelLabel || 'Cancel',
++        danger: Boolean(options.danger),
++      },
++    }));
++  });
++}
++
++export function emitToast(message, type = 'success') {
++  if (!message || typeof window === 'undefined') return;
++  window.dispatchEvent(new CustomEvent('carevma:toast', { detail: { message, type } }));
++}
++
++function humanResource(url = '') {
++  const path = String(url).split('?')[0].replace(/^\/api\//, '/').replace(/^\//, '');
++  if (path.includes('company-finance')) return 'finance entry';
++  if (path.includes('employees')) return 'employee';
++  if (path.includes('clients')) return 'client';
++  if (path.includes('schedules')) return 'schedule';
++  if (path.includes('invoices')) return 'invoice';
++  if (path.includes('hr-users')) return 'HR account';
++  if (path.includes('references')) return 'configuration item';
++  if (path.includes('password')) return 'password';
++  if (path.includes('account')) return 'account';
++  if (path.includes('profile')) return 'profile';
++  if (path.includes('overtime')) return 'overtime decision';
++  if (path.includes('change-requests')) return 'attendance change request';
++  return 'record';
++}
++
++export function confirmationForRequest(config = {}) {
++  if (config.carevmaConfirm === false || config.carevmaConfirmed === true) return null;
++  const method = String(config.method || 'get').toLowerCase();
++  const url = String(config.url || '');
++  const resource = humanResource(url);
++
++  if (method === 'delete') {
++    return {
++      title: `Delete ${resource}?`,
++      message: `Are you sure you want to delete this ${resource}? This action cannot be undone.`,
++      confirmLabel: 'Delete',
++      danger: true,
++    };
++  }
++
++  if (['put', 'patch'].includes(method)) {
++    return {
++      title: `Update ${resource}?`,
++      message: `Are you sure you want to save these changes to this ${resource}?`,
++      confirmLabel: 'Save changes',
++      danger: false,
++    };
++  }
++
++  if (method === 'post' && (
++    /\/profile(?:$|\?)/.test(url) ||
++    /\/review(?:$|\?)/.test(url) ||
++    /\/read-all(?:$|\?)/.test(url)
++  )) {
++    return {
++      title: `Confirm ${resource} update`,
++      message: `Are you sure you want to apply this update to the ${resource}?`,
++      confirmLabel: 'Confirm',
++      danger: false,
++    };
++  }
++
++  return null;
++}
+--- a/resources/js/pages/ClientProfile.jsx
++++ b/resources/js/pages/ClientProfile.jsx
+@@ -32,14 +32,13 @@
+   dateTime,
+ } from '../components/ui';
+ import TimezonePicker from '../components/TimezonePicker';
++import { formatDate, formatTime24, formatWeekday, weekdayFromDateOnly } from '../timezone';
+ import '../../css/client-profile.css';
+ import '../../css/dual-timezone-tables.css';
+ 
+ 
+-function tzDate(value, timeZone){
+-  if(!value) return '—';
+-  try{return new Intl.DateTimeFormat('en-US',{timeZone,year:'numeric',month:'short',day:'2-digit'}).format(new Date(value))}catch{return '—'}
+-}
++function tzDate(value,timeZone){return formatDate(value,timeZone||'UTC')}
++
+ function DualTime({value,doctorTz,vaTz,live=false}){
+   if(!value) return live?<Badge tone="warning">Live</Badge>:<span>—</span>;
+   return <div className="dual-time-cell">
+@@ -82,30 +81,11 @@
+ }
+ 
+ 
+-function weekdayFromDate(value) {
+-  if (!value) return null;
+-  const date = new Date(`${value}T12:00:00Z`);
+-  if (Number.isNaN(date.getTime())) return null;
+-  return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][date.getUTCDay()];
+-}
++function weekdayFromDate(value) { return weekdayFromDateOnly(value) || null; }
+ 
+-function timeInZone(value, timeZone) {
+-  if (!value) return '';
+-  try {
+-    const parts = new Intl.DateTimeFormat('en-GB', {
+-      timeZone: timeZone || 'UTC', hour: '2-digit', minute: '2-digit', hour12: false,
+-    }).formatToParts(new Date(value));
+-    const hour = parts.find(part => part.type === 'hour')?.value || '00';
+-    const minute = parts.find(part => part.type === 'minute')?.value || '00';
+-    return `${hour}:${minute}`;
+-  } catch { return ''; }
+-}
++function timeInZone(value,timeZone){return formatTime24(value,timeZone||'UTC')}
+ 
+-function weekdayInZone(value, timeZone) {
+-  if (!value) return '';
+-  try { return new Intl.DateTimeFormat('en-US', { timeZone: timeZone || 'UTC', weekday: 'long' }).format(new Date(value)); }
+-  catch { return ''; }
+-}
++function weekdayInZone(value,timeZone){return formatWeekday(value,timeZone||'UTC')}
+ 
+ function formatTime12(value) {
+   if (!value) return '—';
+@@ -194,7 +174,7 @@
+   const [reportLoading, setReportLoading] = useState(false);
+   const [reportFilters, setReportFilters] = useState({ employee_id: '', from: '', to: '', search: '' });
+ 
+-  const notify = (type, text) => setNotice({ type, text });
++  const notify = (type, text) => { if (text) setNotice({ type, text }); };
+ 
+   const goTab = (tabKey) => {
+     const tab = TABS.find(item => item.key === tabKey) || TABS[0];
+@@ -424,7 +404,7 @@
+           repeat: !!row.repeat,
+           schedule_date: null,
+         };
+-        const existing = existingForEmployee.find(schedule => String(schedule.weekday).toLowerCase() === day.toLowerCase());
++        const existing = existingForEmployee.find(schedule => String(schedule.employee_weekday || schedule.weekday).toLowerCase() === day.toLowerCase());
+         return existing
+           ? api.put(`/management/schedules/${existing.id}`, payload)
+           : api.post('/management/schedules', payload);
+@@ -519,7 +499,6 @@
+   };
+ 
+   const removeSchedule = async schedule => {
+-    if (!window.confirm(`Delete ${schedule.weekday} schedule for ${schedule.employee?.first_name || 'this VA'}?`)) return;
+     setBusy(true);
+     try {
+       await api.delete(`/management/schedules/${schedule.id}`);
+@@ -840,9 +819,9 @@
+ 
+   const reportColumns = [
+     { key: 'employee', label: 'VA', render: row => `${row.employee?.first_name || ''} ${row.employee?.last_name || ''}`.trim() || '—' },
+-    { key: 'date', label: 'Date', render: row => <DualDate value={row.clock_in || row.date} doctorTz={client?.timezone || row.client?.timezone || 'UTC'} vaTz={row.employee?.timezone || row.timezone_snapshot || 'UTC'} /> },
+-    { key: 'clock_in', label: 'Clock in', render: row => <DualTime value={row.clock_in} doctorTz={client?.timezone || row.client?.timezone || 'UTC'} vaTz={row.employee?.timezone || row.timezone_snapshot || 'UTC'} /> },
+-    { key: 'clock_out', label: 'Clock out', render: row => <DualTime value={row.clock_out} doctorTz={client?.timezone || row.client?.timezone || 'UTC'} vaTz={row.employee?.timezone || row.timezone_snapshot || 'UTC'} live={!row.clock_out} /> },
++    { key: 'date', label: 'Date', render: row => <DualDate value={row.clock_in || row.date} doctorTz={row.client_timezone || client?.timezone || row.client?.timezone || 'UTC'} vaTz={row.employee_timezone || row.employee?.timezone || 'UTC'} /> },
++    { key: 'clock_in', label: 'Clock in', render: row => <DualTime value={row.clock_in} doctorTz={row.client_timezone || client?.timezone || row.client?.timezone || 'UTC'} vaTz={row.employee_timezone || row.employee?.timezone || 'UTC'} /> },
++    { key: 'clock_out', label: 'Clock out', render: row => <DualTime value={row.clock_out} doctorTz={row.client_timezone || client?.timezone || row.client?.timezone || 'UTC'} vaTz={row.employee_timezone || row.employee?.timezone || 'UTC'} live={!row.clock_out} /> },
+     { key: 'worked', label: 'Worked', render: row => mins(row.total_minutes) },
+     { key: 'break', label: 'Break', render: row => `${Math.floor(Number(row.break_taken || 0) / 60)} min` },
+     { key: 'late', label: 'Late', render: row => `${Math.round(Number(row.late_minutes || 0))} min` },
+--- a/resources/js/pages/Doctor.jsx
++++ b/resources/js/pages/Doctor.jsx
+@@ -2,16 +2,14 @@
+ import { Link, useParams } from 'react-router-dom';
+ import { Users, Clock3, ArrowRight, Save, KeyRound } from 'lucide-react';
+ import api, { messageFrom } from '../api';
++import { formatDate } from '../timezone';
+ import { PageHeader, Card, MetricCard, Button, Input, Notice, Table, Pagination, Badge, statusTone, Loading, dateTime, AvatarMedia } from '../components/ui';
+ import TimezonePicker from '../components/TimezonePicker';
+ import { useAuth } from '../context/AuthContext';
+ import '../../css/dual-timezone-tables.css';
+ 
+ 
+-function tzDate(value, timeZone){
+-  if(!value) return '—';
+-  try{return new Intl.DateTimeFormat('en-US',{timeZone,year:'numeric',month:'short',day:'2-digit'}).format(new Date(value))}catch{return '—'}
+-}
++function tzDate(value,timeZone){return formatDate(value,timeZone||'UTC')}
+ function DualTime({value,doctorTz,vaTz,live=false}){
+   if(!value) return live?<Badge tone="warning">Live</Badge>:<span>—</span>;
+   return <div className="dual-time-cell">
+@@ -22,7 +20,7 @@
+ function DualDate({value,doctorTz,vaTz}){
+   return <div className="dual-date-cell"><span><strong>Doctor</strong> {tzDate(value,doctorTz||'UTC')}</span><span><strong>VA</strong> {tzDate(value,vaTz||'UTC')}</span></div>;
+ }
+-function useNotice(){const[notice,setNotice]=useState(null);return{notice,success:t=>setNotice({type:'success',text:t}),error:t=>setNotice({type:'error',text:t}),clear:()=>setNotice(null)}}function NB({n}){return n.notice?<Notice type={n.notice.type} onClose={n.clear}>{n.notice.text}</Notice>:null}
++function useNotice(){const[notice,setNotice]=useState(null);return{notice,success:t=>t&&setNotice({type:'success',text:t}),error:t=>t&&setNotice({type:'error',text:t}),clear:()=>setNotice(null)}}function NB({n}){return n.notice?<Notice type={n.notice.type} onClose={n.clear}>{n.notice.text}</Notice>:null}
+ export function DoctorDashboard(){const[data,setData]=useState(null);const n=useNotice();useEffect(()=>{api.get('/doctor/dashboard').then(r=>setData(r.data)).catch(e=>n.error(messageFrom(e)))},[]);if(!data)return <Loading/>;return <><PageHeader eyebrow="Client portal" title={`Welcome, ${data.client.name}`} description="Review the VAs assigned to your account and open their attendance without seeing another client’s records."/><NB n={n}/><div className="metrics-grid"><MetricCard label="Assigned employees" value={data.metrics.assigned_employees} icon={Users}/><MetricCard label="Attendance sessions" value={data.metrics.attendance_sessions} icon={Clock3}/></div><div className="employee-card-grid">{data.employees.map(e=><Link to={`/doctor/employee/${e.id}/attendance`} className="employee-card" key={e.id}><div className="employee-card-cover"><div className="profile-photo small-card"><AvatarMedia src={e.profile_picture} alt={`${e.first_name || ''} ${e.last_name || ''}`.trim()} fallback={`${e.first_name?.[0] || ''}${e.last_name?.[0] || ''}`}/></div></div><div className="employee-card-body"><span className="eyebrow">Assigned VA</span><h3>{e.first_name} {e.last_name}</h3><p>{e.email}</p><div className="employee-tags"><Badge>{e.designation?.name||'Team Member'}</Badge><Badge tone={statusTone(e.employee_status?.name)}>{e.employee_status?.name||'Assigned'}</Badge></div><div className="card-link">Check attendance <ArrowRight size={16}/></div></div></Link>)}</div>{!data.employees.length&&<Card><div className="empty-compact">No employees are currently assigned to this client.</div></Card>}</>}
+ export function DoctorEmployeeAttendance(){const{employeeId}=useParams();const[data,setData]=useState(null),[filters,setFilters]=useState({from:'',to:'',search:''}),[page,setPage]=useState(1),[busy,setBusy]=useState(false);const n=useNotice();const load=async(nextFilters=filters,nextPage=page)=>{setBusy(true);try{setData((await api.get(`/doctor/employees/${employeeId}/attendance`,{params:{...nextFilters,page:nextPage}})).data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};useEffect(()=>{load(filters,page)},[employeeId,page]);if(!data)return <Loading/>;const rows=data.attendance.data||[];const doctorTimezone=data.client?.timezone||'UTC';const vaTimezone=data.employee?.timezone||'UTC';const cols=[{key:'date',label:'Date',render:r=><DualDate value={r.clock_in||r.date} doctorTz={doctorTimezone} vaTz={vaTimezone}/>},{key:'clock_in',label:'Clock In',render:r=><DualTime value={r.clock_in} doctorTz={doctorTimezone} vaTz={vaTimezone}/>},{key:'clock_out',label:'Clock Out',render:r=><DualTime value={r.clock_out} doctorTz={doctorTimezone} vaTz={vaTimezone} live={!r.clock_out}/>},{key:'break',label:'Break Taken (Mins)',render:r=>Math.floor(Number(r.break_taken||0)/60)},{key:'worked',label:'Worked',render:r=>`${Math.max(0,Math.round(Number(r.total_minutes||0)))} min`},{key:'overtime',label:'Over Time',render:r=>`${Math.max(0,Math.round(Number(r.overtime||0)))} min`}];return <><PageHeader eyebrow="Assigned employee" title={`${data.employee.first_name} ${data.employee.last_name} attendance`} description={`Doctor time (${doctorTimezone}) is the calculation source. VA time (${vaTimezone}) is shown separately as the converted local time.`}/><NB n={n}/><Card><div className="filter-grid"><Input label="From Date" type="date" value={filters.from} onChange={e=>setFilters({...filters,from:e.target.value})}/><Input label="To Date" type="date" value={filters.to} onChange={e=>setFilters({...filters,to:e.target.value})}/><Input label="Search" value={filters.search} onChange={e=>setFilters({...filters,search:e.target.value})}/><div className="filter-actions"><Button onClick={()=>{setPage(1);load(filters,1)}}>Filter</Button><Button variant="ghost" onClick={()=>{const clean={from:'',to:'',search:''};setFilters(clean);setPage(1);load(clean,1)}}>Reset</Button></div></div><Table columns={cols} rows={rows} emptyTitle="No attendance found"/><Pagination meta={data.attendance} onPage={setPage}/></Card></>}
+ export function DoctorProfile(){const{refresh:refreshAuth}=useAuth();const[client,setClient]=useState(null),[form,setForm]=useState({}),[photo,setPhoto]=useState(null),[pw,setPw]=useState({current_password:'',password:'',password_confirmation:''}),[busy,setBusy]=useState(false);const n=useNotice();const load=async()=>{try{const r=await api.get('/doctor/profile');setClient(r.data);setForm(r.data)}catch(e){n.error(messageFrom(e))}};useEffect(()=>{load()},[]);if(!client)return <Loading/>;const save=async()=>{setBusy(true);try{const fd=new FormData();['name','email','business_name','phone_number','country','timezone'].forEach(k=>fd.append(k,form[k]??''));if(photo)fd.append('profile_picture',photo);const{data}=await api.post('/doctor/profile',fd,{headers:{'Content-Type':'multipart/form-data'}});n.success(data.message);await load();await refreshAuth()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};const change=async()=>{setBusy(true);try{const{data}=await api.put('/doctor/password',pw);n.success(data.message);setPw({current_password:'',password:'',password_confirmation:''})}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};return <><PageHeader eyebrow="Client account" title="My profile" description="Update your client identity, contact information and account password."/><NB n={n}/><div className="two-col profile-layout"><Card title="Profile"><div className="profile-photo-row"><div className="profile-photo"><AvatarMedia src={client.profile_picture} alt={client.name || 'Client'} fallback={client.name?.[0] || 'C'}/></div><label className="upload-button">Choose photo<input type="file" accept="image/jpeg,image/png" onChange={e=>setPhoto(e.target.files?.[0]||null)}/></label></div><div className="form-grid"><Input label="Name *" value={form.name||''} onChange={e=>setForm({...form,name:e.target.value})}/><Input label="Email *" type="email" value={form.email||''} onChange={e=>setForm({...form,email:e.target.value})}/><Input label="Business name" value={form.business_name||''} onChange={e=>setForm({...form,business_name:e.target.value})}/><Input label="Phone" value={form.phone_number||''} onChange={e=>setForm({...form,phone_number:e.target.value})}/><Input label="Country" value={form.country||''} onChange={e=>setForm({...form,country:e.target.value})}/><TimezonePicker label="Timezone *" value={form.timezone||''} onChange={value=>setForm(current=>({...current,timezone:value}))} onCitySelect={place=>setForm(current=>({...current,timezone:place.timezone,country:place.country||current.country}))}/></div><Button loading={busy} icon={Save} onClick={save}>Update profile</Button></Card><Card title="Change password"><div className="form-grid one-col"><Input label="Current password" type="password" value={pw.current_password} onChange={e=>setPw({...pw,current_password:e.target.value})}/><Input label="New password" type="password" value={pw.password} onChange={e=>setPw({...pw,password:e.target.value})}/><Input label="Confirm new password" type="password" value={pw.password_confirmation} onChange={e=>setPw({...pw,password_confirmation:e.target.value})}/><Button loading={busy} icon={KeyRound} onClick={change}>Change password</Button></div></Card></div></>}
+--- a/resources/js/pages/Employee.jsx
++++ b/resources/js/pages/Employee.jsx
+@@ -5,15 +5,14 @@
+ import { Coffee, LogIn, LogOut, TimerReset, Upload, Trash2, Save, KeyRound, Link2, CalendarDays, Clock3 } from 'lucide-react';
+ import api, { messageFrom } from '../api';
+ import { useAuth } from '../context/AuthContext';
++import { formatDate, formatDateTime, formatTime, formatWeekday, zonedNowParts } from '../timezone';
+ import { PageHeader, Card, Button, Input, Select, Textarea, Badge, statusTone, Notice, Table, Pagination, Loading, Modal, mins, dateTime, timeValue, AvatarMedia } from '../components/ui';
+ 
+-function useNotice(){const [notice,setNotice]=useState(null);return{notice,success:t=>setNotice({type:'success',text:t}),error:t=>setNotice({type:'error',text:t}),clear:()=>setNotice(null)}}
++function useNotice(){const [notice,setNotice]=useState(null);return{notice,success:t=>t&&setNotice({type:'success',text:t}),error:t=>t&&setNotice({type:'error',text:t}),clear:()=>setNotice(null)}}
+ function NB({n}){return n.notice?<Notice type={n.notice.type} onClose={n.clear}>{n.notice.text}</Notice>:null}
+ 
+-function tzDate(value, timeZone){
+-  if(!value) return '—';
+-  try{return new Intl.DateTimeFormat('en-US',{timeZone,year:'numeric',month:'short',day:'2-digit'}).format(new Date(value))}catch{return '—'}
+-}
++function tzDate(value,timeZone){return formatDate(value,timeZone||'UTC')}
++
+ function DualTime({value,doctorTz,vaTz,live=false}){
+   if(!value) return live?<Badge tone="warning">Live</Badge>:<span>—</span>;
+   return <div className="dual-time-cell">
+@@ -31,16 +30,7 @@
+   return ['1','true','enabled','yes','on'].includes(String(value??'').trim().toLowerCase());
+ }
+ 
+-function zonedParts(timeZone){
+-  try{
+-    const parts=new Intl.DateTimeFormat('en-US',{timeZone,weekday:'long',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date());
+-    const map=Object.fromEntries(parts.map(x=>[x.type,x.value]));
+-    return {weekday:map.weekday,hour:Number(map.hour),minute:Number(map.minute)};
+-  }catch{
+-    const d=new Date();
+-    return {weekday:new Intl.DateTimeFormat('en-US',{weekday:'long'}).format(d),hour:d.getHours(),minute:d.getMinutes()};
+-  }
+-}
++function zonedParts(timeZone){const p=zonedNowParts(timeZone||'UTC');return {weekday:p.weekday,hour:p.hour,minute:p.minute}}
+ 
+ 
+ function hmsSeconds(value) {
+@@ -279,8 +269,8 @@
+ 
+ export function EmployeeAttendance(){
+  const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[filters,setFilters]=useState({from:'',to:'',search:''}),[page,setPage]=useState(1),[busy,setBusy]=useState(false),[modal,setModal]=useState(false),[selected,setSelected]=useState(null),[form,setForm]=useState({clock_in:'',clock_out:'',reason:''}),[requests,setRequests]=useState([]);const n=useNotice();
+- const load=async(nextFilters=filters,nextPage=page)=>{setBusy(true);try{const [r,c]=await Promise.all([api.get('/employee/attendance',{params:{...nextFilters,page:nextPage}}),api.get('/employee/change-requests')]);setRows(r.data.data);setMeta(r.data);setRequests(c.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};useEffect(()=>{load(filters,page)},[page]);const apply=()=>{setPage(1);load(filters,1)};const reset=()=>{const clean={from:'',to:'',search:''};setFilters(clean);setPage(1);load(clean,1)};const open=r=>{setSelected(r);const inTime=timeValue(r.clock_in,r.timezone_snapshot);const outTime=timeValue(r.clock_out,r.timezone_snapshot);setForm({clock_in:inTime,clock_out:outTime,reason:''});setModal(true)};const submit=async()=>{setBusy(true);try{await api.post('/employee/change-requests',{attendance_id:selected.id,...form});n.success('Correction request submitted.');setModal(false);load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+- const columns=[{key:'date',label:'Date',render:r=><DualDate value={r.clock_in||r.date} doctorTz={r.client?.timezone||'UTC'} vaTz={r.timezone_snapshot||'Asia/Karachi'}/>},{key:'client',label:'Client',render:r=>r.client?.name||'Legacy / unallocated'},{key:'clock_in',label:'Clock in',render:r=><DualTime value={r.clock_in} doctorTz={r.client?.timezone||'UTC'} vaTz={r.timezone_snapshot||'Asia/Karachi'}/>},{key:'clock_out',label:'Clock out',render:r=><DualTime value={r.clock_out} doctorTz={r.client?.timezone||'UTC'} vaTz={r.timezone_snapshot||'Asia/Karachi'} live={!r.clock_out}/>},{key:'break',label:'Break',render:r=>`${Math.floor(Number(r.break_taken||0)/60)} min`},{key:'worked',label:'Worked',render:r=>mins(r.total_minutes)},{key:'overtime',label:'Overtime',render:r=>`${r.overtime||0} min`},{key:'action',label:'Action',render:r=>r.clock_out?<Button variant="ghost" onClick={()=>open(r)}>Request change</Button>:'—'}];
++ const load=async(nextFilters=filters,nextPage=page)=>{setBusy(true);try{const [r,c]=await Promise.all([api.get('/employee/attendance',{params:{...nextFilters,page:nextPage}}),api.get('/employee/change-requests')]);setRows(r.data.data);setMeta(r.data);setRequests(c.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};useEffect(()=>{load(filters,page)},[page]);const apply=()=>{setPage(1);load(filters,1)};const reset=()=>{const clean={from:'',to:'',search:''};setFilters(clean);setPage(1);load(clean,1)};const open=r=>{setSelected(r);const sourceTz=r.client_timezone||r.client?.timezone||r.timezone_snapshot||'UTC';const inTime=timeValue(r.clock_in,sourceTz);const outTime=timeValue(r.clock_out,sourceTz);setForm({clock_in:inTime,clock_out:outTime,reason:''});setModal(true)};const submit=async()=>{setBusy(true);try{await api.post('/employee/change-requests',{attendance_id:selected.id,...form});n.success('Correction request submitted.');setModal(false);load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
++ const columns=[{key:'date',label:'Date',render:r=><DualDate value={r.clock_in||r.date} doctorTz={r.client_timezone||r.client?.timezone||'UTC'} vaTz={r.employee_timezone||'UTC'}/>},{key:'client',label:'Client',render:r=>r.client?.name||'Legacy / unallocated'},{key:'clock_in',label:'Clock in',render:r=><DualTime value={r.clock_in} doctorTz={r.client_timezone||r.client?.timezone||'UTC'} vaTz={r.employee_timezone||'UTC'}/>},{key:'clock_out',label:'Clock out',render:r=><DualTime value={r.clock_out} doctorTz={r.client_timezone||r.client?.timezone||'UTC'} vaTz={r.employee_timezone||'UTC'} live={!r.clock_out}/>},{key:'break',label:'Break',render:r=>`${Math.floor(Number(r.break_taken||0)/60)} min`},{key:'worked',label:'Worked',render:r=>mins(r.total_minutes)},{key:'overtime',label:'Overtime',render:r=>`${r.overtime||0} min`},{key:'action',label:'Action',render:r=>r.clock_out?<Button variant="ghost" onClick={()=>open(r)}>Request change</Button>:'—'}];
+  return <><PageHeader eyebrow="My time records" title="Attendance" description="Doctor time is the calculation source; your VA time is shown separately as the local conversion of the same attendance instant."/><NB n={n}/><Card><div className="filter-grid"><Input label="From date" type="date" value={filters.from} onChange={e=>setFilters({...filters,from:e.target.value})}/><Input label="To date" type="date" value={filters.to} onChange={e=>setFilters({...filters,to:e.target.value})}/><Input label="Search" value={filters.search} onChange={e=>setFilters({...filters,search:e.target.value})} placeholder="Date or clock time"/><div className="filter-actions"><Button onClick={apply}>Filter</Button><Button variant="ghost" onClick={reset}>Reset</Button></div></div><Table columns={columns} rows={rows} emptyTitle="No attendance found"/><Pagination meta={meta} onPage={setPage}/></Card><Card title="My change requests" subtitle="Only your own correction requests are shown."><Table columns={[{key:'date',label:'Date',render:r=>String(r.date||'').slice(0,10)},{key:'requested',label:'Requested',render:r=>`${r.requested_clock_in} → ${r.requested_clock_out}`},{key:'reason',label:'Reason'},{key:'status',label:'Status',render:r=><Badge tone={statusTone(r.status)}>{r.status}</Badge>},{key:'created',label:'Submitted',render:r=>dateTime(r.created_at)}]} rows={requests} emptyTitle="No correction requests"/></Card><Modal open={modal} onClose={()=>setModal(false)} title="Request attendance correction" footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={submit}>Submit request</Button></>}><div className="form-grid one-col"><Input label="Date" value={String(selected?.date||'').slice(0,10)} disabled/><Input label="Clock in *" type="time" value={form.clock_in} onChange={e=>setForm({...form,clock_in:e.target.value})}/><Input label="Clock out *" type="time" value={form.clock_out} onChange={e=>setForm({...form,clock_out:e.target.value})}/><Textarea label="Reason *" value={form.reason} onChange={e=>setForm({...form,reason:e.target.value})} placeholder="Explain why the recorded time needs correction"/></div></Modal></>;
+ }
+ 
+@@ -294,7 +284,7 @@
+  const missing=Array.isArray(employee.profile_missing_fields)?employee.profile_missing_fields:requiredFields.filter(key=>!String(employee?.[key]??'').trim());
+  const progress=Number.isFinite(Number(employee.profile_completion_percent))?Number(employee.profile_completion_percent):Math.round(((requiredFields.length-missing.length)/requiredFields.length)*100);
+  const save=async()=>{setBusy(true);try{const fd=new FormData();['first_name','last_name','email','phone','date_of_birth','gender','marital_status','about_me_notes'].forEach(k=>{if(form[k]!=null)fd.append(k,form[k])});if(photo)fd.append('profile_picture',photo);documents.forEach(f=>fd.append('documents[]',f));const {data}=await api.post('/employee/profile',fd,{headers:{'Content-Type':'multipart/form-data'}});n.success(data.message);setPhoto(null);setDocuments([]);await load();await refreshAuth()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+- const removeDoc=async path=>{if(!confirm('Remove this document?'))return;try{await api.delete('/employee/profile/document',{data:{path}});n.success('Document removed.');load()}catch(e){n.error(messageFrom(e))}};
++ const removeDoc=async path=>{try{await api.delete('/employee/profile/document',{data:{path}});n.success('Document removed.');load()}catch(e){n.error(messageFrom(e))}};
+  const docs=Array.isArray(employee.upload_documents)?employee.upload_documents:[];
+  return <>
+   <PageHeader eyebrow={employee.profile_completed?'Self service':'First login setup'} title="My profile" description={employee.profile_completed?'Update your personal details, profile photo and documents.':'Complete all required fields to unlock Dashboard, Schedule, Attendance, Notifications and Settings.'} actions={<Button loading={busy} icon={Save} onClick={save}>{employee.profile_completed?'Save changes':'Complete profile'}</Button>}/>
+--- a/resources/js/pages/EmployeeWizard.jsx
++++ b/resources/js/pages/EmployeeWizard.jsx
+@@ -47,7 +47,7 @@
+   useEffect(() => {
+     api.get('/management/options')
+       .then(({data}) => setOptions(data))
+-      .catch(error => setNotice({type:'error', text:messageFrom(error)}));
++      .catch(error => { const message=messageFrom(error); if(message) setNotice({type:'error', text:message}); });
+   }, []);
+ 
+   const set = (key, value) => {
+@@ -136,7 +136,7 @@
+         setStep(stepMap[firstKey] ?? 0);
+         setErrors(current => ({...current, ...Object.fromEntries(Object.entries(responseErrors).map(([k,v]) => [k, Array.isArray(v) ? v[0] : v]))}));
+       }
+-      setNotice({type:'error', text:messageFrom(error)});
++      { const message=messageFrom(error); if(message) setNotice({type:'error', text:message}); }
+     } finally {
+       setBusy(false);
+     }
+--- a/resources/js/pages/Management.jsx
++++ b/resources/js/pages/Management.jsx
+@@ -5,6 +5,7 @@
+   CalendarDays, UserCheck, CircleDollarSign, Check, X, Bell, Save, KeyRound, Building2, ShieldCheck, Send, Coffee, Activity
+ } from 'lucide-react';
+ import api, { messageFrom } from '../api';
++import { DEFAULT_TIMEZONE, formatDate, formatDateTime, formatTime as formatTimeInZone, todayInZone, weekdayFromDateOnly } from '../timezone';
+ import { useAuth } from '../context/AuthContext';
+ import {
+   PageHeader, Card, MetricCard, Button, Input, Select, Textarea, SearchBox, Badge, statusTone,
+@@ -19,13 +20,10 @@
+ const roleBase = role => role === 'hr' ? '/hr' : '/admin';
+ const getList = data => data?.data || [];
+ 
+-function useNotice(){const [notice,setNotice]=useState(null);return {notice,success:t=>setNotice({type:'success',text:t}),error:t=>setNotice({type:'error',text:t}),clear:()=>setNotice(null)}}
++function useNotice(){const [notice,setNotice]=useState(null);return {notice,success:t=>t&&setNotice({type:'success',text:t}),error:t=>t&&setNotice({type:'error',text:t}),clear:()=>setNotice(null)}}
+ function NoticeBar({notice,clear}){return notice?<Notice type={notice.type} onClose={clear}>{notice.text}</Notice>:null}
+ 
+-function tzDate(value, timeZone){
+-  if(!value) return '—';
+-  try{return new Intl.DateTimeFormat('en-US',{timeZone,year:'numeric',month:'short',day:'2-digit'}).format(new Date(value))}catch{return '—'}
+-}
++function tzDate(value,timeZone){return formatDate(value,timeZone||'UTC')}
+ function DualTime({value,doctorTz,vaTz,live=false}){
+   if(!value) return live?<Badge tone="warning">Live</Badge>:<span>—</span>;
+   return <div className="dual-time-cell">
+@@ -255,7 +253,7 @@
+   </>;
+ }
+ 
+-const emptyEmployee={first_name:'',last_name:'',email:'',password:'',phone:'',timezone:'Asia/Karachi',location:'',department_id:'',role_id:'',employment_type_id:'',shift_type_id:'',designation_id:'',employee_status_id:'',expertise_id:'',reporting_manager_id:'',salary_pkr:'',salary_usd:'',source_of_hire:'',date_of_joining:'',date_of_regularisation:'',break_allowed_hours:'1',gender:'',marital_status:'',date_of_birth:'',age:'',about_me_notes:''};
++const emptyEmployee={first_name:'',last_name:'',email:'',password:'',phone:'',timezone:'Asia/Karachi',location:'',department_id:'',role_id:'',employment_type_id:'',shift_type_id:'',designation_id:'',employee_status_id:'',expertise_id:'',reporting_manager_id:'',salary_pkr:'',salary_usd:'',source_of_hire:'',date_of_joining:'',date_of_regularisation:'',gender:'',marital_status:'',date_of_birth:'',age:'',about_me_notes:''};
+ export function EmployeesPage(){
+   const {user}=useAuth(); const navigate=useNavigate();
+   const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[search,setSearch]=useState(''),[page,setPage]=useState(1),[busy,setBusy]=useState(false),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[form,setForm]=useState(emptyEmployee),[options,setOptions]=useState({}); const n=useNotice();
+@@ -263,12 +261,12 @@
+   useEffect(()=>{const t=setTimeout(load,220);return()=>clearTimeout(t)},[search,page]);
+   const openNew=()=>navigate(`${roleBase(user.role)}/employees/new`); const openEdit=row=>{setEdit(row);setForm({...emptyEmployee,...row,password:'',department_id:row.department_id||'',role_id:row.role_id||'',employment_type_id:row.employment_type_id||'',shift_type_id:row.shift_type_id||'',designation_id:row.designation_id||'',employee_status_id:row.employee_status_id||'',expertise_id:row.expertise_id||'',reporting_manager_id:row.reporting_manager_id||''});setModal(true)};
+   const save=async()=>{setBusy(true);try{edit?await api.put(`/management/employees/${edit.id}`,form):await api.post('/management/employees',form);n.success(edit?'Employee updated.':'Employee created.');setModal(false);await load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+-  const remove=async row=>{if(!confirm(`Delete ${row.first_name} ${row.last_name}? This cannot be undone.`))return;try{await api.delete(`/management/employees/${row.id}`);n.success('Employee deleted.');load()}catch(e){n.error(messageFrom(e))}};
++  const remove=async row=>{try{await api.delete(`/management/employees/${row.id}`);n.success('Employee deleted.');load()}catch(e){n.error(messageFrom(e))}};
+   const resendInvite=async row=>{setBusy(true);try{const {data}=await api.post(`/management/employees/${row.id}/resend-invite`);if(data.activation_url&&navigator.clipboard){await navigator.clipboard.writeText(data.activation_url);n.success(`${data.message} Activation link copied.`)}else n.success(data.message)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+   const set=(k,v)=>setForm(f=>({...f,[k]:v})); const opts=(key)=>(options[key]||[]).map(x=><option key={x.id} value={x.id}>{x.name}</option>);
+   const columns=[{key:'employee_code',label:'Emp #'},{key:'name',label:'Employee',render:r=><div className="person-cell"><div className="avatar">{r.first_name?.[0]}{r.last_name?.[0]}</div><div><strong>{r.first_name} {r.last_name}</strong><span>{r.email}</span></div></div>},{key:'department',label:'Department',render:r=>r.department?.name||'—'},{key:'designation',label:'Designation',render:r=>r.designation?.name||'—'},{key:'status',label:'Status',render:r=><Badge tone={statusTone(r.employee_status?.name)}>{r.employee_status?.name||'Not set'}</Badge>},{key:'timezone',label:'Timezone'},{key:'salary',label:'Salary',render:r=>r.salary_usd?money(r.salary_usd):'—'},{key:'actions',label:'Actions',render:r=><div className="row-actions"><button title="Resend activation invite" onClick={()=>resendInvite(r)}><Send size={16}/></button><button title="Edit employee" onClick={()=>openEdit(r)}><Pencil size={16}/></button><button title="Delete employee" className="danger" onClick={()=>remove(r)}><Trash2 size={16}/></button></div>}];
+   return <><PageHeader eyebrow="Workforce" title="Employees" description="Manage VA identities, work details, hierarchy, timezone and compensation." actions={<Button icon={Plus} onClick={openNew}>Add employee</Button>}/><NoticeBar notice={n.notice} clear={n.clear}/><Card><div className="toolbar"><SearchBox value={search} onChange={v=>{setSearch(v);setPage(1)}} placeholder="Search name, email or employee #"/><span className="record-count">{meta?.total??rows.length} employees</span></div>{busy&&!rows.length?<Loading/>:<Table columns={columns} rows={rows} emptyTitle="No employees found" emptyDescription="Change your search or add the first employee."/>}<Pagination meta={meta} onPage={setPage}/></Card>
+-  <Modal open={modal} onClose={()=>setModal(false)} title="Edit employee" wide footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} icon={Save} onClick={save}>Save changes</Button></>}><div className="form-section"><h3>Identity & login</h3><div className="form-grid"><Input label="First name *" value={form.first_name||''} onChange={e=>set('first_name',e.target.value)}/><Input label="Last name *" value={form.last_name||''} onChange={e=>set('last_name',e.target.value)}/><Input label="Email *" type="email" value={form.email||''} onChange={e=>set('email',e.target.value)}/><Input label="Phone" value={form.phone||''} onChange={e=>set('phone',e.target.value)}/><Input label="Location" value={form.location||''} onChange={e=>set('location',e.target.value)}/><TimezonePicker label="Timezone *" value={form.timezone||''} onChange={value=>set('timezone',value)} onCitySelect={place=>setForm(current=>({...current,timezone:place.timezone,location:[place.city,place.country].filter(Boolean).join(', ')}))}/></div></div><div className="form-section"><h3>Work & hierarchy</h3><div className="form-grid"><Select label="Department" value={form.department_id||''} onChange={e=>set('department_id',e.target.value)}><option value="">Select</option>{opts('departments')}</Select><Select label="Role" value={form.role_id||''} onChange={e=>set('role_id',e.target.value)}><option value="">Select</option>{opts('roles')}</Select><Select label="Employment type" value={form.employment_type_id||''} onChange={e=>set('employment_type_id',e.target.value)}><option value="">Select</option>{opts('employment_types')}</Select><Select label="Shift type" value={form.shift_type_id||''} onChange={e=>set('shift_type_id',e.target.value)}><option value="">Select</option>{opts('shift_types')}</Select><Select label="Designation" value={form.designation_id||''} onChange={e=>set('designation_id',e.target.value)}><option value="">Select</option>{opts('designations')}</Select><Select label="Employee status" value={form.employee_status_id||''} onChange={e=>set('employee_status_id',e.target.value)}><option value="">Select</option>{opts('employee_statuses')}</Select><Select label="Expertise" value={form.expertise_id||''} onChange={e=>set('expertise_id',e.target.value)}><option value="">Select</option>{opts('expertises')}</Select><Select label="Reporting manager" value={form.reporting_manager_id||''} onChange={e=>set('reporting_manager_id',e.target.value)}><option value="">Select</option>{opts('reporting_managers')}</Select><Input label="Joining date" type="date" value={form.date_of_joining||''} onChange={e=>set('date_of_joining',e.target.value)}/><Input label="Regularisation date" type="date" value={form.date_of_regularisation||''} onChange={e=>set('date_of_regularisation',e.target.value)}/><Input label="Break allowance (hours) *" type="number" step="0.25" value={form.break_allowed_hours??''} onChange={e=>set('break_allowed_hours',e.target.value)}/><SalaryConverter pkr={form.salary_pkr} usd={form.salary_usd} onPkrChange={value=>set('salary_pkr',value)} onUsdChange={value=>set('salary_usd',value)}/><Input label="Source of hire" value={form.source_of_hire||''} onChange={e=>set('source_of_hire',e.target.value)}/></div></div><div className="form-section"><h3>Personal</h3><div className="form-grid"><Select label="Gender" value={form.gender||''} onChange={e=>set('gender',e.target.value)}><option value="">Not specified</option><option value="male">Male</option><option value="female">Female</option><option value="other">Other</option></Select><Input label="Marital status" value={form.marital_status||''} onChange={e=>set('marital_status',e.target.value)}/><Input label="Date of birth" type="date" value={form.date_of_birth||''} onChange={e=>set('date_of_birth',e.target.value)}/><Input label="Age" type="number" value={form.age||''} onChange={e=>set('age',e.target.value)}/><Textarea label="About employee" value={form.about_me_notes||''} onChange={e=>set('about_me_notes',e.target.value)}/></div></div></Modal></>;
++  <Modal open={modal} onClose={()=>setModal(false)} title="Edit employee" wide footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} icon={Save} onClick={save}>Save changes</Button></>}><div className="form-section"><h3>Identity & login</h3><div className="form-grid"><Input label="First name *" value={form.first_name||''} onChange={e=>set('first_name',e.target.value)}/><Input label="Last name *" value={form.last_name||''} onChange={e=>set('last_name',e.target.value)}/><Input label="Email *" type="email" value={form.email||''} onChange={e=>set('email',e.target.value)}/><Input label="Phone" value={form.phone||''} onChange={e=>set('phone',e.target.value)}/><Input label="Location" value={form.location||''} onChange={e=>set('location',e.target.value)}/><TimezonePicker label="Timezone *" value={form.timezone||''} onChange={value=>set('timezone',value)} onCitySelect={place=>setForm(current=>({...current,timezone:place.timezone,location:[place.city,place.country].filter(Boolean).join(', ')}))}/></div></div><div className="form-section"><h3>Work & hierarchy</h3><div className="form-grid"><Select label="Department" value={form.department_id||''} onChange={e=>set('department_id',e.target.value)}><option value="">Select</option>{opts('departments')}</Select><Select label="Role" value={form.role_id||''} onChange={e=>set('role_id',e.target.value)}><option value="">Select</option>{opts('roles')}</Select><Select label="Employment type" value={form.employment_type_id||''} onChange={e=>set('employment_type_id',e.target.value)}><option value="">Select</option>{opts('employment_types')}</Select><Select label="Shift type" value={form.shift_type_id||''} onChange={e=>set('shift_type_id',e.target.value)}><option value="">Select</option>{opts('shift_types')}</Select><Select label="Designation" value={form.designation_id||''} onChange={e=>set('designation_id',e.target.value)}><option value="">Select</option>{opts('designations')}</Select><Select label="Employee status" value={form.employee_status_id||''} onChange={e=>set('employee_status_id',e.target.value)}><option value="">Select</option>{opts('employee_statuses')}</Select><Select label="Expertise" value={form.expertise_id||''} onChange={e=>set('expertise_id',e.target.value)}><option value="">Select</option>{opts('expertises')}</Select><Select label="Reporting manager" value={form.reporting_manager_id||''} onChange={e=>set('reporting_manager_id',e.target.value)}><option value="">Select</option>{opts('reporting_managers')}</Select><Input label="Joining date" type="date" value={form.date_of_joining||''} onChange={e=>set('date_of_joining',e.target.value)}/><Input label="Regularisation date" type="date" value={form.date_of_regularisation||''} onChange={e=>set('date_of_regularisation',e.target.value)}/><SalaryConverter pkr={form.salary_pkr} usd={form.salary_usd} onPkrChange={value=>set('salary_pkr',value)} onUsdChange={value=>set('salary_usd',value)}/><Input label="Source of hire" value={form.source_of_hire||''} onChange={e=>set('source_of_hire',e.target.value)}/></div></div><div className="form-section"><h3>Personal</h3><div className="form-grid"><Select label="Gender" value={form.gender||''} onChange={e=>set('gender',e.target.value)}><option value="">Not specified</option><option value="male">Male</option><option value="female">Female</option><option value="other">Other</option></Select><Input label="Marital status" value={form.marital_status||''} onChange={e=>set('marital_status',e.target.value)}/><Input label="Date of birth" type="date" value={form.date_of_birth||''} onChange={e=>set('date_of_birth',e.target.value)}/><Input label="Age" type="number" value={form.age||''} onChange={e=>set('age',e.target.value)}/><Textarea label="About employee" value={form.about_me_notes||''} onChange={e=>set('about_me_notes',e.target.value)}/></div></div></Modal></>;
+ }
+ 
+ const emptyClient={name:'',email:'',password:'',business_name:'',phone_number:'',country:'United States',timezone:'America/New_York',per_hour_charges:'',contract_type_id:'',service_id:'',ring_center:false};
+@@ -277,7 +275,7 @@
+  const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[search,setSearch]=useState(''),[page,setPage]=useState(1),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[form,setForm]=useState(emptyClient),[options,setOptions]=useState({}),[busy,setBusy]=useState(false);const n=useNotice();
+  const load=async()=>{setBusy(true);try{const [r,o]=await Promise.all([api.get('/admin/clients',{params:{search,page}}),api.get('/management/options')]);setRows(r.data.data);setMeta(r.data);setOptions(o.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};useEffect(()=>{const t=setTimeout(load,200);return()=>clearTimeout(t)},[search,page]);
+  const open=(r=null)=>{setEdit(r);setForm(r?{...emptyClient,...r,password:'',ring_center:!!r.ring_center}:emptyClient);setModal(true)};const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+- const save=async()=>{setBusy(true);try{edit?await api.put(`/admin/clients/${edit.id}`,form):await api.post('/admin/clients',form);n.success(edit?'Client updated.':'Client created.');setModal(false);load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};const remove=async r=>{if(!confirm(`Delete client ${r.name}?`))return;try{await api.delete(`/admin/clients/${r.id}`);n.success('Client deleted.');load()}catch(e){n.error(messageFrom(e))}};
++ const save=async()=>{setBusy(true);try{edit?await api.put(`/admin/clients/${edit.id}`,form):await api.post('/admin/clients',form);n.success(edit?'Client updated.':'Client created.');setModal(false);load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};const remove=async r=>{try{await api.delete(`/admin/clients/${r.id}`);n.success('Client deleted.');load()}catch(e){n.error(messageFrom(e))}};
+  const columns=[{key:'name',label:'Client',render:r=><div className="person-cell"><div className="avatar client-avatar">{r.name?.[0]}</div><div><strong className="client-profile-name-link" onClick={()=>navigate(`/admin/client/${r.id}/profile`)}>{r.name}</strong><span>{r.email}</span></div></div>},{key:'business_name',label:'Business'},{key:'country',label:'Country'},{key:'rate',label:'Rate / hr',render:r=>r.per_hour_charges?money(r.per_hour_charges):'—'},{key:'timezone',label:'Timezone'},{key:'service',label:'Service',render:r=>r.service?.name||'—'},{key:'actions',label:'Actions',render:r=><div className="row-actions"><button className="client-profile-open-btn" title="Open client profile" onClick={()=>navigate(`/admin/client/${r.id}/profile`)}><Stethoscope size={16}/></button><button title="Edit client" onClick={()=>open(r)}><Pencil size={16}/></button><button title="Delete client" className="danger" onClick={()=>remove(r)}><Trash2 size={16}/></button></div>}];
+  return <><PageHeader eyebrow="Client operations" title="Clients" description="Manage doctor/client accounts, rates, contract classification and timezone." actions={<Button icon={Plus} onClick={()=>open()}>Add client</Button>}/><NoticeBar notice={n.notice} clear={n.clear}/><Card><div className="toolbar"><SearchBox value={search} onChange={v=>{setSearch(v);setPage(1)}} placeholder="Search client or business"/><span className="record-count">{meta?.total??rows.length} clients</span></div><Table columns={columns} rows={rows} emptyTitle="No clients found"/><Pagination meta={meta} onPage={setPage}/></Card><Modal open={modal} onClose={()=>setModal(false)} title={edit?'Edit client':'Add client'} wide footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={save} icon={Save}>Save client</Button></>}><div className="form-grid"><Input label="Name *" value={form.name||''} onChange={e=>set('name',e.target.value)}/><Input label="Email *" type="email" value={form.email||''} onChange={e=>set('email',e.target.value)}/>{!edit&&<Input label="Temporary password *" type="password" value={form.password||''} onChange={e=>set('password',e.target.value)}/>}<Input label="Business name" value={form.business_name||''} onChange={e=>set('business_name',e.target.value)}/><Input label="Phone" value={form.phone_number||''} onChange={e=>set('phone_number',e.target.value)}/><Input label="Country" value={form.country||''} onChange={e=>set('country',e.target.value)}/><TimezonePicker label="Timezone *" value={form.timezone||''} onChange={value=>set('timezone',value)} onCitySelect={place=>setForm(current=>({...current,timezone:place.timezone,country:place.country||current.country}))}/><Input label="Per hour charge" type="number" step="0.01" value={form.per_hour_charges||''} onChange={e=>set('per_hour_charges',e.target.value)}/><Select label="Service" value={form.service_id||''} onChange={e=>set('service_id',e.target.value)}><option value="">Select</option>{(options.services||[]).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</Select><Select label="Contract type" value={form.contract_type_id||''} onChange={e=>set('contract_type_id',e.target.value)}><option value="">Select</option>{(options.contracts||[]).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</Select><label className="check field-check"><input type="checkbox" checked={!!form.ring_center} onChange={e=>set('ring_center',e.target.checked)}/><span>Ring Center enabled</span></label></div></Modal></>;
+ }
+@@ -343,11 +341,11 @@
+  const emptySchedule={employee_id:'',client_id:'',schedule_date:'',weekday:'Monday',start_time:'09:00',end_time:'17:00',timezone:'',enabled:true,repeat:true,per_hour_rate:''};
+  const [rows,setRows]=useState([]),[options,setOptions]=useState({}),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[busy,setBusy]=useState(false),[form,setForm]=useState(emptySchedule);const n=useNotice();
+ 
+- const dayFromDate=value=>{if(!value)return '';const date=new Date(`${value}T12:00:00`);return Number.isNaN(date.getTime())?'':date.toLocaleDateString('en-US',{weekday:'long'})};
++ const dayFromDate=value=>weekdayFromDateOnly(value);
+  const selectedClient=id=>(options.clients||[]).find(client=>String(client.id)===String(id));
+  const selectedEmployee=id=>(options.employees||[]).find(employee=>String(employee.id)===String(id));
+- const formatMoment=(value,timeZone)=>{if(!value)return '—';try{return new Intl.DateTimeFormat('en-US',{timeZone,weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}).format(new Date(value))}catch{return '—'}};
+- const formatTime=(value,timeZone)=>{if(!value)return '—';try{return new Intl.DateTimeFormat('en-US',{timeZone,hour:'numeric',minute:'2-digit',hour12:true}).format(new Date(value))}catch{return '—'}};
++ const formatMoment=(value,timeZone)=>formatDateTime(value,timeZone||'UTC',{weekday:'short',year:undefined});
++ const formatTime=(value,timeZone)=>formatTimeInZone(value,timeZone||'UTC');
+  const doctorRange=row=>{const tz=row.client_timezone||row.client?.timezone;if(!row.client_shift_starts_at||!row.client_shift_ends_at||!tz)return 'Saved after timezone sync';return `${formatMoment(row.client_shift_starts_at,tz)} – ${formatTime(row.client_shift_ends_at,tz)}`};
+ 
+  const load=async()=>{setBusy(true);try{const [r,o]=await Promise.all([api.get('/management/schedules'),api.get('/management/options')]);setRows(Array.isArray(r.data)?r.data:[]);setOptions(o.data||{})}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+@@ -381,7 +379,7 @@
+      setModal(false);await load();
+    }catch(e){n.error(messageFrom(e))}finally{setBusy(false)}
+  };
+- const remove=async r=>{if(!confirm('Delete this schedule?'))return;try{await api.delete(`/management/schedules/${r.id}`);n.success('Schedule deleted.');load()}catch(e){n.error(messageFrom(e))}};
++ const remove=async r=>{try{await api.delete(`/management/schedules/${r.id}`);n.success('Schedule deleted.');load()}catch(e){n.error(messageFrom(e))}};
+ 
+  const currentEmployee=selectedEmployee(form.employee_id);
+  const currentClient=selectedClient(form.client_id);
+@@ -427,7 +425,7 @@
+ export function AttendancePage(){
+  const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[options,setOptions]=useState({}),[filters,setFilters]=useState({employee_id:'',from:'',to:'',search:''}),[page,setPage]=useState(1),[busy,setBusy]=useState(false);const n=useNotice();
+  const load=async(nextFilters=filters,nextPage=page)=>{setBusy(true);try{const [r,o]=await Promise.all([api.get('/management/attendance',{params:{...nextFilters,page:nextPage}}),api.get('/management/options')]);setRows(r.data.data);setMeta(r.data);setOptions(o.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};useEffect(()=>{load(filters,page)},[page]);const apply=()=>{setPage(1);load(filters,1)};const reset=()=>{const clean={employee_id:'',from:'',to:'',search:''};setFilters(clean);setPage(1);load(clean,1)};
+- const columns=[{key:'employee',label:'Employee',render:r=>`${r.employee?.first_name||''} ${r.employee?.last_name||''}`},{key:'client',label:'Client',render:r=>r.client?.name||'Legacy / unallocated'},{key:'date',label:'Date',render:r=><DualDate value={r.clock_in||r.date} doctorTz={r.client?.timezone||'UTC'} vaTz={r.employee?.timezone||r.timezone_snapshot||'UTC'}/>},{key:'clock_in',label:'Clock in',render:r=><DualTime value={r.clock_in} doctorTz={r.client?.timezone||'UTC'} vaTz={r.employee?.timezone||r.timezone_snapshot||'UTC'}/>},{key:'clock_out',label:'Clock out',render:r=><DualTime value={r.clock_out} doctorTz={r.client?.timezone||'UTC'} vaTz={r.employee?.timezone||r.timezone_snapshot||'UTC'} live={!r.clock_out}/>},{key:'breaks',label:'Break',render:r=>`${Math.floor(Number(r.break_taken||0)/60)} min`},{key:'worked',label:'Regular',render:r=>mins(r.total_minutes)},{key:'late',label:'Late',render:r=>`${r.late_minutes||0} min`},{key:'overtime',label:'Overtime',render:r=><Badge tone={(r.overtime||0)>0?'warning':'neutral'}>{r.overtime||0} min</Badge>}];
++ const columns=[{key:'employee',label:'Employee',render:r=>`${r.employee?.first_name||''} ${r.employee?.last_name||''}`},{key:'client',label:'Client',render:r=>r.client?.name||'Legacy / unallocated'},{key:'date',label:'Date',render:r=><DualDate value={r.clock_in||r.date} doctorTz={r.client_timezone||r.client?.timezone||'UTC'} vaTz={r.employee_timezone||r.employee?.timezone||'UTC'}/>},{key:'clock_in',label:'Clock in',render:r=><DualTime value={r.clock_in} doctorTz={r.client_timezone||r.client?.timezone||'UTC'} vaTz={r.employee_timezone||r.employee?.timezone||'UTC'}/>},{key:'clock_out',label:'Clock out',render:r=><DualTime value={r.clock_out} doctorTz={r.client_timezone||r.client?.timezone||'UTC'} vaTz={r.employee_timezone||r.employee?.timezone||'UTC'} live={!r.clock_out}/>},{key:'breaks',label:'Break',render:r=>`${Math.floor(Number(r.break_taken||0)/60)} min`},{key:'worked',label:'Regular',render:r=>mins(r.total_minutes)},{key:'late',label:'Late',render:r=>`${r.late_minutes||0} min`},{key:'overtime',label:'Overtime',render:r=><Badge tone={(r.overtime||0)>0?'warning':'neutral'}>{r.overtime||0} min</Badge>}];
+  return <><PageHeader eyebrow="Time operations" title="Attendance" description="Doctor time is the calculation source. VA time is the same attendance instant converted to the employee timezone."/><NoticeBar notice={n.notice} clear={n.clear}/><Card><div className="filter-grid"><Select label="Employee" value={filters.employee_id} onChange={e=>setFilters({...filters,employee_id:e.target.value})}><option value="">All employees</option>{(options.employees||[]).map(x=><option key={x.id} value={x.id}>{x.first_name} {x.last_name}</option>)}</Select><Input label="From date" type="date" value={filters.from} onChange={e=>setFilters({...filters,from:e.target.value})}/><Input label="To date" type="date" value={filters.to} onChange={e=>setFilters({...filters,to:e.target.value})}/><Input label="Search" value={filters.search} onChange={e=>setFilters({...filters,search:e.target.value})} placeholder="Date, time or employee"/><div className="filter-actions"><Button onClick={apply}>Filter</Button><Button variant="ghost" onClick={reset}>Reset</Button></div></div><Table columns={columns} rows={rows} emptyTitle="No attendance records" emptyDescription="No attendance matches these filters."/><Pagination meta={meta} onPage={setPage}/></Card></>;
+ }
+ 
+@@ -451,14 +449,14 @@
+   return end.toISOString().slice(0,10);
+ }
+ 
+-function latestCompletedBillingCycle(){
+-  const now=new Date();
+-  const year=now.getFullYear();
+-  const month=now.getMonth();
+-  const end=new Date(year,now.getDate()>=26?month:month-1,26);
+-  const start=new Date(end.getFullYear(),end.getMonth()-1,25);
+-  const localIso=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+-  return {period_start:localIso(start),period_end:localIso(end)};
++function latestCompletedBillingCycle(timeZone=DEFAULT_TIMEZONE){
++  const today=todayInZone(timeZone);
++  const [year,month,day]=today.split('-').map(Number);
++  const endMonthIndex=(month-1)+(day>=26?0:-1);
++  const end=new Date(Date.UTC(year,endMonthIndex,26));
++  const start=new Date(Date.UTC(end.getUTCFullYear(),end.getUTCMonth()-1,25));
++  const iso=d=>`${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
++  return {period_start:iso(start),period_end:iso(end)};
+ }
+ 
+ export function InvoicesPage(){
+@@ -595,7 +593,7 @@
+ 
+ 
+ export function CompanyFinancePage(){
+-  const today=new Date().toISOString().slice(0,10);
++  const today=todayInZone(DEFAULT_TIMEZONE);
+   const [view,setView]=useState('month');
+   const [date,setDate]=useState(today);
+   const [data,setData]=useState(null);
+@@ -624,7 +622,6 @@
+     }catch(e){n.error(messageFrom(e))}finally{setBusy(false)}
+   };
+   const remove=async entry=>{
+-    if(!confirm(`Delete this ${entry.type} entry?`))return;
+     try{await api.delete(`/admin/company-finance/entries/${entry.id}`);n.success('Finance entry deleted.');await load()}catch(e){n.error(messageFrom(e))}
+   };
+   const columns=[
+@@ -684,7 +681,7 @@
+ 
+ const refTitles={'departments':'Departments','roles':'Employee Roles','employment-types':'Employment Types','shift-types':'Shift Types','designations':'Designations','employee-statuses':'Employee Statuses','expertises':'Expertise','reporting-managers':'Reporting Managers','services':'Client Services','contracts':'Contract Types'};
+ export function ReferencePage(){
+- const {type}=useParams(); const [rows,setRows]=useState([]),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[form,setForm]=useState({name:'',description:''}),[busy,setBusy]=useState(false);const n=useNotice();const title=refTitles[type]||'Configuration';const load=async()=>{setBusy(true);try{setRows((await api.get(`/management/references/${type}`)).data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};useEffect(()=>{load()},[type]);const open=r=>{setEdit(r||null);setForm(r?{name:r.name,description:r.description||''}:{name:'',description:''});setModal(true)};const save=async()=>{setBusy(true);try{edit?await api.put(`/management/references/${type}/${edit.id}`,form):await api.post(`/management/references/${type}`,form);n.success('Configuration saved.');setModal(false);load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};const remove=async r=>{if(!confirm(`Delete ${r.name}?`))return;try{await api.delete(`/management/references/${type}/${r.id}`);n.success('Item deleted.');load()}catch(e){n.error(messageFrom(e))}};
++ const {type}=useParams(); const [rows,setRows]=useState([]),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[form,setForm]=useState({name:'',description:''}),[busy,setBusy]=useState(false);const n=useNotice();const title=refTitles[type]||'Configuration';const load=async()=>{setBusy(true);try{setRows((await api.get(`/management/references/${type}`)).data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};useEffect(()=>{load()},[type]);const open=r=>{setEdit(r||null);setForm(r?{name:r.name,description:r.description||''}:{name:'',description:''});setModal(true)};const save=async()=>{setBusy(true);try{edit?await api.put(`/management/references/${type}/${edit.id}`,form):await api.post(`/management/references/${type}`,form);n.success('Configuration saved.');setModal(false);load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};const remove=async r=>{try{await api.delete(`/management/references/${type}/${r.id}`);n.success('Item deleted.');load()}catch(e){n.error(messageFrom(e))}};
+  return <><PageHeader eyebrow="Configuration" title={title} description="Reference values used across CareVMA forms and employee/client records." actions={<Button icon={Plus} onClick={()=>open()}>Add item</Button>}/><NoticeBar notice={n.notice} clear={n.clear}/><Card><Table columns={[{key:'name',label:'Name'},{key:'description',label:'Description',render:r=>r.description||'—'},{key:'actions',label:'Actions',render:r=><div className="row-actions"><button onClick={()=>open(r)}><Pencil size={16}/></button><button className="danger" onClick={()=>remove(r)}><Trash2 size={16}/></button></div>}]} rows={rows} emptyTitle={`No ${title.toLowerCase()} configured`}/></Card><Modal open={modal} onClose={()=>setModal(false)} title={edit?'Edit item':'Add item'} footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={save}>Save</Button></>}><div className="form-grid one-col"><Input label="Name *" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/>{type==='departments'&&<Textarea label="Description" value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/>}</div></Modal></>;
+ }
+ 
+@@ -703,6 +700,6 @@
+  const load=async()=>{setBusy(true);try{const r=await api.get('/admin/hr-users',{params:{search}});setRows(r.data.data);setMeta(r.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};useEffect(()=>{const t=setTimeout(load,180);return()=>clearTimeout(t)},[search]);
+  const open=r=>{setEdit(r||null);setForm(r?{name:r.name,email:r.email,password:''}:{name:'',email:'',password:''});setModal(true)};
+  const save=async()=>{setBusy(true);try{edit?await api.put(`/admin/hr-users/${edit.id}`,form):await api.post('/admin/hr-users',form);n.success(edit?'HR account updated.':'HR account created.');setModal(false);load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+- const remove=async r=>{if(!confirm(`Delete HR account ${r.name}?`))return;try{await api.delete(`/admin/hr-users/${r.id}`);n.success('HR account deleted.');load()}catch(e){n.error(messageFrom(e))}};
++ const remove=async r=>{try{await api.delete(`/admin/hr-users/${r.id}`);n.success('HR account deleted.');load()}catch(e){n.error(messageFrom(e))}};
+  return <><PageHeader eyebrow="Access management" title="HR team" description="Create dedicated HR logins with workforce, attendance, schedule and review access—without billing/client administration." actions={<Button icon={Plus} onClick={()=>open()}>Add HR user</Button>}/><NoticeBar notice={n.notice} clear={n.clear}/><Card><div className="toolbar"><SearchBox value={search} onChange={setSearch} placeholder="Search HR team"/><span className="record-count">{meta?.total??rows.length} HR users</span></div><Table columns={[{key:'name',label:'Name'},{key:'email',label:'Email'},{key:'last_seen_at',label:'Last active',render:r=>dateTime(r.last_seen_at)},{key:'actions',label:'Actions',render:r=><div className="row-actions"><button onClick={()=>open(r)}><Pencil size={16}/></button><button className="danger" onClick={()=>remove(r)}><Trash2 size={16}/></button></div>}]} rows={rows} emptyTitle="No HR accounts" emptyDescription="Add an HR user to give the HR portal its first login."/></Card><Modal open={modal} onClose={()=>setModal(false)} title={edit?'Edit HR account':'Add HR account'} footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={save}>Save HR account</Button></>}><div className="form-grid one-col"><Input label="Name *" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/><Input label="Email *" type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/><Input label={edit?'New password (optional)':'Password *'} type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})}/></div></Modal></>;
+ }
+--- a/resources/js/timezone.js
++++ b/resources/js/timezone.js
+@@ -0,0 +1,103 @@
++export const DEFAULT_TIMEZONE = import.meta.env.VITE_DEFAULT_TIMEZONE || 'Asia/Karachi';
++
++export function validTimeZone(value, fallback = 'UTC') {
++  const zone = String(value || '').trim();
++  if (zone) {
++    try {
++      new Intl.DateTimeFormat('en-US', { timeZone: zone }).format(new Date(0));
++      return zone;
++    } catch {}
++  }
++  try {
++    new Intl.DateTimeFormat('en-US', { timeZone: fallback }).format(new Date(0));
++    return fallback;
++  } catch {
++    return 'UTC';
++  }
++}
++
++export function instant(value) {
++  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
++  if (value === null || value === undefined || value === '') return null;
++  const date = new Date(value);
++  return Number.isNaN(date.getTime()) ? null : date;
++}
++
++export function formatDateTime(value, timeZone = 'UTC', options = {}) {
++  const date = instant(value);
++  if (!date) return '—';
++  return new Intl.DateTimeFormat('en-US', {
++    timeZone: validTimeZone(timeZone, 'UTC'),
++    year: 'numeric', month: 'short', day: 'numeric',
++    hour: 'numeric', minute: '2-digit', hour12: true,
++    ...options,
++  }).format(date);
++}
++
++export function formatDate(value, timeZone = 'UTC', options = {}) {
++  const date = instant(value);
++  if (!date) return '—';
++  return new Intl.DateTimeFormat('en-US', {
++    timeZone: validTimeZone(timeZone, 'UTC'),
++    year: 'numeric', month: 'short', day: '2-digit',
++    ...options,
++  }).format(date);
++}
++
++export function formatTime(value, timeZone = 'UTC', options = {}) {
++  const date = instant(value);
++  if (!date) return '—';
++  return new Intl.DateTimeFormat('en-US', {
++    timeZone: validTimeZone(timeZone, 'UTC'),
++    hour: 'numeric', minute: '2-digit', hour12: true,
++    ...options,
++  }).format(date);
++}
++
++export function formatTime24(value, timeZone = 'UTC') {
++  const date = instant(value);
++  if (!date) return '';
++  return new Intl.DateTimeFormat('en-GB', {
++    timeZone: validTimeZone(timeZone, 'UTC'),
++    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
++  }).format(date);
++}
++
++export function formatWeekday(value, timeZone = 'UTC') {
++  const date = instant(value);
++  if (!date) return '';
++  return new Intl.DateTimeFormat('en-US', {
++    timeZone: validTimeZone(timeZone, 'UTC'), weekday: 'long',
++  }).format(date);
++}
++
++export function zonedNowParts(timeZone = 'UTC', value = new Date()) {
++  const zone = validTimeZone(timeZone, 'UTC');
++  const parts = new Intl.DateTimeFormat('en-US', {
++    timeZone: zone,
++    year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'long',
++    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
++  }).formatToParts(value);
++  const map = Object.fromEntries(parts.map(part => [part.type, part.value]));
++  return {
++    timeZone: zone,
++    year: Number(map.year), month: Number(map.month), day: Number(map.day),
++    weekday: map.weekday,
++    hour: Number(map.hour), minute: Number(map.minute), second: Number(map.second),
++    date: `${map.year}-${map.month}-${map.day}`,
++  };
++}
++
++export function todayInZone(timeZone = 'UTC') {
++  return zonedNowParts(timeZone).date;
++}
++
++export function weekdayFromDateOnly(value) {
++  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return '';
++  const date = new Date(`${value}T12:00:00Z`);
++  return new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', weekday: 'long' }).format(date);
++}
++
++export function timezoneLabel(timeZone) {
++  return validTimeZone(timeZone, 'UTC').replaceAll('_', ' ');
++}
+--- a/resources/views/emails/attendance/status.blade.php
++++ b/resources/views/emails/attendance/status.blade.php
+@@ -1,4 +1,4 @@
+-@php use Carbon\Carbon; $isApproved = strtolower($status) === 'approved'; @endphp
++@php use Carbon\Carbon; $isApproved = strtolower($status) === 'approved'; $clientTimezone = $clientTimezone ?? 'UTC'; @endphp
+ @extends('emails.layout')
+ @section('title', 'Attendance Request Update')
+ @section('preheader', 'Your attendance correction request has been reviewed.')
+@@ -11,6 +11,7 @@
+ <tr><td style="padding:10px 12px;background:#f6f8f9;font-weight:700;">Old Clock Out</td><td style="padding:10px 12px;">{{ $changeRequest->old_clock_out ? Carbon::parse($changeRequest->old_clock_out)->format('h:i A') : '-' }}</td></tr>
+ <tr><td style="padding:10px 12px;background:#f6f8f9;font-weight:700;">Requested Clock In</td><td style="padding:10px 12px;">{{ $changeRequest->requested_clock_in ? Carbon::parse($changeRequest->requested_clock_in)->format('h:i A') : '-' }}</td></tr>
+ <tr><td style="padding:10px 12px;background:#f6f8f9;font-weight:700;">Requested Clock Out</td><td style="padding:10px 12px;">{{ $changeRequest->requested_clock_out ? Carbon::parse($changeRequest->requested_clock_out)->format('h:i A') : '-' }}</td></tr>
++<tr><td style="padding:10px 12px;background:#f6f8f9;font-weight:700;">Timezone</td><td style="padding:10px 12px;">{{ $clientTimezone }}</td></tr>
+ </table>
+ <table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr><td bgcolor="#39c8df" style="border-radius:4px;"><a href="{{ url('/employee/attendance') }}" style="display:inline-block;padding:13px 22px;color:#08314d;text-decoration:none;font-size:13px;font-weight:700;">View My Attendance</a></td></tr></table>
+ @endsection
+--- a/resources/views/emails/attendance_change_request.blade.php
++++ b/resources/views/emails/attendance_change_request.blade.php
+@@ -1,4 +1,4 @@
+-@php use Carbon\Carbon; @endphp
++@php use Carbon\Carbon; $clientTimezone = $clientTimezone ?? 'UTC'; @endphp
+ @extends('emails.layout')
+ @section('title', 'Attendance Change Request')
+ @section('preheader', 'A VA submitted an attendance correction request.')
+@@ -7,7 +7,7 @@
+ <p style="margin:0 0 18px;">Hello CareVMA Operations Team,</p>
+ <p style="margin:0 0 18px;"><strong>{{ $changeRequest->employee->first_name }} {{ $changeRequest->employee->last_name }}</strong> submitted an attendance correction request.</p>
+ <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border:1px solid #e3e8ec;border-radius:6px;overflow:hidden;margin:0 0 20px;">
+-<tr><td style="padding:10px 12px;background:#f6f8f9;font-weight:700;width:42%;">Date</td><td style="padding:10px 12px;">{{ Carbon::parse($changeRequest->date)->format('d M Y') }}</td></tr>
++<tr><td style="padding:10px 12px;background:#f6f8f9;font-weight:700;width:42%;">Date</td><td style="padding:10px 12px;">{{ Carbon::parse($changeRequest->date)->format('d M Y') }} ({{ $clientTimezone }})</td></tr>
+ <tr><td style="padding:10px 12px;background:#f6f8f9;font-weight:700;">Requested Clock In</td><td style="padding:10px 12px;">{{ $changeRequest->requested_clock_in ? Carbon::parse($changeRequest->requested_clock_in)->format('h:i A') : '-' }}</td></tr>
+ <tr><td style="padding:10px 12px;background:#f6f8f9;font-weight:700;">Requested Clock Out</td><td style="padding:10px 12px;">{{ $changeRequest->requested_clock_out ? Carbon::parse($changeRequest->requested_clock_out)->format('h:i A') : '-' }}</td></tr>
+ <tr><td style="padding:10px 12px;background:#f6f8f9;font-weight:700;">Reason</td><td style="padding:10px 12px;">{{ $changeRequest->reason ?: '-' }}</td></tr>
+--- a/resources/views/errors/403.blade.php
++++ b/resources/views/errors/403.blade.php
+@@ -0,0 +1,5 @@
++@extends('errors.layout')
++@section('title', 'Access denied')
++@section('code', '403')
++@section('heading', 'Access denied')
++@section('message', 'You do not have permission to view this page or perform this action. If you believe you should have access, contact an administrator.')
+--- a/resources/views/errors/404.blade.php
++++ b/resources/views/errors/404.blade.php
+@@ -0,0 +1,5 @@
++@extends('errors.layout')
++@section('title', 'Page not found')
++@section('code', '404')
++@section('heading', 'Page not found')
++@section('message', 'The page or record you requested could not be found. It may have been moved, removed, or the link may be outdated.')
+--- a/resources/views/errors/419.blade.php
++++ b/resources/views/errors/419.blade.php
+@@ -0,0 +1,5 @@
++@extends('errors.layout')
++@section('title', 'Session expired')
++@section('code', '419')
++@section('heading', 'Session expired')
++@section('message', 'Your secure session or form token has expired. Return to CareVMA, refresh the page, and try the action again.')
+--- a/resources/views/errors/429.blade.php
++++ b/resources/views/errors/429.blade.php
+@@ -0,0 +1,5 @@
++@extends('errors.layout')
++@section('title', 'Too many requests')
++@section('code', '429')
++@section('heading', 'Too many requests')
++@section('message', 'CareVMA received too many requests in a short period. Please wait a moment and try again.')
+--- a/resources/views/errors/500.blade.php
++++ b/resources/views/errors/500.blade.php
+@@ -0,0 +1,5 @@
++@extends('errors.layout')
++@section('title', 'Something went wrong')
++@section('code', '500')
++@section('heading', 'Something went wrong')
++@section('message', 'CareVMA could not complete this request because of an unexpected server problem. Please try again. If it continues, contact an administrator.')
+--- a/resources/views/errors/503.blade.php
++++ b/resources/views/errors/503.blade.php
+@@ -0,0 +1,5 @@
++@extends('errors.layout')
++@section('title', 'Service temporarily unavailable')
++@section('code', '503')
++@section('heading', 'Service temporarily unavailable')
++@section('message', 'CareVMA is temporarily unavailable while maintenance or a service interruption is being handled. Please try again shortly.')
+--- a/resources/views/errors/layout.blade.php
++++ b/resources/views/errors/layout.blade.php
+@@ -0,0 +1,28 @@
++<!doctype html>
++<html lang="en">
++<head>
++    <meta charset="utf-8">
++    <meta name="viewport" content="width=device-width, initial-scale=1">
++    <title>@yield('title') · CareVMA</title>
++    <link rel="icon" type="image/png" href="{{ asset('Care_VMA-favicon.png') }}">
++    <style>
++        *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:32px;background:#f5f8fb;color:#12233f;font-family:Inter,Arial,sans-serif}.card{width:min(620px,100%);background:#fff;border:1px solid #dce5ef;border-radius:22px;padding:42px;box-shadow:0 22px 60px rgba(22,44,78,.1);text-align:center}.brand{max-width:190px;max-height:54px;object-fit:contain;margin:0 auto 26px}.code{display:inline-flex;align-items:center;justify-content:center;min-width:72px;height:38px;padding:0 16px;border-radius:999px;background:#e9f8fd;color:#087a9d;font-weight:800;letter-spacing:.08em}.card h1{font-size:30px;margin:18px 0 10px}.card p{margin:0 auto 26px;max-width:500px;line-height:1.65;color:#5c6b7d}.actions{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 20px;border-radius:11px;text-decoration:none;font-weight:700}.btn-primary{background:#12a8cf;color:white}.btn-secondary{background:#eef3f7;color:#243b5a}@media(max-width:560px){.card{padding:30px 22px}.card h1{font-size:25px}}
++    </style>
++</head>
++<body>
++<main class="card">
++    @if(file_exists(public_path('Care_VMA.webp')))
++        <img class="brand" src="{{ asset('Care_VMA.webp') }}" alt="CareVMA">
++    @else
++        <strong>CareVMA</strong>
++    @endif
++    <div><span class="code">@yield('code')</span></div>
++    <h1>@yield('heading')</h1>
++    <p>@yield('message')</p>
++    <div class="actions">
++        <a class="btn btn-primary" href="{{ url('/') }}">Go to CareVMA</a>
++        <a class="btn btn-secondary" href="javascript:history.back()">Go back</a>
++    </div>
++</main>
++</body>
++</html>
+--- a/resources/views/invoices/invoice.blade.php
++++ b/resources/views/invoices/invoice.blade.php
+@@ -30,7 +30,7 @@
+ 
+         {{-- Header --}}
+         @php
+-            $clientTimezone = $invoice->client->timezone ?? config('app.timezone');
++            $clientTimezone = $clientTimezone ?? ($invoice->client->timezone ?: 'UTC');
+             $carevmaLogoPath = public_path('images/CareVMA-full-logo.png');
+             $carevmaLogoSrc = file_exists($carevmaLogoPath)
+                 ? 'data:image/png;base64,' . base64_encode(file_get_contents($carevmaLogoPath))
+@@ -178,7 +178,7 @@
+                             @php
+                                 // Invoice attendance is always rendered in the Doctor / Client timezone.
+                                 // The VA timezone is intentionally not used here.
+-                                $timezone = $invoice->client->timezone ?? config('app.timezone');
++                                $timezone = $clientTimezone;
+ 
+                                 $clockInLocal = $attendance->clock_in
+                                     ? \Carbon\Carbon::parse($attendance->clock_in)->setTimezone($timezone)
+--- a/routes/console.php
++++ b/routes/console.php
+@@ -47,10 +47,6 @@
+ */
+ Schedule::command('invoices:generate-monthly')
+     ->everyMinute()
+-    ->when(function () {
+-        $now = app(TrustedTimeService::class)->now(config('app.timezone', 'Asia/Karachi'));
+-        return $now->day === 27 && $now->format('H:i') === '00:15';
+-    })
+     ->name('carevma-monthly-invoice-generation')
+     ->withoutOverlapping(120);
+ 
+@@ -69,11 +65,11 @@
+         ->get(['id', 'first_name', 'last_name', 'date_of_birth', 'timezone']);
+ 
+     foreach ($employees as $employee) {
+-        $timezone = trim((string) ($employee->timezone ?: config('app.timezone', 'Asia/Karachi')));
++        $timezone = trim((string) ($employee->timezone ?: config('carevma.business_timezone', 'Asia/Karachi')));
+         try {
+             new \DateTimeZone($timezone);
+         } catch (\Throwable) {
+-            $timezone = config('app.timezone', 'Asia/Karachi');
++            $timezone = config('carevma.business_timezone', 'Asia/Karachi');
+         }
+ 
+         $tomorrow = $clock->now($timezone)->addDay();
+@@ -116,7 +112,7 @@
+         );
+     }
+ })->everyMinute()->when(function () {
+-    $now = app(TrustedTimeService::class)->now(config('app.timezone', 'Asia/Karachi'));
++    $now = app(TrustedTimeService::class)->now(config('carevma.business_timezone', 'Asia/Karachi'));
+     // Send any time after 09:00 on the day-before window. Duplicate protection
+     // above guarantees one reminder even though this condition is checked every minute.
+     return $now->hour >= 9;
+@@ -125,7 +121,7 @@
+ /* Existing probation reminder, also tied to the trusted business date. */
+ Schedule::call(function () {
+     $clock = app(TrustedTimeService::class);
+-    $appNow = $clock->now(config('app.timezone', 'Asia/Karachi'));
++    $appNow = $clock->now(config('carevma.business_timezone', 'Asia/Karachi'));
+ 
+     Log::info('CareVMA probation scheduler running.', ['at' => $appNow->toIso8601String()]);
+ 
+@@ -146,7 +142,7 @@
+ 
+     foreach ($employees as $employee) {
+         $reminderDate = Carbon::parse($employee->probation_end_date)
+-            ->timezone(config('app.timezone', 'Asia/Karachi'))
++            ->timezone(config('carevma.business_timezone', 'Asia/Karachi'))
+             ->subWeek()
+             ->toDateString();
+ 
+@@ -168,6 +164,6 @@
+         Log::info('CareVMA probation reminder sent.', ['employee_id' => $employee->id]);
+     }
+ })->everyMinute()->when(function () {
+-    $now = app(TrustedTimeService::class)->now(config('app.timezone', 'Asia/Karachi'));
++    $now = app(TrustedTimeService::class)->now(config('carevma.business_timezone', 'Asia/Karachi'));
+     return $now->format('H:i') === '09:15';
+ })->name('carevma-probation-reminders')->withoutOverlapping(30);

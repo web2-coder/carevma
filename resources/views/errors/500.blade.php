@@ -1,0 +1,5 @@
+@extends('errors.layout')
+@section('title', 'Something went wrong')
+@section('code', '500')
+@section('heading', 'Something went wrong')
+@section('message', 'CareVMA could not complete this request because of an unexpected server problem. Please try again. If it continues, contact an administrator.')

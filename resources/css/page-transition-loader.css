@@ -1,0 +1,41 @@
+/* CareVMA route loading: no popup/modal. Keep destination content hidden until its page requests settle. */
+.carevma-page-transition-line {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 99999;
+  height: 3px;
+  overflow: hidden;
+  pointer-events: none;
+  background: rgba(15, 118, 110, 0.10);
+}
+
+.carevma-page-transition-line > span {
+  display: block;
+  width: 34%;
+  height: 100%;
+  border-radius: 999px;
+  background: currentColor;
+  color: #0b6558;
+  animation: carevmaRouteProgress 1s ease-in-out infinite;
+  will-change: transform;
+}
+
+.carevma-route-content {
+  min-height: 160px;
+}
+
+.carevma-route-content.is-loading {
+  visibility: hidden;
+}
+
+@keyframes carevmaRouteProgress {
+  0% { transform: translateX(-110%); }
+  55% { transform: translateX(155%); }
+  100% { transform: translateX(330%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .carevma-page-transition-line > span { animation-duration: 2.2s; }
+}

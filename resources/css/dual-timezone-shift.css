@@ -1,0 +1,8 @@
+.dual-timezone-clock{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0 2px}
+.dual-timezone-clock>div{padding:12px 14px;border:1px solid #dce9e5;border-radius:14px;background:#fff;display:flex;flex-direction:column;gap:4px}
+.dual-timezone-clock span{font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#7c8f89}
+.dual-timezone-clock strong{font-size:14px;line-height:1.35;color:#173f36;font-variant-numeric:tabular-nums}
+.dual-timezone-clock small{font-size:9px;color:#788b85}
+.schedule-choice-copy small{display:block;margin-top:3px}
+.agenda-row>div:nth-child(2) span{display:block}
+@media(max-width:680px){.dual-timezone-clock{grid-template-columns:1fr}.dual-timezone-clock strong{font-size:13px}}

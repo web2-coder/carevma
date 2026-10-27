@@ -1,0 +1,350 @@
+/*
+* demo.css
+* File include item demo only specific css only
+******************************************************************************/
+
+.menu .app-brand.demo {
+  height: 64px;
+}
+
+.app-brand-logo.demo svg {
+  width: 34px;
+  height: 24px;
+}
+
+.app-brand-text.demo {
+  font-size: 1.1rem;
+}
+
+/* ! For .layout-navbar-fixed added fix padding top to .layout-page */
+/* Default navbar */
+.layout-navbar-fixed .layout-wrapper:not(.layout-without-menu) .layout-page {
+  padding-top: 64px !important;
+}
+.layout-navbar-fixed .layout-wrapper:not(.layout-horizontal):not(.layout-without-menu) .layout-page {
+  padding-top: 72px !important;
+}
+/* Navbar page z-index issue solution */
+.content-wrapper .navbar {
+  z-index: auto;
+}
+
+/*
+* Content
+******************************************************************************/
+
+.demo-blocks > * {
+  display: block !important;
+}
+
+.demo-inline-spacing > * {
+  margin: 1rem 0.375rem 0 0 !important;
+}
+
+/* ? .demo-vertical-spacing class is used to have vertical margins between elements. To remove margin-top from the first-child, use .demo-only-element class with .demo-vertical-spacing class. For example, we have used this class in forms-input-groups.html file. */
+.demo-vertical-spacing > * {
+  margin-top: 1rem !important;
+  margin-bottom: 0 !important;
+}
+.demo-vertical-spacing.demo-only-element > :first-child {
+  margin-top: 0 !important;
+}
+
+.demo-vertical-spacing-lg > * {
+  margin-top: 1.875rem !important;
+  margin-bottom: 0 !important;
+}
+.demo-vertical-spacing-lg.demo-only-element > :first-child {
+  margin-top: 0 !important;
+}
+
+.demo-vertical-spacing-xl > * {
+  margin-top: 5rem !important;
+  margin-bottom: 0 !important;
+}
+.demo-vertical-spacing-xl.demo-only-element > :first-child {
+  margin-top: 0 !important;
+}
+
+/* Dropdown buttons going out of small screens */
+@media (max-width: 576px) {
+  #dropdown-variation-demo .btn-group .text-truncate {
+    width: 254px;
+    position: relative;
+  }
+  #dropdown-variation-demo .btn-group .text-truncate::after {
+    position: absolute;
+    top: 45%;
+    right: 0.65rem;
+  }
+}
+
+/*
+* Layout demo
+******************************************************************************/
+
+.layout-demo-wrapper {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -webkit-box-orient: vertical;
+  -webkit-box-direction: normal;
+  -ms-flex-direction: column;
+  flex-direction: column;
+  margin-top: 1rem;
+}
+.layout-demo-placeholder img {
+  width: 900px;
+}
+.layout-demo-info {
+  text-align: center;
+  margin-top: 1rem;
+}
+
+/* Custom Css */
+
+.custom-card-body {
+  padding: 30px;
+  border:1px solid #e8e8e8;
+  border-radius: 20px;
+  background:white;
+}
+.custom-card-body table td {
+  padding: 25px 10px !important;
+  color: #474747 !important;
+  text-transform: capitalize !important;
+  font-size: 12px !important;
+}
+
+input#dt-search-0 {
+  border-radius: 50px;
+  padding: 5px 10px;
+  width: 200px;
+}
+input#dt-search-0:focus {
+  box-shadow: none;
+  border-width: 1px;
+}
+.cstm-btn-link {
+  background: black;
+  padding: 15px 20px;
+  border-radius: 10px;
+}
+.cstm-btn-link:hover {
+  background: #0E3180;
+}
+.cstm-btn-link-2 {
+  background: #c4c4c4;
+  color: white !important;
+  padding: 15px 20px;
+  border-radius: 10px;
+}
+.cstm-btn-link-2:hover {
+  background: gray;
+}
+.custom-page-title{
+  font-weight: 700;
+  color: black;
+}
+.custom-title-col p{
+  font-size: 12px;
+  margin-bottom: 0 !important;
+}
+aside#layout-menu {
+  background: black !important;
+}
+.custom-tooltip + .tooltip > .tooltip-inner {
+  font-size: 14px !important;    
+}
+.modal-content {
+  box-shadow: none !important;
+  border: 1px solid #bebebe;
+  border-radius: 15px;
+}
+.cstm-dots-btn {
+  background: none;
+  border: none;
+  font-size: 20px;
+  color: black;
+}
+ul.nav.nav-pills {
+  padding: 20px 15px;
+  border: 1px solid #bebebe;
+  border-radius: 15px;
+  width: 280px;
+  max-width: 280px;
+  min-width: 280px;
+}
+.nav-pills .nav-link.active, .nav-pills .show > .nav-link {
+  background: #e1ebff !important;
+  box-shadow: none;
+  color: black;
+}
+.nav-pills .nav-link {
+  padding: 15px 15px !important; 
+  margin-bottom: 5px;
+  border-radius: 11px;
+  box-shadow: none;
+}
+.nav-align-left{
+  align-items: baseline !important;
+}
+.tab-content input, .tab-content select, .tab-content textarea, .tab-content input:focus, .tab-content select:focus, .tab-content textarea:focus, .pwd-change-form input, .basic-info-box input, .salaries-box input {
+  padding: 15px !important;
+  border-radius: 10px !important;
+  border: 1px solid #bebebe !important;
+  box-shadow: none !important;
+}
+.tab-content input:focus, .tab-content select:focus, .tab-content textarea:focus {
+  border-color: black !important;
+}
+.tab-content label, .pwd-change-form label {
+  color: black !important;
+  font-weight: 700;
+}
+.form-row{
+  margin-top: 40px;
+}
+
+form.was-validated .form-control:not(.input-group .form-control):invalid, form.was-validated .form-control:not(.input-group .form-control):invalid:hover, form.was-validated .form-control:not(.input-group .form-control):invalid:focus, form.was-validated .form-control:not(.input-group .form-control):valid, form.was-validated .form-control:not(.input-group .form-control):valid:hover, form.was-validated .form-control:not(.input-group .form-control):valid:focus, form .form-control:not(.input-group .form-control).is-invalid, form .form-control:not(.input-group .form-control).is-invalid:hover, form .form-control:not(.input-group .form-control).is-invalid:focus, form .form-control:not(.input-group .form-control).is-valid, form .form-control:not(.input-group .form-control).is-valid:hover, form .form-control:not(.input-group .form-control).is-valid:focus, form.was-validated .form-select:not(.input-group .form-select):invalid, form.was-validated .form-select:not(.input-group .form-select):invalid:hover, form.was-validated .form-select:not(.input-group .form-select):invalid:focus, form.was-validated .form-select:not(.input-group .form-select):valid, form.was-validated .form-select:not(.input-group .form-select):valid:hover, form.was-validated .form-select:not(.input-group .form-select):valid:focus, form .form-select:not(.input-group .form-select).is-invalid, form .form-select:not(.input-group .form-select).is-invalid:hover, form .form-select:not(.input-group .form-select).is-invalid:focus, form .form-select:not(.input-group .form-select).is-valid, form .form-select:not(.input-group .form-select).is-valid:hover, form .form-select:not(.input-group .form-select).is-valid:focus{
+  padding: 15px;
+  border-radius: 10px;
+  box-shadow: none;
+  border-width: 1px;
+}
+.select2-container .select2-selection--single{
+  height: unset !important; 
+  padding: 10px !important;
+}
+.employee-details{
+  background: rgba(128, 128, 128, 0.18);
+  padding: 15px;
+  border-radius: 9px;
+  border: 1px solid #d0d0d0;
+}
+#employeeSections .table thead tr th{
+  padding: 10px 0px !important;
+}
+#employeeSections input, #employeeSections .select2-selection {
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid #bebebe;
+  box-shadow: none;
+}
+img.google-img {
+  border: 1px solid #80808047;
+  border-radius: 10px;
+  padding: 10px;
+  width: 50px;
+}
+a.btn.cstm-link-btn, .btn.cstm-link-btn-2 {
+  border: 1px solid #adadad;
+  border-radius: 20px;
+  padding: 9px 25px;
+  font-size: 14px;
+  color: #000000a1;
+}
+.btn.cstm-link-btn-2{
+  color: rgb(208, 62, 62) !important;
+}
+div#exportDropdown .btn {
+  background: none;
+  color: #6e6b77;
+  box-shadow: none;
+  border: none;
+  justify-content: left;
+  display: flex;
+  padding: 10px;
+}
+div#exportDropdown .btn:hover {
+ color:black;
+}
+.options-btn {
+  background: none;
+  border: 1px solid #cdcdcd;
+  padding: 15px 20px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+.options-btn:hover {
+  border: 1px solid gray;
+}
+
+thead th {
+  font-weight: 700;
+  color: black !important;
+  text-transform: capitalize !important;
+}
+
+  .custom-card-body-2 {
+    padding: 20px 0px 0 30px;
+    border: 1px solid #e8e8e8;
+    border-radius: 20px;
+    background: linear-gradient(92deg, #0e3180 20%, #5ae5f4 90%);
+    color: #fff;
+  }
+  .custom-card-body-2 .cstm-btn-link:hover {
+    background: #2567a4;
+  }
+
+  .custom-card-body-2 .cstm-btn-link{
+    background: #46b4d2;
+  }
+  .worked-today{
+    font-size: 18px;
+    font-weight: 700;
+    background: #2cc3d7;
+    padding: 7px 15px;
+    border-radius: 10px;
+    margin-bottom: 0px !important;
+  }
+  .tab-content {
+    background: transparent !important;
+    box-shadow: none !important;
+    border: 0px !important;
+    padding-top: 0px !important;
+}
+.nav-align-left{
+  align-items: start !important; 
+}
+
+.welcome-text-div{
+  padding: 80px;
+}
+.welcome-text-div h2 {
+  font-size: 50px;
+  font-weight: bolder;
+  letter-spacing: -2px;
+  color: black;
+}
+.welcome-text-div p {
+  font-size: 19px;
+  color: #343434;
+}
+.complete-profile-btn{
+  padding: 10px 50px;
+  background: linear-gradient(92deg, #0e3180 20%, #5ae5f4 90%);
+  font-size:16px;
+  color: white;
+}
+.complete-profile-btn {
+  padding: 20px 50px;
+  background: linear-gradient(92deg, #0e3180 50%, #5ae5f4 120%);
+  font-size: 17px;
+  color: white;
+  border-radius: 9px;
+  text-transform: uppercase;
+  font-weight: 600;
+  margin-top: 10px;
+  display: inline-block;
+}
+.animate-slide-left { 
+  animation: slideInLeft 0.7s cubic-bezier(.2,.9,.2,1) both; 
+}
+@keyframes slideInLeft {
+  0% { opacity: 0; transform: translateX(-24px); }
+  100% { opacity: 1; transform: translateX(0); }
+  }
