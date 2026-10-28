@@ -9,6 +9,9 @@ use Illuminate\Database\Eloquent\Model;
 
 class Attendance extends Model
 {
+    /**
+     * Fields that can be mass assigned.
+     */
     protected $fillable = [
         'employee_id',
         'client_id',
@@ -32,6 +35,9 @@ class Attendance extends Model
         'overtime_approved_at',
     ];
 
+    /**
+     * Attribute casts.
+     */
     protected $casts = [
         'date' => 'date',
         'overtime_approved_at' => 'datetime',
@@ -41,8 +47,10 @@ class Attendance extends Model
 
     /**
      * Attendance clock values are persisted in MySQL as timezone-less UTC values.
-     * Always interpret the raw database value as UTC. This prevents Laravel's
-     * application timezone (e.g. Asia/Karachi) from adding/subtracting five hours.
+     *
+     * Always interpret the raw database value as UTC.
+     * This prevents Laravel's application timezone
+     * (for example Asia/Karachi) from shifting attendance times.
      */
     protected function clockIn(): Attribute
     {
@@ -53,7 +61,7 @@ class Attendance extends Model
     }
 
     /**
-     * Clock-out value is also stored and retrieved as UTC.
+     * Clock-out is also stored/retrieved as UTC.
      */
     protected function clockOut(): Attribute
     {
@@ -64,7 +72,7 @@ class Attendance extends Model
     }
 
     /**
-     * Convert a raw database datetime into a UTC Carbon instance.
+     * Convert raw MySQL datetime value to UTC Carbon instance.
      */
     private function fromDatabaseUtc(mixed $value): ?Carbon
     {
@@ -83,12 +91,15 @@ class Attendance extends Model
                 'UTC'
             )->utc();
         } catch (\Throwable) {
-            return Carbon::parse((string) $value, 'UTC')->utc();
+            return Carbon::parse(
+                (string) $value,
+                'UTC'
+            )->utc();
         }
     }
 
     /**
-     * Convert a value to the UTC format used by MySQL.
+     * Convert supplied datetime to UTC MySQL format.
      */
     private function toDatabaseUtc(mixed $value): ?string
     {
@@ -102,38 +113,68 @@ class Attendance extends Model
                 ->format($this->getDateFormat());
         }
 
-        return Carbon::parse((string) $value, 'UTC')
+        return Carbon::parse(
+            (string) $value,
+            'UTC'
+        )
             ->utc()
             ->format($this->getDateFormat());
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | Relationships
+    |--------------------------------------------------------------------------
+    */
+
     /**
-     * Employee attached to this attendance record.
+     * Employee / VA belonging to this attendance record.
      */
     public function employee()
     {
-        return $this->belongsTo(Employee::class);
+        return $this->belongsTo(
+            Employee::class,
+            'employee_id'
+        );
     }
 
     /**
-     * All breaks belonging to this attendance session.
+     * All break records belonging to this attendance session.
      */
     public function breaks()
     {
-        return $this->hasMany(EmployeeBreak::class, 'attendance_id');
+        return $this->hasMany(
+            EmployeeBreak::class,
+            'attendance_id'
+        );
     }
 
     /**
-     * Currently active/open break.
+     * Current open break for this attendance session.
      *
-     * A break is considered open while end_time is NULL.
-     * Used by Live Workforce.
+     * A break is considered open when end_time is NULL.
+     *
+     * IMPORTANT:
+     * Do NOT use latestOfMany() here.
+     *
+     * latestOfMany() was generating an aggregate/join query
+     * that caused:
+     *
+     * SQLSTATE[23000]:
+     * Column 'attendance_id' in SELECT is ambiguous
+     *
+     * Qualifying the columns and using orderByDesc avoids
+     * that SQL ambiguity while still returning the latest
+     * currently-open break.
      */
     public function openBreak()
     {
-        return $this->hasOne(EmployeeBreak::class, 'attendance_id')
-            ->whereNull('end_time')
-            ->latestOfMany('start_time');
+        return $this->hasOne(
+            EmployeeBreak::class,
+            'attendance_id'
+        )
+            ->whereNull('employee_breaks.end_time')
+            ->orderByDesc('employee_breaks.start_time');
     }
 
     /**
@@ -141,11 +182,14 @@ class Attendance extends Model
      */
     public function client()
     {
-        return $this->belongsTo(Client::class);
+        return $this->belongsTo(
+            Client::class,
+            'client_id'
+        );
     }
 
     /**
-     * Schedule used for this attendance.
+     * Schedule used for this attendance record.
      */
     public function schedule()
     {
