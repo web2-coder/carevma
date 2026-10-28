@@ -39,9 +39,18 @@ class GenerateMonthlyInvoices extends Command
 
             // Automatic generation is evaluated in every client's own timezone.
             // The global scheduler may run every minute; only a client whose local
-            // clock is 27th 00:15 enters the billing close.
+            // date has reached the 27th enters the billing close.
             if (!$this->option('force') && !$this->option('date')) {
-                if ($localNow->day !== 27 || $localNow->format('H:i') !== '00:15') {
+                // Due from 00:15 onward on the client-local 27th, not at that one exact
+                // minute. Matching a single minute meant one missed tick -- cron skew, a
+                // restart, or a stale withoutOverlapping lock from a crashed run -- cost
+                // the client an entire month's invoice, silently. The period below is
+                // derived from the date alone, so a later tick on the same local day
+                // computes the identical cycle, and the duplicate check keeps it idempotent.
+                $dueToday = $localNow->day === 27
+                    && !($localNow->hour === 0 && $localNow->minute < 15);
+
+                if (!$dueToday) {
                     $notDue++;
                     continue;
                 }
