@@ -16,6 +16,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Symfony\Component\HttpFoundation\Response;
 
+use function Illuminate\Support\defer;
+
 class OperationalActivityNotifier
 {
     public function __construct(private readonly OperationalNotifier $notifier)
@@ -39,44 +41,56 @@ class OperationalActivityNotifier
             return $response;
         }
 
-        $payload = method_exists($response, 'getData') ? (array) $response->getData(true) : [];
-        $message = $payload['message'] ?? $this->fallbackMessage($request);
-        $title = $this->titleFor($request);
-        $relatedRecipients = $this->relatedRecipients($request, $payload);
+        // Recipient resolution, notification writes, Pusher broadcasts and SMTP all ran
+        // inside the request, so a single clock-in blocked on one synchronous
+        // Mail::send per admin before the VA saw a response. Defer the whole fan-out:
+        // deferred callbacks fire on terminate, after the response is sent, and only
+        // when the status was below 400 -- the same condition already guarded above.
+        //
+        // ponytail: this still occupies the PHP worker that served the request. Switch
+        // OperationalNotifier to Mail::queue() once a supervised queue worker is
+        // guaranteed in production; QUEUE_CONNECTION is already database, but nothing
+        // in the deployment docs promises a running worker.
+        defer(function () use ($request, $response, $actor) {
+            $payload = method_exists($response, 'getData') ? (array) $response->getData(true) : [];
+            $message = $payload['message'] ?? $this->fallbackMessage($request);
+            $title = $this->titleFor($request);
+            $relatedRecipients = $this->relatedRecipients($request, $payload);
 
-        // Account creation already sends one dedicated activation email to the new
-        // VA or Client/Doctor. Do not send that new account a second generic activity
-        // email. Admins still receive the operational copy through operationsUsers().
-        if ($request->is('api/management/employees') && $request->isMethod('post')) {
-            $relatedRecipients = $relatedRecipients->reject(fn ($user) => $user?->role === 'employee');
-        }
-        if ($request->is('api/admin/clients') && $request->isMethod('post')) {
-            $relatedRecipients = $relatedRecipients->reject(fn ($user) => $user?->role === 'client');
-        }
+            // Account creation already sends one dedicated activation email to the new
+            // VA or Client/Doctor. Do not send that new account a second generic activity
+            // email. Admins still receive the operational copy through operationsUsers().
+            if ($request->is('api/management/employees') && $request->isMethod('post')) {
+                $relatedRecipients = $relatedRecipients->reject(fn ($user) => $user?->role === 'employee');
+            }
+            if ($request->is('api/admin/clients') && $request->isMethod('post')) {
+                $relatedRecipients = $relatedRecipients->reject(fn ($user) => $user?->role === 'client');
+            }
 
-        $recipients = $relatedRecipients
-            ->merge($this->notifier->operationsUsers())
-            ->push($actor)
-            ->filter(fn ($user) => $user instanceof User)
-            ->unique('id')
-            ->values();
+            $recipients = $relatedRecipients
+                ->merge($this->notifier->operationsUsers())
+                ->push($actor)
+                ->filter(fn ($user) => $user instanceof User)
+                ->unique('id')
+                ->values();
 
-        // Send per recipient so action links always resolve inside that recipient's own portal.
-        foreach ($recipients as $recipient) {
-            $this->notifier->send(
-                $recipient,
-                $title,
-                $actor->name.' ('.$actor->email.') — '.$message,
-                'OperationalActivity',
-                $this->actionUrlForRecipient($request, $recipient),
-                [
-                    'actor_id' => $actor->id,
-                    'actor_role' => $actor->role,
-                    'method' => $request->method(),
-                    'path' => '/'.$request->path(),
-                ]
-            );
-        }
+            // Send per recipient so action links always resolve inside that recipient's own portal.
+            foreach ($recipients as $recipient) {
+                $this->notifier->send(
+                    $recipient,
+                    $title,
+                    $actor->name.' ('.$actor->email.') — '.$message,
+                    'OperationalActivity',
+                    $this->actionUrlForRecipient($request, $recipient),
+                    [
+                        'actor_id' => $actor->id,
+                        'actor_role' => $actor->role,
+                        'method' => $request->method(),
+                        'path' => '/'.$request->path(),
+                    ]
+                );
+            }
+        });
 
         return $response;
     }
