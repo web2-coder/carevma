@@ -25,12 +25,11 @@ const api = axios.create({
   },
 });
 
-// These routes use Laravel's web/session middleware. The SPA shell renders
-// the session CSRF token, so send that exact token with state-changing API calls.
-const csrf = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-if (csrf) {
-  api.defaults.headers.common['X-CSRF-TOKEN'] = csrf;
-}
+// Never pin a CSRF token here. Laravel rotates the session token during login
+// (session()->regenerate() calls regenerateToken()), and VerifyCsrfToken refreshes the
+// XSRF-TOKEN cookie on every response. Axios reads that cookie per request and sends
+// X-XSRF-TOKEN, which Laravel consults only when X-CSRF-TOKEN is absent -- so a pinned
+// X-CSRF-TOKEN header wins, goes stale at login, and 419s every later write.
 
 /*
 |--------------------------------------------------------------------------

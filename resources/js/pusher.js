@@ -2,8 +2,14 @@ import Pusher from 'pusher-js';
 
 let client = null;
 
-function csrfToken() {
-  return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+// The <meta> token is captured at page load and goes stale once Laravel rotates the
+// session token at login. Read the XSRF-TOKEN cookie instead, fresh per auth call.
+function xsrfToken() {
+  const raw = document.cookie
+    .split('; ')
+    .find(cookie => cookie.startsWith('XSRF-TOKEN='));
+
+  return raw ? decodeURIComponent(raw.slice('XSRF-TOKEN='.length)) : '';
 }
 
 export function getPusherClient() {
@@ -21,11 +27,11 @@ export function getPusherClient() {
     channelAuthorization: {
       endpoint: '/broadcasting/auth',
       transport: 'ajax',
-      headers: {
-        'X-CSRF-TOKEN': csrfToken(),
+      headersProvider: () => ({
+        'X-XSRF-TOKEN': xsrfToken(),
         'X-Requested-With': 'XMLHttpRequest',
         'Accept': 'application/json',
-      },
+      }),
     },
   });
 
