@@ -8,7 +8,6 @@ use App\Http\Controllers\Api\InvoicePdfController;
 use App\Http\Controllers\Api\NotificationApiController;
 use App\Http\Controllers\Auth\OrgGoogleController;
 use App\Http\Controllers\Admin\Client\ClientAuthController;
-use App\Http\Controllers\EmployeeProfile\CompleteProfileController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Middleware\OperationalActivityNotifier;
 
@@ -122,12 +121,9 @@ Route::prefix('api')->group(function () {
 /* PDF remains a server-rendered document; navigation inside the app stays SPA-only. */
 Route::get('/invoices/{invoice}/pdf', InvoicePdfController::class)->middleware('auth')->name('invoices.pdf');
 
-/* Existing signed onboarding / OAuth URLs are retained so old emails and integrations do not break. */
-Route::get('/complete-profile', [CompleteProfileController::class, 'welcome'])->name('employee.completeProfile')->middleware('signed');
-Route::get('/complete-profile/start/{employee}', [CompleteProfileController::class, 'start'])->name('employee.completeProfile.start');
-Route::post('/employee/dashboard/profile/update', [CompleteProfileController::class, 'update'])->name('employee.profile.update');
-Route::get('/profile-completed/{employee}', [CompleteProfileController::class, 'profile_completed'])->name('employee.completed');
-Route::post('/auto-login/{employee}', [CompleteProfileController::class, 'autoLogin'])->name('employee.auto-login');
+/* Signed client set-password and Google OAuth URLs stay server-side so old emails and integrations keep working.
+   VA activation now goes through the SPA (/reset-password/{token}?invite=1); the old /complete-profile flow is retired
+   and its URLs fall through to the React shell below. */
 Route::get('/client/set-password', [ClientAuthController::class, 'showSetPasswordForm'])->name('client.password.form')->middleware('signed');
 Route::post('/client/set-password', [ClientAuthController::class, 'setPassword'])->name('client.password.update');
 Route::get('/google/connect', [OrgGoogleController::class, 'redirectToGoogle'])->middleware(['auth', 'role:employee'])->name('google.connect');
