@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable; // if employees need login
 use Illuminate\Database\Eloquent\Model;
 use Carbon\Carbon;
+use Illuminate\Support\Str;
 
 class Employee extends Model
 {
@@ -61,6 +62,8 @@ class Employee extends Model
         'date_of_birth' => 'date',
         'profile_completed' => 'boolean',
     ];
+
+    private const CODE_PLACEHOLDER_PREFIX = 'CVMA-PENDING-';
 
     public const REQUIRED_SELF_SERVICE_FIELDS = [
         'first_name',
@@ -204,10 +207,12 @@ public function clientRates()
         parent::boot();
 
         static::creating(function ($employee) {
-            $lastEmployee = self::orderBy('id', 'desc')->first();
-            $nextNumber = $lastEmployee ? ((int) filter_var($lastEmployee->employee_code, FILTER_SANITIZE_NUMBER_INT)) + 1 : 1;
-
-            $employee->employee_code = 'CVMA' . $nextNumber;
+            // The code is derived from the primary key once it exists (see created()).
+            // employee_code is NOT NULL and unique, so the insert needs a value now;
+            // this placeholder lives only until the row has an id.
+            if (!$employee->employee_code) {
+                $employee->employee_code = self::CODE_PLACEHOLDER_PREFIX.Str::uuid();
+            }
 
             // Accounts created by Admin/HR must be completed by the VA after
             // accepting the invitation and choosing a password. This deliberately
@@ -215,6 +220,16 @@ public function clientRates()
             $creatorRole = auth()->user()?->role;
             if (in_array($creatorRole, ['admin', 'superadmin', 'hr'], true)) {
                 $employee->profile_completed = false;
+            }
+        });
+
+        // CVMA{id}: unique by construction, no lock, no table scan. The previous
+        // "newest row's code + 1" scan raced under concurrent creation and fell back
+        // to CVMA1 whenever the newest row's code was unparseable; with the unique
+        // index both surfaced as a failed create, not a duplicate.
+        static::created(function ($employee) {
+            if (str_starts_with((string) $employee->employee_code, self::CODE_PLACEHOLDER_PREFIX)) {
+                $employee->forceFill(['employee_code' => 'CVMA'.$employee->getKey()])->saveQuietly();
             }
         });
     }
