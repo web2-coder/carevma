@@ -263,6 +263,7 @@ p { text-wrap: pretty; }
 .page-header p { max-width: 62ch; font-size: .8125rem; line-height: 1.55; color: var(--ink-soft); }
 
 .card {
+  font-size: .8125rem;               /* container base: table cells, fields and rows inherit 13px */
   padding: 1.5rem;
   margin-bottom: 1.5rem;
   background: var(--card);
@@ -272,7 +273,7 @@ p { text-wrap: pretty; }
 }
 .card:hover { border-color: transparent; }
 .card-head { margin-bottom: 1.25rem; }
-.card-head h2, .card-head h3 { margin: 0; font-size: 1rem; font-weight: 700; color: var(--foreground); }
+.card-head h2, .card-head h3 { margin: 0; font-size: .9375rem; font-weight: 700; color: var(--foreground); }
 .card-head p { margin-top: .375rem; font-size: .75rem; color: var(--muted-foreground); }
 .card-link { border-top: 1px solid var(--border); color: var(--primary); font-size: .8125rem; font-weight: 600; }
 
@@ -292,7 +293,7 @@ p { text-wrap: pretty; }
 .metric-icon { width: 40px; height: 40px; border: 0; border-radius: var(--radius-field); background: var(--primary-soft); color: var(--primary); }
 .live-metric-card .metric-icon, .metric-card.live-metric-card { background: var(--card); border-color: transparent; }
 .metric-copy span { font-size: .6875rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted-foreground); }
-.metric-copy strong { margin-top: .375rem; font-size: 1.375rem; font-weight: 700; color: var(--foreground); font-variant-numeric: tabular-nums; }
+.metric-copy strong { margin-top: .375rem; font-size: 1.25rem; font-weight: 700; color: var(--foreground); font-variant-numeric: tabular-nums; }
 .metric-copy small { margin-top: .375rem; font-size: .75rem; line-height: 1.4; text-wrap: pretty; color: var(--muted-foreground); }
 
 .dashboard-notice-grid { gap: 1.25rem; margin: 0 0 1.5rem; }
@@ -315,7 +316,7 @@ p { text-wrap: pretty; }
 .badge-danger, .badge.danger { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
 .badge-info { background: var(--info-soft); color: var(--info); }
 
-.field > span { font-size: .8125rem; font-weight: 600; color: var(--ink-soft); }
+.field > span { font-size: .75rem; font-weight: 600; color: var(--ink-soft); }
 .field small { font-size: .75rem; }
 .field input, .field select, .field textarea, .search-box, .table-filter-select, .table-page-size select, .timezone-manual > input {
   border: 1px solid var(--border);
@@ -329,18 +330,23 @@ p { text-wrap: pretty; }
 
 .table-wrap { border: 1px solid var(--border); border-radius: var(--radius-card); }
 th { padding: .75rem .875rem; background: var(--surface-2); border-bottom: 1px solid var(--border); color: var(--muted-foreground); font-size: .6875rem; font-weight: 700; letter-spacing: .08em; }
-td { padding: .8125rem .875rem; border-bottom: 1px solid var(--border); color: var(--foreground); font-size: .875rem; }
-.record-count, .table-result-count, .smart-table-pagination > span { font-size: .8125rem; color: var(--muted-foreground); }
-.table-filter-select, .table-page-size select { font-size: .8125rem; font-weight: 600; color: var(--ink-soft); }
+/* Page-scoped stylesheets load after this file and size headers at 9px with a
+   class-qualified selector; scoping to the card outranks them whatever the order. */
+.card table th, .card .table-wrap th { font-size: .6875rem; }
+td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var(--foreground); font-size: .8125rem; }
+.person-cell strong { font-size: .8125rem; }
+.person-cell span { font-size: .75rem; color: var(--muted-foreground); }
+.record-count, .table-result-count, .smart-table-pagination > span, .table-page-size > span { font-size: .75rem; color: var(--muted-foreground); }
+.table-filter-select, .table-page-size select { font-size: .75rem; font-weight: 600; color: var(--ink-soft); }
 
-.notice { border: 0; border-radius: var(--radius-field); font-size: .8125rem; }
+.notice { border: 0; border-radius: var(--radius-field); font-size: .75rem; }
 .notice-success { background: var(--success-soft); color: var(--success); }
 .notice-error { background: var(--danger-soft); color: var(--danger); }
 .empty-mark { background: var(--primary-soft); color: var(--primary); }
-.empty-state h3 { font-size: .875rem; color: var(--foreground); }
-.empty-state p { font-size: .8125rem; color: var(--muted-foreground); }
+.empty-state h3 { font-size: .8125rem; color: var(--foreground); }
+.empty-state p { font-size: .75rem; color: var(--muted-foreground); }
 .screen-loader svg { color: var(--primary); }
-.modal { border-radius: var(--radius-panel); box-shadow: var(--shadow-raised); }
+.modal { font-size: .8125rem; border-radius: var(--radius-panel); box-shadow: var(--shadow-raised); }
 .modal-head h2 { font-size: 1rem; }
 .modal-head button { border-radius: var(--radius-field); }
 
@@ -351,12 +357,12 @@ td { padding: .8125rem .875rem; border-bottom: 1px solid var(--border); color: v
 .billing-cycle-copy small { color: var(--muted-foreground); }
 .billing-cycle-stats > div, .finance-kpi-row > div { padding: 1rem 1.125rem; border: 1px solid var(--border); border-radius: var(--radius-field); background: var(--surface-2); }
 .billing-cycle-stats span, .finance-kpi-row span { margin-bottom: .25rem; font-size: .6875rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted-foreground); }
-.billing-cycle-stats strong, .finance-kpi-row strong { font-size: 1.125rem; font-weight: 700; color: var(--foreground); font-variant-numeric: tabular-nums; }
+.billing-cycle-stats strong, .finance-kpi-row strong { font-size: 1rem; font-weight: 700; color: var(--foreground); font-variant-numeric: tabular-nums; }
 .finance-kpi-row .negative strong { color: var(--danger); }
 .billing-cycle-status-row { gap: 1rem; }
 .billing-cycle-stats { gap: 1rem; margin-top: 1.25rem; }
 .billing-cycle-foot { margin-top: 1.25rem; padding-top: 1.125rem; border-top: 1px solid var(--border); }
-.billing-cycle-foot > span { font-size: .8125rem; color: var(--muted-foreground); }
+.billing-cycle-foot > span { font-size: .75rem; color: var(--muted-foreground); }
 
 .birthday-dashboard-list { gap: .75rem; }
 .birthday-dashboard-person { padding: .875rem 1rem; border: 1px solid var(--border); border-radius: var(--radius-field); background: var(--surface-2); }
@@ -366,6 +372,7 @@ td { padding: .8125rem .875rem; border-bottom: 1px solid var(--border); color: v
 
 .activity-row { padding: .875rem 0; border-bottom: 1px solid var(--border); }
 .activity-row strong { font-size: .8125rem; color: var(--foreground); }
+.activity-row span { font-size: .75rem; }
 .activity-row span { font-size: .75rem; color: var(--muted-foreground); }
 
 /* Charts: thin marks with 4px rounded data-ends on a hairline baseline, no gradients,
