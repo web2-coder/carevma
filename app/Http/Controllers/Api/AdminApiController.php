@@ -18,7 +18,6 @@ use App\Models\EmployeeStatus;
 use App\Models\EmploymentType;
 use App\Models\Expertise;
 use App\Models\Invoice;
-use App\Models\Notification;
 use App\Models\ReportingManager;
 use App\Models\Role;
 use App\Models\Service;
@@ -1229,17 +1228,6 @@ class AdminApiController extends Controller
         ], $references, [
             'business_timezone' => $this->timezones->businessTimezone(),
         ]));
-    }
-
-    public function notifications()
-    {
-        return response()->json(Notification::latest('id')->paginate(30));
-    }
-
-    public function markNotificationsRead()
-    {
-        Notification::where('is_read', false)->update(['is_read' => true]);
-        return response()->json(['message' => 'Notifications marked as read.']);
     }
 
     public function updateAccount(Request $request)

@@ -62,8 +62,6 @@ Route::prefix('api')->group(function () {
             Route::get('/options', [AdminApiController::class, 'options']);
             Route::get('/fx/pkr-usd', [AdminApiController::class, 'pkrUsdRate']);
 
-            Route::get('/notifications', [AdminApiController::class, 'notifications']);
-            Route::post('/notifications/read-all', [AdminApiController::class, 'markNotificationsRead']);
             Route::put('/account', [AdminApiController::class, 'updateAccount']);
             Route::post('/account', [AdminApiController::class, 'updateAccount']);
             Route::put('/account/password', [AdminApiController::class, 'changePassword']);
