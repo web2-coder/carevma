@@ -18,9 +18,11 @@ use App\Http\Middleware\OperationalActivityNotifier;
 |--------------------------------------------------------------------------
 */
 Route::prefix('api')->group(function () {
-    Route::post('/login', [AuthApiController::class, 'login'])->middleware('guest');
-    Route::post('/forgot-password', [AuthApiController::class, 'forgot'])->middleware('guest');
-    Route::post('/reset-password', [AuthApiController::class, 'reset'])->middleware('guest');
+    // Login is limited per email + IP (defined in AppServiceProvider); the two reset
+    // endpoints per IP, since forgot-password is an outbound email relay.
+    Route::post('/login', [AuthApiController::class, 'login'])->middleware(['guest', 'throttle:login']);
+    Route::post('/forgot-password', [AuthApiController::class, 'forgot'])->middleware(['guest', 'throttle:6,1']);
+    Route::post('/reset-password', [AuthApiController::class, 'reset'])->middleware(['guest', 'throttle:6,1']);
 
     Route::middleware(['auth', OperationalActivityNotifier::class])->group(function () {
         Route::get('/me', [AuthApiController::class, 'me']);
