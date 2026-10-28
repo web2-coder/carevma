@@ -10,9 +10,26 @@ use Illuminate\Database\Eloquent\Model;
 class Attendance extends Model
 {
     protected $fillable = [
-        'employee_id','client_id','schedule_id','date','timezone_snapshot','shift_start_snapshot','shift_end_snapshot','clock_in','clock_out',
-        'break_limit','break_taken','total_minutes','overtime','is_late','late_minutes',
-        'overtime_status','approved_overtime_minutes','overtime_amount','overtime_approved_by','overtime_approved_at'
+        'employee_id',
+        'client_id',
+        'schedule_id',
+        'date',
+        'timezone_snapshot',
+        'shift_start_snapshot',
+        'shift_end_snapshot',
+        'clock_in',
+        'clock_out',
+        'break_limit',
+        'break_taken',
+        'total_minutes',
+        'overtime',
+        'is_late',
+        'late_minutes',
+        'overtime_status',
+        'approved_overtime_minutes',
+        'overtime_amount',
+        'overtime_approved_by',
+        'overtime_approved_at',
     ];
 
     protected $casts = [
@@ -35,6 +52,9 @@ class Attendance extends Model
         );
     }
 
+    /**
+     * Clock-out value is also stored and retrieved as UTC.
+     */
     protected function clockOut(): Attribute
     {
         return Attribute::make(
@@ -43,6 +63,9 @@ class Attendance extends Model
         );
     }
 
+    /**
+     * Convert a raw database datetime into a UTC Carbon instance.
+     */
     private function fromDatabaseUtc(mixed $value): ?Carbon
     {
         if ($value === null || $value === '') {
@@ -54,12 +77,19 @@ class Attendance extends Model
         }
 
         try {
-            return Carbon::createFromFormat($this->getDateFormat(), (string) $value, 'UTC')->utc();
+            return Carbon::createFromFormat(
+                $this->getDateFormat(),
+                (string) $value,
+                'UTC'
+            )->utc();
         } catch (\Throwable) {
             return Carbon::parse((string) $value, 'UTC')->utc();
         }
     }
 
+    /**
+     * Convert a value to the UTC format used by MySQL.
+     */
     private function toDatabaseUtc(mixed $value): ?string
     {
         if ($value === null || $value === '') {
@@ -67,14 +97,61 @@ class Attendance extends Model
         }
 
         if ($value instanceof DateTimeInterface) {
-            return Carbon::instance($value)->utc()->format($this->getDateFormat());
+            return Carbon::instance($value)
+                ->utc()
+                ->format($this->getDateFormat());
         }
 
-        return Carbon::parse((string) $value, 'UTC')->utc()->format($this->getDateFormat());
+        return Carbon::parse((string) $value, 'UTC')
+            ->utc()
+            ->format($this->getDateFormat());
     }
 
-    public function employee(){ return $this->belongsTo(Employee::class); }
-    public function breaks(){ return $this->hasMany(EmployeeBreak::class); }
-    public function client(){ return $this->belongsTo(Client::class); }
-    public function schedule(){ return $this->belongsTo(EmployeeClientSchedule::class, 'schedule_id'); }
+    /**
+     * Employee attached to this attendance record.
+     */
+    public function employee()
+    {
+        return $this->belongsTo(Employee::class);
+    }
+
+    /**
+     * All breaks belonging to this attendance session.
+     */
+    public function breaks()
+    {
+        return $this->hasMany(EmployeeBreak::class, 'attendance_id');
+    }
+
+    /**
+     * Currently active/open break.
+     *
+     * A break is considered open while end_time is NULL.
+     * Used by Live Workforce.
+     */
+    public function openBreak()
+    {
+        return $this->hasOne(EmployeeBreak::class, 'attendance_id')
+            ->whereNull('end_time')
+            ->latestOfMany('start_time');
+    }
+
+    /**
+     * Client / Doctor attached to this attendance.
+     */
+    public function client()
+    {
+        return $this->belongsTo(Client::class);
+    }
+
+    /**
+     * Schedule used for this attendance.
+     */
+    public function schedule()
+    {
+        return $this->belongsTo(
+            EmployeeClientSchedule::class,
+            'schedule_id'
+        );
+    }
 }
