@@ -9,7 +9,7 @@ import { DEFAULT_TIMEZONE, formatDate, formatDateTime, formatTime as formatTimeI
 import { useAuth } from '../context/AuthContext';
 import {
   PageHeader, Card, MetricCard, Button, Input, Select, Textarea, SearchBox, Badge, statusTone,
-  EmptyState, Loading, Notice, Modal, Table, Pagination, money, mins, dateTime, AvatarMedia
+  EmptyState, Loading, Notice, Modal, Table, money, mins, dateTime, AvatarMedia
 } from '../components/ui';
 import TimezonePicker from '../components/TimezonePicker';
 import SalaryConverter from '../components/SalaryConverter';
@@ -339,7 +339,7 @@ function Time12Field({label,value,onChange}){
 
 export function SchedulesPage(){
  const emptySchedule={employee_id:'',client_id:'',schedule_date:'',weekday:'Monday',start_time:'09:00',end_time:'17:00',timezone:'',enabled:true,repeat:true,per_hour_rate:''};
- const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[page,setPage]=useState(1),[options,setOptions]=useState({}),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[busy,setBusy]=useState(false),[form,setForm]=useState(emptySchedule);const n=useNotice();
+ const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[page,setPage]=useState(1),[perPage,setPerPage]=useState(50),[sort,setSort]=useState({key:'weekday',dir:'asc'}),[options,setOptions]=useState({}),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[busy,setBusy]=useState(false),[form,setForm]=useState(emptySchedule);const n=useNotice();
 
  const dayFromDate=value=>weekdayFromDateOnly(value);
  const selectedClient=id=>(options.clients||[]).find(client=>String(client.id)===String(id));
@@ -348,8 +348,8 @@ export function SchedulesPage(){
  const formatTime=(value,timeZone)=>formatTimeInZone(value,timeZone||'UTC');
  const doctorRange=row=>{const tz=row.client_timezone||row.client?.timezone;if(!row.client_shift_starts_at||!row.client_shift_ends_at||!tz)return 'Saved after timezone sync';return `${formatMoment(row.client_shift_starts_at,tz)} – ${formatTime(row.client_shift_ends_at,tz)}`};
 
- const load=async(nextPage=page)=>{setBusy(true);try{const [r,o]=await Promise.all([api.get('/management/schedules',{params:{paginate:1,page:nextPage,per_page:50}}),api.get('/management/options')]);setRows(r.data?.data||[]);setMeta(r.data||null);setOptions(o.data||{})}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
- useEffect(()=>{load(page)},[page]);
+ const load=async(nextPage=page)=>{setBusy(true);try{const [r,o]=await Promise.all([api.get('/management/schedules',{params:{paginate:1,page:nextPage,per_page:perPage,sort:sort.key,direction:sort.dir}}),api.get('/management/options')]);setRows(r.data?.data||[]);setMeta(r.data||null);setOptions(o.data||{})}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+ useEffect(()=>{load(page)},[page,perPage,sort]);
 
  const open=r=>{
    setEdit(r||null);
@@ -386,21 +386,21 @@ export function SchedulesPage(){
  const columns=[
    {key:'employee',label:'Employee',render:r=>`${r.employee?.first_name||''} ${r.employee?.last_name||''}`},
    {key:'client',label:'Client / Doctor',render:r=>r.client?.name||'—'},
-   {key:'weekday',label:'Doctor day'},
+   {key:'weekday',label:'Doctor day',sortKey:'weekday'},
    {key:'schedule_type',label:'Type',render:r=>r.repeat?<Badge tone="info">Weekly</Badge>:<Badge tone="neutral">{r.schedule_date?`Once · ${String(r.schedule_date).slice(0,10)}`:'Legacy weekly'}</Badge>},
-   {key:'doctor_shift',label:'Doctor local shift',render:r=>`${formatStoredTime12(r.start_time)} – ${formatStoredTime12(r.end_time)}`},
-   {key:'doctor_timezone',label:'Doctor timezone',render:r=>r.client_timezone||r.client?.timezone||r.timezone||'Not specified'},
+   {key:'doctor_shift',label:'Doctor local shift',sortKey:'start_time',render:r=>`${formatStoredTime12(r.start_time)} – ${formatStoredTime12(r.end_time)}`},
+   {key:'doctor_timezone',label:'Doctor timezone',sortKey:'timezone',render:r=>r.client_timezone||r.client?.timezone||r.timezone||'Not specified'},
    {key:'va_shift',label:'VA local time',render:r=>{const tz=r.employee_timezone||r.employee?.timezone;return r.shift_starts_at&&r.shift_ends_at&&tz?`${formatMoment(r.shift_starts_at,tz)} – ${formatTime(r.shift_ends_at,tz)}`:'—'}},
    {key:'va_timezone',label:'VA timezone',render:r=>r.employee_timezone||r.employee?.timezone||'Not specified'},
-   {key:'hours',label:'Duration (H.MM)',render:r=><strong>{formatDurationHM(r.no_of_hours)}</strong>},
-   {key:'status',label:'Status',render:r=><Badge tone={r.enabled?'success':'danger'}>{r.enabled?'Enabled':'Disabled'}</Badge>},
+   {key:'hours',label:'Duration (H.MM)',sortKey:'no_of_hours',render:r=><strong>{formatDurationHM(r.no_of_hours)}</strong>},
+   {key:'status',label:'Status',sortKey:'enabled',render:r=><Badge tone={r.enabled?'success':'danger'}>{r.enabled?'Enabled':'Disabled'}</Badge>},
    {key:'actions',label:'Actions',render:r=><div className="row-actions"><button onClick={()=>open(r)}><Pencil size={16}/></button><button className="danger" onClick={()=>remove(r)}><Trash2 size={16}/></button></div>}
  ];
 
  return <>
    <PageHeader eyebrow="Assignment planning" title="Schedules" description="Enter the shift in the Client / Doctor local timezone. CareVMA uses that timezone for check-in, lateness and overtime, then converts the same instant for the VA." actions={<Button icon={Plus} onClick={()=>open()}>Add schedule</Button>}/>
    <NoticeBar notice={n.notice} clear={n.clear}/>
-   <Card>{busy&&!rows.length?<Loading/>:<><Table columns={columns} rows={rows} emptyTitle="No schedules configured"/><Pagination meta={meta} onPage={setPage}/></>}</Card>
+   <Card>{busy&&!rows.length?<Loading/>:<><Table columns={columns} rows={rows} emptyTitle="No schedules configured" meta={meta} onPage={setPage} perPage={perPage} onPerPage={v=>{setPerPage(v);setPage(1)}} sort={sort} onSort={s=>{setSort(s);setPage(1)}}/></>}</Card>
    <Modal open={modal} onClose={()=>setModal(false)} title={edit?'Edit schedule':'New schedule'} footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={save}>Save schedule</Button></>}>
      <div className="form-grid">
        <Select label="Employee / VA *" value={form.employee_id} onChange={e=>chooseEmployee(e.target.value)}><option value="">Select employee</option>{(options.employees||[]).map(x=><option key={x.id} value={x.id}>{x.employee_code} · {x.first_name} {x.last_name}</option>)}</Select>
