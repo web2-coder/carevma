@@ -156,4 +156,58 @@ class ListSortingAndPaginationTest extends TestCase
             ->json('attendance.data');
         $this->assertSame([480, 300, 120], array_map('intval', array_column($doctorRows, 'total_minutes')));
     }
+
+    public function test_hr_users_and_clients_sort_by_name(): void
+    {
+        $admin = $this->admin();
+        // Created in ascending name order on purpose: the default ordering is id desc,
+        // so without a working sort these come back reversed and the test is red.
+        foreach (['Amy', 'Zed'] as $name) {
+            User::create(['name' => $name, 'email' => strtolower($name).'@carevma.test', 'password' => 'password', 'role' => 'hr']);
+        }
+        foreach (['Alpine Practice', 'Westside Clinic'] as $name) {
+            $user = User::create(['name' => $name, 'email' => str_replace(' ', '', strtolower($name)).'@carevma.test', 'password' => 'password', 'role' => 'client']);
+            Client::create(['user_id' => $user->id, 'name' => $name, 'email' => $user->email, 'timezone' => 'UTC']);
+        }
+
+        $hr = $this->actingAs($admin)->getJson('/api/admin/hr-users?sort=name&direction=asc&per_page=1')->assertOk()->json();
+        $this->assertSame(['Amy'], array_column($hr['data'], 'name'));
+        $this->assertSame(1, $hr['per_page']);
+        $this->assertSame(2, $hr['total']);
+
+        $clients = $this->actingAs($admin)->getJson('/api/admin/clients?sort=name&direction=asc')->assertOk()->json('data');
+        $this->assertSame(['Alpine Practice', 'Westside Clinic'], array_column($clients, 'name'));
+    }
+
+    public function test_change_requests_and_overtime_sort_and_page(): void
+    {
+        $admin = $this->admin();
+        $client = $this->client();
+        $employee = $this->employee('Alice', 'alice@carevma.test');
+
+        $attendances = [];
+        foreach ([['2026-10-03', 90], ['2026-10-01', 30], ['2026-10-02', 60]] as [$date, $overtime]) {
+            $attendances[] = Attendance::create([
+                'employee_id' => $employee->id, 'client_id' => $client->id, 'date' => $date,
+                'timezone_snapshot' => 'UTC', 'clock_in' => "{$date} 09:00:00", 'clock_out' => "{$date} 18:00:00",
+                'break_taken' => 0, 'total_minutes' => 480, 'overtime' => $overtime, 'overtime_status' => 'pending',
+            ]);
+        }
+        foreach ($attendances as $attendance) {
+            DB::table('attendance_change_requests')->insert([
+                'attendance_id' => $attendance->id, 'employee_id' => $employee->id, 'date' => $attendance->date->toDateString(),
+                'requested_clock_in' => '09:00:00', 'requested_clock_out' => '17:00:00', 'reason' => 'Test',
+                'status' => 'pending', 'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
+        $requests = $this->actingAs($admin)->getJson('/api/management/change-requests?sort=date&direction=asc')->assertOk()->json('data');
+        $this->assertSame(['2026-10-01', '2026-10-02', '2026-10-03'], array_map(fn ($r) => substr($r['date'], 0, 10), $requests));
+
+        // Overtime used to paginate at a fixed 25 and ignore per_page entirely.
+        $overtime = $this->actingAs($admin)->getJson('/api/management/overtime?sort=overtime&direction=desc&per_page=1')->assertOk()->json();
+        $this->assertSame(1, $overtime['per_page']);
+        $this->assertSame(3, $overtime['total']);
+        $this->assertSame(90, (int) $overtime['data'][0]['overtime']);
+    }
 }

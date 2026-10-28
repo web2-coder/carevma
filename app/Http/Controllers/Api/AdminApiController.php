@@ -489,7 +489,9 @@ class AdminApiController extends Controller
         if ($search = trim((string) $request->query('search'))) {
             $query->where(fn ($q) => $q->where('name', 'like', "%{$search}%")->orWhere('email', 'like', "%{$search}%"));
         }
-        return response()->json($query->latest('id')->paginate(min((int) $request->query('per_page', 25), 100)));
+        return response()->json($this->sortAndPaginate($request, $query, [
+            'id' => 'id', 'name' => 'name', 'email' => 'email', 'last_seen_at' => 'last_seen_at', 'created_at' => 'created_at',
+        ], 'id'));
     }
 
     public function storeHrUser(Request $request)
@@ -532,7 +534,10 @@ class AdminApiController extends Controller
                 ->orWhere('email', 'like', "%{$search}%")
                 ->orWhere('business_name', 'like', "%{$search}%"));
         }
-        return response()->json($query->latest('id')->paginate(min((int) $request->query('per_page', 25), 100)));
+        return response()->json($this->sortAndPaginate($request, $query, [
+            'id' => 'id', 'name' => 'name', 'email' => 'email', 'business_name' => 'business_name', 'country' => 'country',
+            'timezone' => 'timezone', 'per_hour_charges' => 'per_hour_charges', 'created_at' => 'created_at',
+        ], 'id'));
     }
 
     public function client(Client $client)
@@ -787,7 +792,10 @@ class AdminApiController extends Controller
     {
         $query = AttendanceChangeRequest::with(['employee:id,first_name,last_name,employee_code', 'attendance']);
         if ($request->filled('status')) $query->where('status', $request->input('status'));
-        return response()->json($query->latest('id')->paginate(min((int) $request->query('per_page', 25), 100)));
+        return response()->json($this->sortAndPaginate($request, $query, [
+            'id' => 'id', 'date' => 'date', 'status' => 'status', 'requested_clock_in' => 'requested_clock_in',
+            'requested_clock_out' => 'requested_clock_out', 'created_at' => 'created_at', 'reviewed_at' => 'reviewed_at',
+        ], 'id'));
     }
 
     public function reviewChangeRequest(Request $request, AttendanceChangeRequest $changeRequest)
@@ -822,7 +830,10 @@ class AdminApiController extends Controller
     {
         $query = Attendance::with('employee:id,first_name,last_name,employee_code')->where('overtime', '>', 0);
         $query->whereIn('overtime_status', ['pending', 'approved', 'rejected']);
-        return response()->json($query->latest('date')->paginate(25));
+        return response()->json($this->sortAndPaginate($request, $query, [
+            'id' => 'id', 'date' => 'date', 'overtime' => 'overtime', 'overtime_status' => 'overtime_status',
+            'approved_overtime_minutes' => 'approved_overtime_minutes', 'overtime_amount' => 'overtime_amount',
+        ], 'date'));
     }
 
     public function reviewOvertime(Request $request, Attendance $attendance)
