@@ -115,11 +115,11 @@ export function ManagementDashboard(){
         </div>
         <Link className="btn btn-primary btn-link" to="/admin/company-finance">View Company Finance</Link>
       </div>
-      <div className="finance-mini-legend"><span><i className="income"/>Income received</span><span><i className="expense"/>Outgoing</span></div>
+      {financeTrend.some(point=>Number(point.income)||Number(point.outgoing))?<><div className="finance-mini-legend"><span><i className="income"/>Income received</span><span><i className="expense"/>Outgoing</span></div>
       <div className="finance-dashboard-chart">{financeTrend.map(point=><div className="finance-chart-column" key={point.label}>
         <div className="finance-chart-bars"><span className="income" style={{height:`${Math.max(3,(Number(point.income)||0)/financeMax*100)}%`}} title={`Income ${money(point.income||0)}`}/><span className="expense" style={{height:`${Math.max(3,(Number(point.outgoing)||0)/financeMax*100)}%`}} title={`Outgoing ${money(point.outgoing||0)}`}/></div>
         <small>{point.label}</small>
-      </div>)}</div>
+      </div>)}</div></>:<EmptyState title="No finance activity yet" description="Income and outgoing will chart here once invoices are paid or finance entries are recorded."/>}
     </Card>}
 
     <div className="dashboard-grid">
