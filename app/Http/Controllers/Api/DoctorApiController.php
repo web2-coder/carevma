@@ -15,6 +15,23 @@ use Illuminate\Validation\Rule;
 
 class DoctorApiController extends Controller
 {
+    /**
+     * What a Client/Doctor may see about their assigned VA: enough to identify and
+     * contact them, nothing more. Deliberately excludes salary_pkr and salary_usd --
+     * CareVMA's cost basis, which a client billed on per_hour_charges has no business
+     * reading -- along with date_of_birth, age, gender, marital_status, phone,
+     * about_me_notes, uploaded documents and the hiring/probation record.
+     */
+    private const CLIENT_VISIBLE_EMPLOYEE_FIELDS = [
+        'id',
+        'employee_code',
+        'first_name',
+        'last_name',
+        'email',
+        'profile_picture',
+        'timezone',
+    ];
+
     public function __construct(private ClientTimezoneService $timezones)
     {
     }
@@ -42,7 +59,8 @@ class DoctorApiController extends Controller
             ->whereIn('id', $employeeIds)
             ->orderBy('first_name')
             ->orderBy('last_name')
-            ->get();
+            // The foreign keys are selected only so the eager loads above can resolve.
+            ->get([...self::CLIENT_VISIBLE_EMPLOYEE_FIELDS, 'department_id', 'designation_id', 'employee_status_id']);
         return response()->json([
             'client' => $client,
             'client_local_now' => $this->timezones->now($client)->toIso8601String(),
@@ -80,7 +98,7 @@ class DoctorApiController extends Controller
 
         return response()->json([
             'client' => $client->only(['id', 'name', 'business_name', 'timezone']),
-            'employee' => $employee,
+            'employee' => $employee->only(self::CLIENT_VISIBLE_EMPLOYEE_FIELDS),
             'attendance' => $attendance,
         ]);
     }
