@@ -358,7 +358,6 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
 .empty-mark { background: var(--primary-soft); color: var(--primary); }
 .empty-state h3 { font-size: .8125rem; color: var(--foreground); }
 .empty-state p { font-size: .75rem; color: var(--muted-foreground); }
-.screen-loader svg { color: var(--primary); }
 .modal { font-size: .8125rem; border-radius: var(--radius-panel); box-shadow: var(--shadow-raised); }
 .modal-head h2 { font-size: 1rem; }
 .modal-head button { border-radius: var(--radius-field); }
@@ -412,3 +411,28 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
 .finance-mini-legend i.expense { background: var(--chart-2); }
 .finance-income-text { color: var(--chart-1); }
 .finance-expense-text { color: var(--chart-2); }
+
+/* ---- Skeleton loading: the page's own shapes, shimmer only when motion is allowed -- */
+.skeleton-screen { display: grid; gap: 1.5rem; }
+.skeleton { display: block; height: .75rem; border-radius: var(--radius-field); background: var(--surface-2); }
+@media (prefers-reduced-motion: no-preference) {
+  .skeleton { background: linear-gradient(90deg, var(--surface-2) 25%, var(--border) 50%, var(--surface-2) 75%); background-size: 200% 100%; animation: skeleton-shimmer 1.4s ease-in-out infinite; }
+}
+@keyframes skeleton-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.skeleton-head { display: grid; gap: .625rem; }
+.skeleton-eyebrow { width: 6rem; height: .625rem; }
+.skeleton-title { width: 16rem; max-width: 60%; height: 1.5rem; }
+.skeleton-text { width: 22rem; max-width: 80%; }
+.skeleton-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; }
+.skeleton-card, .skeleton-panel { background: var(--card); border-radius: var(--radius-card); box-shadow: var(--shadow-card); }
+.skeleton-card { display: flex; align-items: center; gap: .875rem; padding: 1rem 1.125rem; }
+.skeleton-card > div { flex: 1; display: grid; gap: .5rem; }
+.skeleton-icon { flex: none; width: 36px; height: 36px; }
+.skeleton-short { width: 60%; height: .625rem; }
+.skeleton-value { width: 3rem; height: 1.25rem; }
+.skeleton-panel { padding: .5rem 1.5rem; }
+.skeleton-row { display: grid; grid-template-columns: 32px minmax(0, 1fr) 6rem 5rem; align-items: center; gap: 1rem; padding: .875rem 0; border-bottom: 1px solid var(--border); }
+.skeleton-row:last-child { border-bottom: 0; }
+.skeleton-avatar { width: 32px; height: 32px; border-radius: var(--radius-pill); }
+.skeleton-pill { height: 1.25rem; border-radius: var(--radius-pill); }
+@media (max-width: 640px) { .skeleton-row { grid-template-columns: 32px minmax(0, 1fr) 4rem; } .skeleton-row > .skeleton-pill { display: none; } }

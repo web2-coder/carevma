@@ -839,7 +839,7 @@ export default function ClientProfilePage() {
         <Input label="Search" value={reportFilters.search} onChange={event => setReportFilters(current => ({ ...current, search: event.target.value }))} placeholder="Date, VA or time" />
         <div className="client-report-actions"><Button onClick={applyReportFilters}>Filter</Button><Button variant="ghost" onClick={resetReportFilters}>Reset</Button></div>
       </div>
-      {reportLoading && !reportRows.length ? <Loading /> : <Table columns={reportColumns} rows={reportRows} localPagination={false} emptyTitle="No work records" emptyDescription="No attendance is linked to this client for the selected filters." />}
+      {reportLoading && !reportRows.length ? <Loading inline /> : <Table columns={reportColumns} rows={reportRows} localPagination={false} emptyTitle="No work records" emptyDescription="No attendance is linked to this client for the selected filters." />}
       <Pagination meta={reportMeta} onPage={setReportPage} />
     </Card>
   );

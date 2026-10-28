@@ -1,4 +1,4 @@
-/* CareVMA route loading: no popup/modal. Keep destination content hidden until its page requests settle. */
+/* CareVMA route loading: a thin top line; the destination page shows its own skeleton while its requests settle. */
 .carevma-page-transition-line {
   position: fixed;
   top: 0;
@@ -24,10 +24,6 @@
 
 .carevma-route-content {
   min-height: 160px;
-}
-
-.carevma-route-content.is-loading {
-  visibility: hidden;
 }
 
 @keyframes carevmaRouteProgress {

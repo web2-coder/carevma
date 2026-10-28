@@ -34,7 +34,7 @@ function dashboardFor(user) {
 function Protected({ roles, children }) {
   const { user, loading } = useAuth();
   const location = useLocation();
-  if (loading) return <Loading/>;
+  if (loading) return <div className="content"><Loading/></div>;
   if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }}/>;
   if (roles && !roles.includes(user.role) && !(roles.includes('admin') && user.role === 'superadmin')) return <Navigate to={dashboardFor(user)} replace/>;
   const incompleteEmployee = user.role === 'employee' && (user?.employee?.profile_completed === false || user?.employee?.profile_completed === 0 || user?.employee?.profile_completed === '0');
@@ -44,13 +44,13 @@ function Protected({ roles, children }) {
 
 function GuestOnly({ children }) {
   const { user, loading } = useAuth();
-  if (loading) return <Loading/>;
+  if (loading) return <div className="content"><Loading/></div>;
   return user ? <Navigate to={dashboardFor(user)} replace/> : children;
 }
 
 function HomeRedirect() {
   const { user, loading } = useAuth();
-  if (loading) return <Loading/>;
+  if (loading) return <div className="content"><Loading/></div>;
   return <Navigate to={dashboardFor(user)} replace/>;
 }
 

@@ -92,7 +92,17 @@ export function statusTone(status = '') {
 export function EmptyState({ title = 'Nothing here yet', description = 'No records match the current view.' }) {
   return <div className="empty-state"><div className="empty-mark">✦</div><h3>{title}</h3><p>{description}</p></div>;
 }
-export function Loading() { return <div className="screen-loader"><LoaderCircle className="spin"/><span>Loading CareVMA…</span></div>; }
+export function Loading({ rows = 6, inline = false }) {
+  const list = <div className="skeleton-rows">{Array.from({ length: rows }, (_, i) => <div key={i} className="skeleton-row">
+    <i className="skeleton skeleton-avatar"/><i className="skeleton" style={{ width: `${34 + (i * 17) % 40}%` }}/><i className="skeleton skeleton-short"/><i className="skeleton skeleton-pill"/>
+  </div>)}</div>;
+  if (inline) return <div className="skeleton-screen" role="status" aria-label="Loading">{list}</div>;
+  return <div className="skeleton-screen" role="status" aria-label="Loading">
+    <div className="skeleton-head"><i className="skeleton skeleton-eyebrow"/><i className="skeleton skeleton-title"/><i className="skeleton skeleton-text"/></div>
+    <div className="skeleton-metrics">{[0, 1, 2, 3].map(i => <div key={i} className="skeleton-card"><i className="skeleton skeleton-icon"/><div><i className="skeleton skeleton-short"/><i className="skeleton skeleton-value"/></div></div>)}</div>
+    <div className="skeleton-panel">{list}</div>
+  </div>;
+}
 const toastNotice = { success: text => emitToast(text, 'success'), error: text => emitToast(text, 'error') };
 export function useNotice() { return toastNotice; }
 
