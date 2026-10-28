@@ -197,17 +197,6 @@ body {
   color: var(--cv-navy-900);
 }
 
-.status-pill {
-  color: #536c86;
-  background: #f7faff;
-  border-color: #dde9f5;
-}
-
-.status-pill span {
-  background: var(--cv-success);
-  box-shadow: 0 0 0 4px rgba(24, 165, 111, .09);
-}
-
 .avatar,
 .profile-photo,
 .client-va-avatar {

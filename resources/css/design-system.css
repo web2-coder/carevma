@@ -224,8 +224,6 @@ p { text-wrap: pretty; }
 .icon-btn { width: 40px; height: 40px; border: 1px solid var(--border); border-radius: var(--radius-field); background: var(--card); color: var(--ink-soft); }
 .icon-btn:hover { background: var(--surface-2); color: var(--foreground); }
 .notification-bell.active { background: var(--primary-soft); color: var(--primary); border-color: transparent; }
-.status-pill { padding: .4375rem .625rem; border: 0; border-radius: var(--radius-pill); background: var(--success-soft); color: var(--success); font-size: .75rem; font-weight: 600; }
-.status-pill span { background: var(--success); }
 .profile-menu-trigger { border-color: var(--border); border-radius: var(--radius-field); background: var(--card); }
 .profile-menu-trigger:hover, .profile-menu-trigger.active { border-color: var(--border); background: var(--surface-2); box-shadow: none; }
 .profile-menu-trigger-copy strong { font-size: .8125rem; }

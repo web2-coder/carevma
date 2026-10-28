@@ -436,7 +436,6 @@ export default function AppShell() {
               <button type="button" className="notification-dropdown-footer" onClick={() => { setNotificationOpen(false); beginPageLoad(); navigate(notificationPath); }}>View all notifications <ChevronRight size={15}/></button>
             </div>}
           </div>}
-          <div className="status-pill"><span/>Secure session</div>
           <div className="profile-menu-wrap" ref={profileMenuRef}>
             <button type="button" className={`profile-menu-trigger ${profileMenuOpen ? 'active' : ''}`} onClick={() => setProfileMenuOpen(open => !open)} aria-expanded={profileMenuOpen} aria-haspopup="menu">
               <span className="avatar small"><AvatarMedia src={user?.profile_picture || user?.employee?.profile_picture || user?.client?.profile_picture} alt={user?.name||'User'} fallback={user?.name?.[0]?.toUpperCase()}/></span>
