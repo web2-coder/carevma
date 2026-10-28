@@ -61,14 +61,14 @@ export function ManagementDashboard(){
   const financeMax=Math.max(...financeTrend.flatMap(x=>[Number(x.income)||0,Number(x.outgoing)||0]),1);
 
   return <>
-    <PageHeader eyebrow={user.role==='hr'?'Human Resources':'Administration'} title="Operations dashboard" description="Live workforce activity, attendance throughput, birthday awareness and monthly billing status in one view." actions={<Button variant="secondary" icon={RefreshCw} onClick={()=>load()}>Refresh</Button>}/>
+    <PageHeader eyebrow={user.role==='hr'?'Human Resources':'Administration'} title="Operations dashboard" description="Workforce, attendance and billing at a glance." actions={<Button variant="secondary" icon={RefreshCw} onClick={()=>load()}>Refresh</Button>}/>
 
     <div className="metrics-grid">
-      <MetricCard label="Employees" value={m.employees} icon={Users} hint="Workforce profiles"/>
-      <MetricCard label="Clients" value={m.clients} icon={Stethoscope} hint="Active client records"/>
-      <MetricCard label="Live employees" value={m.active||0} icon={Activity} hint="Realtime · updates without reload" live/>
-      <MetricCard label="Pending overtime" value={m.pending_overtime} icon={TimerReset} hint="Needs review"/>
-      {user.role!=='hr'&&<MetricCard label="Invoices" value={m.invoices} icon={ReceiptText} hint="Billing records"/>}
+      <MetricCard label="Employees" value={m.employees} icon={Users}/>
+      <MetricCard label="Clients" value={m.clients} icon={Stethoscope}/>
+      <MetricCard label="Live employees" value={m.active||0} icon={Activity} live/>
+      <MetricCard label="Pending overtime" value={m.pending_overtime} icon={TimerReset}/>
+      {user.role!=='hr'&&<MetricCard label="Invoices" value={m.invoices} icon={ReceiptText}/>}
     </div>
 
     <div className="dashboard-notice-grid">
