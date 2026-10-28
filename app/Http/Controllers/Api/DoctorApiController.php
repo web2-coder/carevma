@@ -84,7 +84,10 @@ class DoctorApiController extends Controller
         if ($filterStartUtc) $query->where('clock_in', '>=', $filterStartUtc);
         if ($filterEndUtc) $query->where('clock_in', '<=', $filterEndUtc);
         if ($search = trim((string) $request->query('search'))) $query->where(fn ($q) => $q->where('date', 'like', "%{$search}%")->orWhere('clock_in', 'like', "%{$search}%")->orWhere('clock_out', 'like', "%{$search}%"));
-        $attendance = $query->latest('date')->latest('id')->paginate(min(max((int) $request->query('per_page', 25), 1), 100));
+        $attendance = $this->sortAndPaginate($request, $query, [
+            'date' => 'date', 'clock_in' => 'clock_in', 'clock_out' => 'clock_out',
+            'total_minutes' => 'total_minutes', 'overtime' => 'overtime', 'break_taken' => 'break_taken', 'id' => 'id',
+        ], 'date');
         $attendance->through(function (Attendance $row) use ($client, $employee) {
             $zone = $this->timezones->forClient($client);
             $row->setAttribute('client_timezone', $zone);

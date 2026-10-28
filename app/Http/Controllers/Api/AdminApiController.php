@@ -387,7 +387,10 @@ class AdminApiController extends Controller
                     ->orWhere('employee_code', 'like', "%{$search}%");
             });
         }
-        return response()->json($query->latest('id')->paginate(min((int) $request->query('per_page', 25), 100)));
+        return response()->json($this->sortAndPaginate($request, $query, [
+            'id' => 'id', 'employee_code' => 'employee_code', 'first_name' => 'first_name', 'last_name' => 'last_name',
+            'email' => 'email', 'timezone' => 'timezone', 'salary_usd' => 'salary_usd', 'created_at' => 'created_at',
+        ], 'id'));
     }
 
     public function employee(Employee $employee)
@@ -733,7 +736,10 @@ class AdminApiController extends Controller
                     ->orWhereHas('employee', fn ($e) => $e->where('first_name', 'like', "%{$search}%")->orWhere('last_name', 'like', "%{$search}%"));
             });
         }
-        $attendance = $query->latest('date')->latest('id')->paginate(min((int) $request->query('per_page', 25), 100));
+        $attendance = $this->sortAndPaginate($request, $query, [
+            'date' => 'date', 'clock_in' => 'clock_in', 'clock_out' => 'clock_out', 'total_minutes' => 'total_minutes',
+            'late_minutes' => 'late_minutes', 'overtime' => 'overtime', 'break_taken' => 'break_taken', 'id' => 'id',
+        ], 'date');
         $attendance->through(function (Attendance $row) {
             $clientZone = $this->timezones->forAttendance($row, true);
             $employeeZone = $this->timezones->valid($row->employee?->timezone, 'UTC');
@@ -998,7 +1004,10 @@ class AdminApiController extends Controller
 
     public function invoices(Request $request)
     {
-        return response()->json(Invoice::with('client:id,name,business_name,timezone')->latest('id')->paginate(min((int) $request->query('per_page', 25), 100)));
+        return response()->json($this->sortAndPaginate($request, Invoice::with('client:id,name,business_name,timezone'), [
+            'id' => 'id', 'invoice_number' => 'invoice_number', 'period_start' => 'period_start', 'period_end' => 'period_end',
+            'total_hours' => 'total_hours', 'total_amount' => 'total_amount', 'status' => 'status', 'created_at' => 'created_at',
+        ], 'id'));
     }
 
     public function generateInvoice(Request $request, InvoiceGenerator $generator)
