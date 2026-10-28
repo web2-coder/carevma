@@ -138,14 +138,14 @@ p { text-wrap: pretty; }
   height: auto;
   min-height: 0;
   overflow: hidden;                  /* only the nav list scrolls; brand and foot stay put */
-  padding: .875rem .75rem;
+  padding: 1.25rem 1.125rem;         /* room between the nav and a 20px-radius panel edge */
   background: var(--card);
   color: var(--foreground);
   border: 0;
   border-radius: var(--radius-panel);
   box-shadow: var(--shadow-panel);
 }
-.brand-row { height: auto; min-height: 52px; padding: .25rem .5rem; }
+.brand-row { height: auto; min-height: 52px; padding: .25rem .375rem .5rem; }
 .brand-row .carevma-brand-logo, .brand-row .carevma-brand-logo.is-compact { background: transparent; box-shadow: none; }
 .brand-copy strong { color: var(--foreground); font-size: 1.0625rem; }
 .brand-copy span { color: var(--muted-foreground); }
@@ -168,13 +168,13 @@ p { text-wrap: pretty; }
   background-size: 100% 28px, 100% 28px, 100% 12px, 100% 12px;
   background-attachment: local, local, scroll, scroll;
 }
-.nav-group-label { padding: .625rem .75rem .25rem; }
+.nav-group-label { padding: .625rem .875rem .25rem; }
 .sidebar-nav > .nav-group-label:first-child { padding-top: .125rem; }
 .nav-group-separator { height: 1px; margin: .375rem .5rem; background: var(--border); }
 .nav-link {
   min-height: 40px;                 /* the hit-target floor */
   margin: 1px 0;
-  padding: 0 .75rem;
+  padding: 0 .875rem;
   border: 0;
   border-radius: var(--radius-field);
   color: var(--ink-soft);
@@ -185,9 +185,9 @@ p { text-wrap: pretty; }
 .nav-link:hover { color: var(--primary); background: var(--primary-soft); border-color: transparent; transform: none; }
 .nav-link.active { color: var(--primary-foreground); background: var(--primary); border-color: transparent; box-shadow: none; }
 .nav-link.active .nav-icon { color: inherit; }
-.nav-children { margin: 2px 0 4px 38px; border-left: 1px solid var(--border); }
-.sidebar-foot { padding-top: .5rem; border-top: 1px solid var(--border); }
-.user-mini { padding: .375rem .5rem .625rem; }
+.nav-children { margin: 2px 0 4px 40px; border-left: 1px solid var(--border); }
+.sidebar-foot { padding-top: .625rem; border-top: 1px solid var(--border); }
+.user-mini { padding: .375rem .375rem .625rem; }
 .user-mini strong { color: var(--foreground); font-size: .8125rem; }
 .user-mini span { color: var(--muted-foreground); font-size: .75rem; }
 .sidebar .icon-btn { background: var(--card); color: var(--ink-soft); border-color: var(--border); }
