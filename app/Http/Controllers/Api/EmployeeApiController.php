@@ -13,7 +13,10 @@ use App\Services\TrustedTimeService;
 use App\Services\ClientTimezoneService;
 use DateTimeZone;
 use Carbon\Carbon;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
@@ -273,133 +276,145 @@ class EmployeeApiController extends Controller
     {
         $employee = $this->employee($request);
         $data = $request->validate(['schedule_id' => ['required', 'exists:employee_client_schedules,id']]);
-        if (Attendance::where('employee_id', $employee->id)->whereNull('clock_out')->exists()) return response()->json(['message' => 'You already have an active work session.'], 422);
 
-        $schedule = EmployeeClientSchedule::with('client:id,name,business_name,timezone')->where('id', $data['schedule_id'])->where('employee_id', $employee->id)->firstOrFail();
-        if (!$this->scheduleIsEnabled($schedule->enabled)) {
-            return response()->json(['message' => 'This schedule is disabled.'], 422);
-        }
-        $tz = $this->calculationTimezone($schedule, $employee->timezone ?: 'Asia/Karachi');
-        $now = $this->clock->now($tz);
-        $window = $this->scheduleWindow($schedule, $now);
-        if (!$window) return response()->json(['message' => 'This schedule is not available for the current day.'], 422);
-        [$start, $end] = $window;
-        $date = $start->toDateString();
-        if ($now->lt($start->copy()->subMinutes(15))) {
-            $employeeZone = $this->timezones->valid($employee->timezone, 'UTC');
-            $opens = $start->copy()->subMinutes(15);
-            return response()->json([
-                'message' => 'Check-in is not open yet. It opens at '.$opens->format('D, M j, g:i A').' ('.$tz.') / '.$opens->copy()->setTimezone($employeeZone)->format('D, M j, g:i A').' ('.$employeeZone.').',
-                'code' => 'CHECK_IN_NOT_OPEN',
-                'check_in_opens_at_client' => $opens->toIso8601String(),
-                'check_in_opens_at_employee' => $opens->copy()->setTimezone($employeeZone)->toIso8601String(),
-            ], 422);
-        }
-        if ($now->gte($end)) {
-            $employeeZone = $this->timezones->valid($employee->timezone, 'UTC');
-            return response()->json([
-                'message' => 'This shift ended at '.$end->format('D, M j, g:i A').' ('.$tz.') / '.$end->copy()->setTimezone($employeeZone)->format('D, M j, g:i A').' ('.$employeeZone.'). Use the next scheduled shift to check in.',
-                'code' => 'SHIFT_ENDED',
-            ], 422);
-        }
+        return $this->serialisePerEmployee($employee, function () use ($employee, $data) {
+            if (Attendance::where('employee_id', $employee->id)->whereNull('clock_out')->exists()) return response()->json(['message' => 'You already have an active work session.'], 422);
 
-        $alreadyCompleted = Attendance::where('employee_id', $employee->id)
-            ->where('schedule_id', $schedule->id)
-            ->whereDate('date', $date)
-            ->whereNotNull('clock_out')
-            ->exists();
+            $schedule = EmployeeClientSchedule::with('client:id,name,business_name,timezone')->where('id', $data['schedule_id'])->where('employee_id', $employee->id)->firstOrFail();
+            if (!$this->scheduleIsEnabled($schedule->enabled)) {
+                return response()->json(['message' => 'This schedule is disabled.'], 422);
+            }
+            $tz = $this->calculationTimezone($schedule, $employee->timezone ?: 'Asia/Karachi');
+            $now = $this->clock->now($tz);
+            $window = $this->scheduleWindow($schedule, $now);
+            if (!$window) return response()->json(['message' => 'This schedule is not available for the current day.'], 422);
+            [$start, $end] = $window;
+            $date = $start->toDateString();
+            if ($now->lt($start->copy()->subMinutes(15))) {
+                $employeeZone = $this->timezones->valid($employee->timezone, 'UTC');
+                $opens = $start->copy()->subMinutes(15);
+                return response()->json([
+                    'message' => 'Check-in is not open yet. It opens at '.$opens->format('D, M j, g:i A').' ('.$tz.') / '.$opens->copy()->setTimezone($employeeZone)->format('D, M j, g:i A').' ('.$employeeZone.').',
+                    'code' => 'CHECK_IN_NOT_OPEN',
+                    'check_in_opens_at_client' => $opens->toIso8601String(),
+                    'check_in_opens_at_employee' => $opens->copy()->setTimezone($employeeZone)->toIso8601String(),
+                ], 422);
+            }
+            if ($now->gte($end)) {
+                $employeeZone = $this->timezones->valid($employee->timezone, 'UTC');
+                return response()->json([
+                    'message' => 'This shift ended at '.$end->format('D, M j, g:i A').' ('.$tz.') / '.$end->copy()->setTimezone($employeeZone)->format('D, M j, g:i A').' ('.$employeeZone.'). Use the next scheduled shift to check in.',
+                    'code' => 'SHIFT_ENDED',
+                ], 422);
+            }
 
-        if ($alreadyCompleted) {
-            return response()->json(['message' => 'You already completed this scheduled shift. Check-in will be available again for your next shift, starting 15 minutes before it begins.'], 422);
-        }
-        $nowMinute = $now->copy()->startOfMinute();
-        $late = $nowMinute->gt($start) ? (int) $start->copy()->startOfMinute()->diffInMinutes($nowMinute) : 0;
-        // Break allowance belongs to this exact VA + Client schedule.
-        // Snapshot it onto attendance at clock-in so historical billing remains stable even if the schedule changes later.
-        $breakCode = $schedule->break_allowed_hours ?? 0;
-        $breakLimit = $this->breakCodeToHms($breakCode);
+            $alreadyCompleted = Attendance::where('employee_id', $employee->id)
+                ->where('schedule_id', $schedule->id)
+                ->whereDate('date', $date)
+                ->whereNotNull('clock_out')
+                ->exists();
 
-        $payload = [
-            'employee_id' => $employee->id, 'date' => $date, 'clock_in' => $now->copy()->utc(),
-            'break_limit' => $breakLimit, 'break_taken' => 0, 'is_late' => $late > 0, 'late_minutes' => $late, 'overtime' => 0,
-        ];
-        if (Schema::hasColumn('attendances', 'client_id')) $payload['client_id'] = $schedule->client_id;
-        if (Schema::hasColumn('attendances', 'schedule_id')) $payload['schedule_id'] = $schedule->id;
-        if (Schema::hasColumn('attendances', 'timezone_snapshot')) $payload['timezone_snapshot'] = $tz;
-        if (Schema::hasColumn('attendances', 'shift_start_snapshot')) $payload['shift_start_snapshot'] = $start->copy()->utc();
-        if (Schema::hasColumn('attendances', 'shift_end_snapshot')) $payload['shift_end_snapshot'] = $end->copy()->utc();
-        if (Schema::hasColumn('attendances', 'overtime_status')) $payload['overtime_status'] = 'none';
-        $attendance = Attendance::create($payload);
+            if ($alreadyCompleted) {
+                return response()->json(['message' => 'You already completed this scheduled shift. Check-in will be available again for your next shift, starting 15 minutes before it begins.'], 422);
+            }
+            $nowMinute = $now->copy()->startOfMinute();
+            $late = $nowMinute->gt($start) ? (int) $start->copy()->startOfMinute()->diffInMinutes($nowMinute) : 0;
+            // Break allowance belongs to this exact VA + Client schedule.
+            // Snapshot it onto attendance at clock-in so historical billing remains stable even if the schedule changes later.
+            $breakCode = $schedule->break_allowed_hours ?? 0;
+            $breakLimit = $this->breakCodeToHms($breakCode);
 
-        return response()->json(['message' => 'Clocked in successfully.', 'attendance' => $attendance->load(['client', 'breaks'])], 201);
+            $payload = [
+                'employee_id' => $employee->id, 'date' => $date, 'clock_in' => $now->copy()->utc(),
+                'break_limit' => $breakLimit, 'break_taken' => 0, 'is_late' => $late > 0, 'late_minutes' => $late, 'overtime' => 0,
+            ];
+            if (Schema::hasColumn('attendances', 'client_id')) $payload['client_id'] = $schedule->client_id;
+            if (Schema::hasColumn('attendances', 'schedule_id')) $payload['schedule_id'] = $schedule->id;
+            if (Schema::hasColumn('attendances', 'timezone_snapshot')) $payload['timezone_snapshot'] = $tz;
+            if (Schema::hasColumn('attendances', 'shift_start_snapshot')) $payload['shift_start_snapshot'] = $start->copy()->utc();
+            if (Schema::hasColumn('attendances', 'shift_end_snapshot')) $payload['shift_end_snapshot'] = $end->copy()->utc();
+            if (Schema::hasColumn('attendances', 'overtime_status')) $payload['overtime_status'] = 'none';
+            $attendance = Attendance::create($payload);
+
+            return response()->json(['message' => 'Clocked in successfully.', 'attendance' => $attendance->load(['client', 'breaks'])], 201);
+        });
     }
 
     public function startBreak(Request $request)
     {
         $employee = $this->employee($request);
         $data = $request->validate(['notes' => ['nullable', 'string', 'max:500']]);
-        $attendance = Attendance::where('employee_id', $employee->id)->whereNull('clock_out')->latest('id')->first();
-        if (!$attendance) return response()->json(['message' => 'Clock in before starting a break.'], 422);
-        if ($attendance->breaks()->whereNull('end_time')->exists()) return response()->json(['message' => 'A break is already active.'], 422);
-        $allowedSeconds = $this->hmsToSeconds($attendance->break_limit);
-        if ($allowedSeconds <= 0) return response()->json(['message' => 'No break time is allowed for this schedule.'], 422);
-        if ((int) ($attendance->break_taken ?? 0) >= $allowedSeconds) return response()->json(['message' => 'Your allowed break time for this schedule has already been used.'], 422);
-        $break = $attendance->breaks()->create(['start_time' => $this->clock->now('UTC'), 'notes' => $data['notes'] ?? null]);
-        return response()->json(['message' => 'Break started.', 'break' => $break], 201);
+
+        return $this->serialisePerEmployee($employee, function () use ($employee, $data) {
+            $attendance = Attendance::where('employee_id', $employee->id)->whereNull('clock_out')->latest('id')->first();
+            if (!$attendance) return response()->json(['message' => 'Clock in before starting a break.'], 422);
+            if ($attendance->breaks()->whereNull('end_time')->exists()) return response()->json(['message' => 'A break is already active.'], 422);
+            $allowedSeconds = $this->hmsToSeconds($attendance->break_limit);
+            if ($allowedSeconds <= 0) return response()->json(['message' => 'No break time is allowed for this schedule.'], 422);
+            if ((int) ($attendance->break_taken ?? 0) >= $allowedSeconds) return response()->json(['message' => 'Your allowed break time for this schedule has already been used.'], 422);
+            $break = $attendance->breaks()->create(['start_time' => $this->clock->now('UTC'), 'notes' => $data['notes'] ?? null]);
+            return response()->json(['message' => 'Break started.', 'break' => $break], 201);
+        });
     }
 
     public function endBreak(Request $request)
     {
         $employee = $this->employee($request);
-        $attendance = Attendance::where('employee_id', $employee->id)->whereNull('clock_out')->latest('id')->first();
-        if (!$attendance) return response()->json(['message' => 'No active attendance session.'], 422);
-        $break = $attendance->breaks()->whereNull('end_time')->latest('id')->first();
-        if (!$break) return response()->json(['message' => 'No active break.'], 422);
-        $end = $this->clock->now('UTC');
-        $breakStartUtc = $break->start_time instanceof Carbon ? $break->start_time->copy()->utc() : Carbon::parse($break->start_time, 'UTC')->utc();
-        $seconds = max(0, $end->timestamp - $breakStartUtc->timestamp);
-        $break->update(['end_time' => $end]);
-        $attendance->increment('break_taken', $seconds);
-        return response()->json(['message' => 'Break ended.']);
+
+        return $this->serialisePerEmployee($employee, function () use ($employee) {
+            $attendance = Attendance::where('employee_id', $employee->id)->whereNull('clock_out')->latest('id')->first();
+            if (!$attendance) return response()->json(['message' => 'No active attendance session.'], 422);
+            $break = $attendance->breaks()->whereNull('end_time')->latest('id')->first();
+            if (!$break) return response()->json(['message' => 'No active break.'], 422);
+            $end = $this->clock->now('UTC');
+            $breakStartUtc = $break->start_time instanceof Carbon ? $break->start_time->copy()->utc() : Carbon::parse($break->start_time, 'UTC')->utc();
+            $seconds = max(0, $end->timestamp - $breakStartUtc->timestamp);
+            $break->update(['end_time' => $end]);
+            $attendance->increment('break_taken', $seconds);
+            return response()->json(['message' => 'Break ended.']);
+        });
     }
 
     public function clockOut(Request $request)
     {
         $employee = $this->employee($request);
-        $attendance = Attendance::where('employee_id', $employee->id)->whereNull('clock_out')->latest('id')->first();
-        if (!$attendance) return response()->json(['message' => 'No active attendance session.'], 422);
-        $attendance->loadMissing(['client', 'schedule']);
-        $tz = $this->timezones->forAttendance($attendance, false);
-        $now = $this->clock->now($tz);
-        $openBreak = $attendance->breaks()->whereNull('end_time')->latest('id')->first();
-        if ($openBreak) {
-            $endUtc = $now->copy()->utc();
-            $breakStartUtc = $openBreak->start_time instanceof Carbon ? $openBreak->start_time->copy()->utc() : Carbon::parse($openBreak->start_time, 'UTC')->utc();
-            $seconds = max(0, $endUtc->timestamp - $breakStartUtc->timestamp);
-            $openBreak->update(['end_time' => $endUtc]); $attendance->break_taken = ($attendance->break_taken ?? 0) + $seconds;
-        }
-        $attendance->clock_out = $now->copy()->utc();
-        $schedule = $attendance->schedule_id ? EmployeeClientSchedule::find($attendance->schedule_id) : null;
-        $clockIn = $attendance->clock_in->copy()->setTimezone($tz); $regularStart = $clockIn->copy()->startOfMinute(); $regularEnd = $now->copy()->startOfMinute(); $overtime = 0; $late = 0;
-        if ($attendance->shift_start_snapshot && $attendance->shift_end_snapshot) {
-            $shiftStart = $attendance->shift_start_snapshot->copy()->setTimezone($tz)->startOfMinute();
-            $shiftEnd = $attendance->shift_end_snapshot->copy()->setTimezone($tz)->startOfMinute();
-            if ($regularStart->lt($shiftStart)) $regularStart = $shiftStart->copy();
-            if ($regularStart->gt($shiftStart)) $late = (int) $shiftStart->diffInMinutes($regularStart);
-            if ($regularEnd->gt($shiftEnd)) { $overtime = (int) $shiftEnd->diffInMinutes($regularEnd); $regularEnd = $shiftEnd->copy(); }
-        } elseif ($schedule) {
-            $shiftStart = Carbon::parse($attendance->date->format('Y-m-d').' '.$schedule->start_time, $tz)->startOfMinute();
-            $shiftEnd = Carbon::parse($attendance->date->format('Y-m-d').' '.$schedule->end_time, $tz)->startOfMinute(); if ($shiftEnd->lte($shiftStart)) $shiftEnd->addDay();
-            if ($regularStart->lt($shiftStart)) $regularStart = $shiftStart->copy();
-            if ($regularStart->gt($shiftStart)) $late = (int) $shiftStart->diffInMinutes($regularStart);
-            if ($regularEnd->gt($shiftEnd)) { $overtime = (int) $shiftEnd->diffInMinutes($regularEnd); $regularEnd = $shiftEnd->copy(); }
-        }
-        $breakMinutes = (int) floor(($attendance->break_taken ?? 0) / 60);
-        $attendance->total_minutes = max(0, (int) $regularStart->diffInMinutes($regularEnd) - $breakMinutes);
-        $attendance->is_late = $late > 0; $attendance->late_minutes = $late; $attendance->overtime = $overtime;
-        if (Schema::hasColumn('attendances', 'overtime_status')) $attendance->overtime_status = $overtime > 0 ? 'pending' : 'none';
-        $attendance->save();
-        return response()->json(['message' => 'Clocked out successfully.', 'attendance' => $attendance->fresh(['client', 'breaks'])]);
+
+        return $this->serialisePerEmployee($employee, function () use ($employee) {
+            $attendance = Attendance::where('employee_id', $employee->id)->whereNull('clock_out')->latest('id')->first();
+            if (!$attendance) return response()->json(['message' => 'No active attendance session.'], 422);
+            $attendance->loadMissing(['client', 'schedule']);
+            $tz = $this->timezones->forAttendance($attendance, false);
+            $now = $this->clock->now($tz);
+            $openBreak = $attendance->breaks()->whereNull('end_time')->latest('id')->first();
+            if ($openBreak) {
+                $endUtc = $now->copy()->utc();
+                $breakStartUtc = $openBreak->start_time instanceof Carbon ? $openBreak->start_time->copy()->utc() : Carbon::parse($openBreak->start_time, 'UTC')->utc();
+                $seconds = max(0, $endUtc->timestamp - $breakStartUtc->timestamp);
+                $openBreak->update(['end_time' => $endUtc]); $attendance->break_taken = ($attendance->break_taken ?? 0) + $seconds;
+            }
+            $attendance->clock_out = $now->copy()->utc();
+            $schedule = $attendance->schedule_id ? EmployeeClientSchedule::find($attendance->schedule_id) : null;
+            $clockIn = $attendance->clock_in->copy()->setTimezone($tz); $regularStart = $clockIn->copy()->startOfMinute(); $regularEnd = $now->copy()->startOfMinute(); $overtime = 0; $late = 0;
+            if ($attendance->shift_start_snapshot && $attendance->shift_end_snapshot) {
+                $shiftStart = $attendance->shift_start_snapshot->copy()->setTimezone($tz)->startOfMinute();
+                $shiftEnd = $attendance->shift_end_snapshot->copy()->setTimezone($tz)->startOfMinute();
+                if ($regularStart->lt($shiftStart)) $regularStart = $shiftStart->copy();
+                if ($regularStart->gt($shiftStart)) $late = (int) $shiftStart->diffInMinutes($regularStart);
+                if ($regularEnd->gt($shiftEnd)) { $overtime = (int) $shiftEnd->diffInMinutes($regularEnd); $regularEnd = $shiftEnd->copy(); }
+            } elseif ($schedule) {
+                $shiftStart = Carbon::parse($attendance->date->format('Y-m-d').' '.$schedule->start_time, $tz)->startOfMinute();
+                $shiftEnd = Carbon::parse($attendance->date->format('Y-m-d').' '.$schedule->end_time, $tz)->startOfMinute(); if ($shiftEnd->lte($shiftStart)) $shiftEnd->addDay();
+                if ($regularStart->lt($shiftStart)) $regularStart = $shiftStart->copy();
+                if ($regularStart->gt($shiftStart)) $late = (int) $shiftStart->diffInMinutes($regularStart);
+                if ($regularEnd->gt($shiftEnd)) { $overtime = (int) $shiftEnd->diffInMinutes($regularEnd); $regularEnd = $shiftEnd->copy(); }
+            }
+            $breakMinutes = (int) floor(($attendance->break_taken ?? 0) / 60);
+            $attendance->total_minutes = max(0, (int) $regularStart->diffInMinutes($regularEnd) - $breakMinutes);
+            $attendance->is_late = $late > 0; $attendance->late_minutes = $late; $attendance->overtime = $overtime;
+            if (Schema::hasColumn('attendances', 'overtime_status')) $attendance->overtime_status = $overtime > 0 ? 'pending' : 'none';
+            $attendance->save();
+            return response()->json(['message' => 'Clocked out successfully.', 'attendance' => $attendance->fresh(['client', 'breaks'])]);
+        });
     }
 
     public function profile(Request $request)
@@ -683,5 +698,30 @@ class EmployeeApiController extends Controller
             fn ($path) => is_string($path) ? MediaUrl::normalize($path) : null,
             $value
         )));
+    }
+
+    /**
+     * Clock and break actions are read-modify-write against at most one open session
+     * per VA, guarded only by an exists() check. Two requests arriving together -- a
+     * double-tapped button, a retried request -- could both clear that check and open
+     * two sessions, or add the same break minutes twice. Serialise them per employee.
+     *
+     * A named lock rather than a row lock: each action then runs in its own
+     * transaction with a fresh snapshot, so correctness does not depend on reasoning
+     * about MySQL's REPEATABLE READ view or on gap locks. MariaDB cannot express
+     * "one open session per employee" as a partial unique index, so the database
+     * cannot enforce this for us.
+     */
+    private function serialisePerEmployee(Employee $employee, callable $action)
+    {
+        try {
+            return Cache::lock('carevma:clock:'.$employee->getKey(), 10)
+                ->block(5, fn () => DB::transaction($action));
+        } catch (LockTimeoutException) {
+            return response()->json([
+                'message' => 'Another clock action for your account is still being processed. Please try again in a moment.',
+                'code' => 'CLOCK_ACTION_IN_PROGRESS',
+            ], 409);
+        }
     }
 }
