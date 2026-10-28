@@ -679,18 +679,7 @@ class EmployeeApiController extends Controller
 
     private function normalizeDocuments(mixed $value): array
     {
-        if (!is_array($value)) {
-            if (!$value) return [];
-            $value = json_decode($value, true);
-            if (is_string($value)) $value = json_decode($value, true);
-        }
-
-        if (!is_array($value)) return [];
-
-        return array_values(array_filter(array_map(
-            fn ($path) => is_string($path) ? MediaUrl::normalize($path) : null,
-            $value
-        )));
+        return Employee::documentUrls($value);
     }
 
     /**

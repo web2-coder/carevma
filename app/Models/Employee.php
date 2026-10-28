@@ -76,6 +76,21 @@ class Employee extends Model
     ];
 
 
+    /** Stored document paths (array, or JSON string from older rows) as public URLs. */
+    public static function documentUrls(mixed $value): array
+    {
+        if (is_string($value)) {
+            $value = json_decode($value, true);
+            if (is_string($value)) $value = json_decode($value, true);
+        }
+        if (!is_array($value)) return [];
+
+        return array_values(array_filter(array_map(
+            fn ($path) => is_string($path) ? MediaUrl::normalize($path) : null,
+            $value
+        )));
+    }
+
     public function getProfilePictureAttribute($value)
     {
         return MediaUrl::normalize($value);

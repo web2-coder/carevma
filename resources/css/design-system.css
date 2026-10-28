@@ -436,3 +436,20 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
 .skeleton-avatar { width: 32px; height: 32px; border-radius: var(--radius-pill); }
 .skeleton-pill { height: 1.25rem; border-radius: var(--radius-pill); }
 @media (max-width: 640px) { .skeleton-row { grid-template-columns: 32px minmax(0, 1fr) 4rem; } .skeleton-row > .skeleton-pill { display: none; } }
+
+/* ---- Profile workspaces (client and employee share the shell) ---------------- */
+.client-profile-shell { grid-template-columns: 240px minmax(0, 1fr); gap: 1.25rem; }
+.client-profile-shell > .client-profile-tabs { top: 6.75rem; padding: .75rem; border-color: var(--border); border-radius: var(--radius-card); box-shadow: var(--shadow-card); }
+.client-profile-shell > .client-profile-tabs button { padding: .625rem .75rem; border-radius: var(--radius-field); font-size: .8125rem; font-weight: 600; color: var(--ink-soft); }
+.client-profile-shell > .client-profile-tabs button:hover { color: var(--primary); background: var(--primary-soft); transform: none; }
+.client-profile-shell > .client-profile-tabs button.active { color: var(--primary); background: var(--primary-soft); box-shadow: none; }
+.employee-profile-identity { display: grid; justify-items: center; gap: .25rem; margin-bottom: .5rem; padding: .75rem .5rem 1rem; border-bottom: 1px solid var(--border); text-align: center; }
+.employee-profile-identity .avatar { width: 56px; height: 56px; margin-bottom: .25rem; border-radius: var(--radius-pill); font-size: 1.125rem; }
+.employee-profile-identity strong { font-size: .875rem; color: var(--foreground); }
+.employee-profile-identity span { font-size: .75rem; color: var(--muted-foreground); overflow-wrap: anywhere; }
+.employee-profile-identity .badge { margin-top: .375rem; }
+.employee-profile-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.employee-profile-notes { margin: 1rem 0 0; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted-foreground); line-height: 1.5; }
+.person-cell a { color: inherit; }
+.person-cell a:hover { color: var(--primary); }
+@media (max-width: 900px) { .employee-profile-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

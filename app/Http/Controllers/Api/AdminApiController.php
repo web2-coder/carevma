@@ -395,7 +395,25 @@ class AdminApiController extends Controller
 
     public function employee(Employee $employee)
     {
-        return response()->json($employee->load(['user', 'department', 'role', 'employmentType', 'shiftType', 'designation', 'employeeStatus', 'expertise', 'reportingManager']));
+        $employee->load(['user:id,name,email,role,last_seen_at', 'department', 'role', 'employmentType', 'shiftType', 'designation', 'employeeStatus', 'expertise', 'reportingManager']);
+        $employee->setAttribute('upload_documents', Employee::documentUrls($employee->upload_documents));
+
+        // "This month" in the VA's own timezone, so the figures match what they see.
+        $timezone = in_array($employee->timezone, DateTimeZone::listIdentifiers(), true) ? $employee->timezone : config('app.timezone');
+        $today = Carbon::now($timezone);
+        $month = Attendance::query()
+            ->where('employee_id', $employee->id)
+            ->whereBetween('date', [$today->copy()->startOfMonth()->toDateString(), $today->toDateString()])
+            ->selectRaw('COUNT(*) AS sessions, COALESCE(SUM(total_minutes), 0) AS minutes, COALESCE(SUM(late_minutes), 0) AS late_minutes, COALESCE(SUM(overtime), 0) AS overtime_minutes')
+            ->first();
+        $employee->setAttribute('month_summary', [
+            'sessions' => (int) $month->sessions,
+            'minutes' => (int) $month->minutes,
+            'late_minutes' => (int) $month->late_minutes,
+            'overtime_minutes' => (int) $month->overtime_minutes,
+        ]);
+
+        return response()->json($employee);
     }
 
     public function storeEmployee(Request $request)

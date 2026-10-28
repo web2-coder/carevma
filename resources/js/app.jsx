@@ -1,12 +1,12 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import AppShell from './components/AppShell';
 import { Loading } from './components/ui';
 import { LoginPage, ForgotPasswordPage, ResetPasswordPage } from './pages/Login';
 import {
-  ManagementDashboard, LiveUsersPage, EmployeesPage, ClientsPage, SchedulesPage, AttendancePage,
+  ManagementDashboard, LiveUsersPage, EmployeesPage, EmployeeProfilePage, ClientsPage, SchedulesPage, AttendancePage,
   ChangeRequestsPage, OvertimePage, InvoicesPage, CompanyFinancePage, ReferencePage, NotificationsPage, AccountPage, HrTeamPage
 } from './pages/Management';
 import { EmployeeDashboard, EmployeeSchedule, EmployeeAttendance, EmployeeProfile, EmployeeSettings } from './pages/Employee';
@@ -54,6 +54,11 @@ function HomeRedirect() {
   return <Navigate to={dashboardFor(user)} replace/>;
 }
 
+function LegacyEmployeeRedirect() {
+  const { employeeId } = useParams();
+  return <Navigate to={`/admin/employees/${employeeId}`} replace/>;
+}
+
 function NotFound() {
   const { user } = useAuth();
   return <div className="not-found"><div className="not-found-code">404</div><h1>That page doesn’t exist.</h1><p>The link may be outdated. CareVMA kept your session safe.</p><Link className="btn btn-primary btn-link" to={dashboardFor(user)}>Return to dashboard</Link></div>;
@@ -73,9 +78,11 @@ function AppRoutes() {
       <Route path="/hr/live-users" element={<Protected roles={['hr']}><LiveUsersPage/></Protected>}/>
       <Route path="/admin/employees" element={<Protected roles={['admin']}><EmployeesPage/></Protected>}/>
       <Route path="/admin/employees/new" element={<Protected roles={['admin']}><EmployeeWizardPage/></Protected>}/>
+      <Route path="/admin/employees/:employeeId" element={<Protected roles={['admin']}><EmployeeProfilePage/></Protected>}/>
       <Route path="/admin/hr-team" element={<Protected roles={['admin']}><HrTeamPage/></Protected>}/>
       <Route path="/hr/employees" element={<Protected roles={['hr']}><EmployeesPage/></Protected>}/>
       <Route path="/hr/employees/new" element={<Protected roles={['hr']}><EmployeeWizardPage/></Protected>}/>
+      <Route path="/hr/employees/:employeeId" element={<Protected roles={['hr']}><EmployeeProfilePage/></Protected>}/>
       <Route path="/admin/schedules" element={<Protected roles={['admin']}><SchedulesPage/></Protected>}/>
       <Route path="/hr/schedules" element={<Protected roles={['hr']}><SchedulesPage/></Protected>}/>
       <Route path="/admin/attendance" element={<Protected roles={['admin']}><AttendancePage/></Protected>}/>
@@ -132,7 +139,7 @@ function AppRoutes() {
     <Route path="/pages-profile-user.html" element={<Navigate to="/admin/account" replace/>}/>
     <Route path="/pages-account-settings-account.html" element={<Navigate to="/admin/account" replace/>}/>
     <Route path="/admin/employee-options" element={<Navigate to="/admin/options/departments" replace/>}/>
-    <Route path="/admin/edit-employee/profile/:employeeId" element={<Navigate to="/admin/employees" replace/>}/>
+    <Route path="/admin/edit-employee/profile/:employeeId" element={<LegacyEmployeeRedirect/>}/>
     <Route path="/admin/attendance-requests" element={<Navigate to="/admin/change-requests" replace/>}/>
     <Route path="/admin/reporting-managers" element={<Navigate to="/admin/options/reporting-managers" replace/>}/>
     <Route path="/admin/departments" element={<Navigate to="/admin/options/departments" replace/>}/>

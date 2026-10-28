@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   Users, Stethoscope, Clock3, TimerReset, ReceiptText, Plus, Pencil, Trash2, RefreshCw,
-  CalendarDays, UserCheck, CircleDollarSign, Check, X, Bell, Save, KeyRound, Building2, ShieldCheck, Send, Coffee, Activity
+  CalendarDays, UserCheck, CircleDollarSign, Check, X, Bell, Save, KeyRound, Building2, ShieldCheck, Send, Coffee, Activity,
+  Eye, ArrowLeft, UserRound, AlarmClock
 } from 'lucide-react';
 import api, { messageFrom } from '../api';
 import { DEFAULT_TIMEZONE, formatDate, formatDateTime, formatTime as formatTimeInZone, todayInZone, weekdayFromDateOnly } from '../timezone';
@@ -251,19 +252,23 @@ export function LiveUsersPage(){
 }
 
 const emptyEmployee={first_name:'',last_name:'',email:'',password:'',phone:'',timezone:'Asia/Karachi',location:'',department_id:'',role_id:'',employment_type_id:'',shift_type_id:'',designation_id:'',employee_status_id:'',expertise_id:'',reporting_manager_id:'',salary_pkr:'',salary_usd:'',source_of_hire:'',date_of_joining:'',date_of_regularisation:'',gender:'',marital_status:'',date_of_birth:'',age:'',about_me_notes:''};
+const employeeForm=row=>({...emptyEmployee,...row,password:'',department_id:row.department_id||'',role_id:row.role_id||'',employment_type_id:row.employment_type_id||'',shift_type_id:row.shift_type_id||'',designation_id:row.designation_id||'',employee_status_id:row.employee_status_id||'',expertise_id:row.expertise_id||'',reporting_manager_id:row.reporting_manager_id||''});
+function EmployeeFormModal({open,onClose,form,setForm,options,busy,onSave}){
+  const set=(k,v)=>setForm(f=>({...f,[k]:v})); const opts=key=>(options[key]||[]).map(x=><option key={x.id} value={x.id}>{x.name}</option>);
+  return <Modal open={open} onClose={onClose} title="Edit employee" wide footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button loading={busy} icon={Save} onClick={onSave}>Save changes</Button></>}><div className="form-section"><h3>Identity & login</h3><div className="form-grid"><Input label="First name *" value={form.first_name||''} onChange={e=>set('first_name',e.target.value)}/><Input label="Last name *" value={form.last_name||''} onChange={e=>set('last_name',e.target.value)}/><Input label="Email *" type="email" value={form.email||''} onChange={e=>set('email',e.target.value)}/><Input label="Phone" value={form.phone||''} onChange={e=>set('phone',e.target.value)}/><Input label="Location" value={form.location||''} onChange={e=>set('location',e.target.value)}/><TimezonePicker label="Timezone *" value={form.timezone||''} onChange={value=>set('timezone',value)} onCitySelect={place=>setForm(current=>({...current,timezone:place.timezone,location:[place.city,place.country].filter(Boolean).join(', ')}))}/></div></div><div className="form-section"><h3>Work & hierarchy</h3><div className="form-grid"><Select label="Department" value={form.department_id||''} onChange={e=>set('department_id',e.target.value)}><option value="">Select</option>{opts('departments')}</Select><Select label="Role" value={form.role_id||''} onChange={e=>set('role_id',e.target.value)}><option value="">Select</option>{opts('roles')}</Select><Select label="Employment type" value={form.employment_type_id||''} onChange={e=>set('employment_type_id',e.target.value)}><option value="">Select</option>{opts('employment_types')}</Select><Select label="Shift type" value={form.shift_type_id||''} onChange={e=>set('shift_type_id',e.target.value)}><option value="">Select</option>{opts('shift_types')}</Select><Select label="Designation" value={form.designation_id||''} onChange={e=>set('designation_id',e.target.value)}><option value="">Select</option>{opts('designations')}</Select><Select label="Employee status" value={form.employee_status_id||''} onChange={e=>set('employee_status_id',e.target.value)}><option value="">Select</option>{opts('employee_statuses')}</Select><Select label="Expertise" value={form.expertise_id||''} onChange={e=>set('expertise_id',e.target.value)}><option value="">Select</option>{opts('expertises')}</Select><Select label="Reporting manager" value={form.reporting_manager_id||''} onChange={e=>set('reporting_manager_id',e.target.value)}><option value="">Select</option>{opts('reporting_managers')}</Select><Input label="Joining date" type="date" value={form.date_of_joining||''} onChange={e=>set('date_of_joining',e.target.value)}/><Input label="Regularisation date" type="date" value={form.date_of_regularisation||''} onChange={e=>set('date_of_regularisation',e.target.value)}/><SalaryConverter pkr={form.salary_pkr} usd={form.salary_usd} onPkrChange={value=>set('salary_pkr',value)} onUsdChange={value=>set('salary_usd',value)}/><Input label="Source of hire" value={form.source_of_hire||''} onChange={e=>set('source_of_hire',e.target.value)}/></div></div><div className="form-section"><h3>Personal</h3><div className="form-grid"><Select label="Gender" value={form.gender||''} onChange={e=>set('gender',e.target.value)}><option value="">Not specified</option><option value="male">Male</option><option value="female">Female</option><option value="other">Other</option></Select><MaritalStatusSelect label="Marital status" value={form.marital_status||''} onChange={e=>set('marital_status',e.target.value)}/><Input label="Date of birth" type="date" value={form.date_of_birth||''} onChange={e=>set('date_of_birth',e.target.value)}/><Input label="Age" type="number" value={form.age||''} onChange={e=>set('age',e.target.value)}/><Textarea label="About employee" value={form.about_me_notes||''} onChange={e=>set('about_me_notes',e.target.value)}/></div></div></Modal>;
+}
 export function EmployeesPage(){
   const {user}=useAuth(); const navigate=useNavigate();
   const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[search,setSearch]=useState(''),[page,setPage]=useState(1),[busy,setBusy]=useState(false),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[form,setForm]=useState(emptyEmployee),[options,setOptions]=useState({}),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'id',dir:'desc'}); const n=useNotice();
   const load=async()=>{setBusy(true);try{const [r,o]=await Promise.all([api.get('/management/employees',{params:{search,page,per_page:perPage,sort:sort.key,direction:sort.dir}}),api.get('/management/options')]);setRows(r.data.data);setMeta(r.data);setOptions(o.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
   useEffect(()=>{const t=setTimeout(load,220);return()=>clearTimeout(t)},[search,page,perPage,sort]);
-  const openNew=()=>navigate(`${roleBase(user.role)}/employees/new`); const openEdit=row=>{setEdit(row);setForm({...emptyEmployee,...row,password:'',department_id:row.department_id||'',role_id:row.role_id||'',employment_type_id:row.employment_type_id||'',shift_type_id:row.shift_type_id||'',designation_id:row.designation_id||'',employee_status_id:row.employee_status_id||'',expertise_id:row.expertise_id||'',reporting_manager_id:row.reporting_manager_id||''});setModal(true)};
+  const openNew=()=>navigate(`${roleBase(user.role)}/employees/new`); const openEdit=row=>{setEdit(row);setForm(employeeForm(row));setModal(true)};
   const save=async()=>{setBusy(true);try{edit?await api.put(`/management/employees/${edit.id}`,form):await api.post('/management/employees',form);n.success(edit?'Employee updated.':'Employee created.');setModal(false);await load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
   const remove=async row=>{try{await api.delete(`/management/employees/${row.id}`);n.success('Employee deleted.');load()}catch(e){n.error(messageFrom(e))}};
   const resendInvite=async row=>{setBusy(true);try{const {data}=await api.post(`/management/employees/${row.id}/resend-invite`);if(data.activation_url&&navigator.clipboard){await navigator.clipboard.writeText(data.activation_url);n.success(`${data.message} Activation link copied.`)}else n.success(data.message)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
-  const set=(k,v)=>setForm(f=>({...f,[k]:v})); const opts=(key)=>(options[key]||[]).map(x=><option key={x.id} value={x.id}>{x.name}</option>);
-  const columns=[{key:'employee_code',label:'Emp #',sortKey:'employee_code'},{key:'name',label:'Employee',sortKey:'first_name',render:r=><div className="person-cell"><div className="avatar">{r.first_name?.[0]}{r.last_name?.[0]}</div><div><strong>{r.first_name} {r.last_name}</strong><span>{r.email}</span></div></div>},{key:'department',label:'Department',render:r=>r.department?.name||'—'},{key:'designation',label:'Designation',render:r=>r.designation?.name||'—'},{key:'status',label:'Status',render:r=><Badge tone={statusTone(r.employee_status?.name)}>{r.employee_status?.name||'Not set'}</Badge>},{key:'timezone',label:'Timezone',sortKey:'timezone'},{key:'salary',label:'Salary',sortKey:'salary_usd',render:r=>r.salary_usd?money(r.salary_usd):'—'},{key:'actions',label:'Actions',render:r=><div className="row-actions"><button title="Resend activation invite" onClick={()=>resendInvite(r)}><Send size={16}/></button><button title="Edit employee" onClick={()=>openEdit(r)}><Pencil size={16}/></button><button title="Delete employee" className="danger" onClick={()=>remove(r)}><Trash2 size={16}/></button></div>}];
+  const columns=[{key:'employee_code',label:'Emp #',sortKey:'employee_code'},{key:'name',label:'Employee',sortKey:'first_name',render:r=><div className="person-cell"><div className="avatar">{r.first_name?.[0]}{r.last_name?.[0]}</div><div><strong><Link to={`${roleBase(user.role)}/employees/${r.id}`}>{r.first_name} {r.last_name}</Link></strong><span>{r.email}</span></div></div>},{key:'department',label:'Department',render:r=>r.department?.name||'—'},{key:'designation',label:'Designation',render:r=>r.designation?.name||'—'},{key:'status',label:'Status',render:r=><Badge tone={statusTone(r.employee_status?.name)}>{r.employee_status?.name||'Not set'}</Badge>},{key:'timezone',label:'Timezone',sortKey:'timezone'},{key:'salary',label:'Salary',sortKey:'salary_usd',render:r=>r.salary_usd?money(r.salary_usd):'—'},{key:'actions',label:'Actions',render:r=><div className="row-actions"><button title="View profile" onClick={()=>navigate(`${roleBase(user.role)}/employees/${r.id}`)}><Eye size={16}/></button><button title="Resend activation invite" onClick={()=>resendInvite(r)}><Send size={16}/></button><button title="Edit employee" onClick={()=>openEdit(r)}><Pencil size={16}/></button><button title="Delete employee" className="danger" onClick={()=>remove(r)}><Trash2 size={16}/></button></div>}];
   return <><PageHeader eyebrow="Workforce" title="Employees" description="Manage VA identities, work details, hierarchy, timezone and compensation." actions={<Button icon={Plus} onClick={openNew}>Add employee</Button>}/><Card><div className="toolbar"><SearchBox value={search} onChange={v=>{setSearch(v);setPage(1)}} placeholder="Search name, email or employee #"/><span className="record-count">{meta?.total??rows.length} employees</span></div>{busy&&!rows.length?<Loading inline/>:<Table columns={columns} rows={rows} emptyTitle="No employees found" emptyDescription="Change your search or add the first employee." meta={meta} onPage={setPage} perPage={perPage} onPerPage={v=>{setPerPage(v);setPage(1)}} sort={sort} onSort={s=>{setSort(s);setPage(1)}}/>}</Card>
-  <Modal open={modal} onClose={()=>setModal(false)} title="Edit employee" wide footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} icon={Save} onClick={save}>Save changes</Button></>}><div className="form-section"><h3>Identity & login</h3><div className="form-grid"><Input label="First name *" value={form.first_name||''} onChange={e=>set('first_name',e.target.value)}/><Input label="Last name *" value={form.last_name||''} onChange={e=>set('last_name',e.target.value)}/><Input label="Email *" type="email" value={form.email||''} onChange={e=>set('email',e.target.value)}/><Input label="Phone" value={form.phone||''} onChange={e=>set('phone',e.target.value)}/><Input label="Location" value={form.location||''} onChange={e=>set('location',e.target.value)}/><TimezonePicker label="Timezone *" value={form.timezone||''} onChange={value=>set('timezone',value)} onCitySelect={place=>setForm(current=>({...current,timezone:place.timezone,location:[place.city,place.country].filter(Boolean).join(', ')}))}/></div></div><div className="form-section"><h3>Work & hierarchy</h3><div className="form-grid"><Select label="Department" value={form.department_id||''} onChange={e=>set('department_id',e.target.value)}><option value="">Select</option>{opts('departments')}</Select><Select label="Role" value={form.role_id||''} onChange={e=>set('role_id',e.target.value)}><option value="">Select</option>{opts('roles')}</Select><Select label="Employment type" value={form.employment_type_id||''} onChange={e=>set('employment_type_id',e.target.value)}><option value="">Select</option>{opts('employment_types')}</Select><Select label="Shift type" value={form.shift_type_id||''} onChange={e=>set('shift_type_id',e.target.value)}><option value="">Select</option>{opts('shift_types')}</Select><Select label="Designation" value={form.designation_id||''} onChange={e=>set('designation_id',e.target.value)}><option value="">Select</option>{opts('designations')}</Select><Select label="Employee status" value={form.employee_status_id||''} onChange={e=>set('employee_status_id',e.target.value)}><option value="">Select</option>{opts('employee_statuses')}</Select><Select label="Expertise" value={form.expertise_id||''} onChange={e=>set('expertise_id',e.target.value)}><option value="">Select</option>{opts('expertises')}</Select><Select label="Reporting manager" value={form.reporting_manager_id||''} onChange={e=>set('reporting_manager_id',e.target.value)}><option value="">Select</option>{opts('reporting_managers')}</Select><Input label="Joining date" type="date" value={form.date_of_joining||''} onChange={e=>set('date_of_joining',e.target.value)}/><Input label="Regularisation date" type="date" value={form.date_of_regularisation||''} onChange={e=>set('date_of_regularisation',e.target.value)}/><SalaryConverter pkr={form.salary_pkr} usd={form.salary_usd} onPkrChange={value=>set('salary_pkr',value)} onUsdChange={value=>set('salary_usd',value)}/><Input label="Source of hire" value={form.source_of_hire||''} onChange={e=>set('source_of_hire',e.target.value)}/></div></div><div className="form-section"><h3>Personal</h3><div className="form-grid"><Select label="Gender" value={form.gender||''} onChange={e=>set('gender',e.target.value)}><option value="">Not specified</option><option value="male">Male</option><option value="female">Female</option><option value="other">Other</option></Select><MaritalStatusSelect label="Marital status" value={form.marital_status||''} onChange={e=>set('marital_status',e.target.value)}/><Input label="Date of birth" type="date" value={form.date_of_birth||''} onChange={e=>set('date_of_birth',e.target.value)}/><Input label="Age" type="number" value={form.age||''} onChange={e=>set('age',e.target.value)}/><Textarea label="About employee" value={form.about_me_notes||''} onChange={e=>set('about_me_notes',e.target.value)}/></div></div></Modal></>;
+  <EmployeeFormModal open={modal} onClose={()=>setModal(false)} form={form} setForm={setForm} options={options} busy={busy} onSave={save}/></>;
 }
 
 const emptyClient={name:'',email:'',password:'',business_name:'',phone_number:'',country:'United States',timezone:'America/New_York',per_hour_charges:'',contract_type_id:'',service_id:'',ring_center:false};
@@ -418,10 +423,127 @@ export function SchedulesPage(){
  </>;
 }
 
+const attendanceColumns=[{key:'client',label:'Client',render:r=>r.client?.name||'Legacy / unallocated'},{key:'date',label:'Date',sortKey:'date',render:r=><DualDate value={r.clock_in||r.date} doctorTz={r.client_timezone||r.client?.timezone||'UTC'} vaTz={r.employee_timezone||r.employee?.timezone||'UTC'}/>},{key:'clock_in',label:'Clock in',sortKey:'clock_in',render:r=><DualTime value={r.clock_in} doctorTz={r.client_timezone||r.client?.timezone||'UTC'} vaTz={r.employee_timezone||r.employee?.timezone||'UTC'}/>},{key:'clock_out',label:'Clock out',sortKey:'clock_out',render:r=><DualTime value={r.clock_out} doctorTz={r.client_timezone||r.client?.timezone||'UTC'} vaTz={r.employee_timezone||r.employee?.timezone||'UTC'} live={!r.clock_out}/>},{key:'breaks',label:'Break',sortKey:'break_taken',render:r=>`${Math.floor(Number(r.break_taken||0)/60)} min`},{key:'worked',label:'Regular',sortKey:'total_minutes',render:r=>mins(r.total_minutes)},{key:'late',label:'Late',sortKey:'late_minutes',render:r=>`${r.late_minutes||0} min`},{key:'overtime',label:'Overtime',sortKey:'overtime',render:r=><Badge tone={(r.overtime||0)>0?'warning':'neutral'}>{r.overtime||0} min</Badge>}];
+const EMPLOYEE_TABS=[{key:'overview',label:'Overview',icon:UserRound},{key:'schedule',label:'Schedule',icon:CalendarDays},{key:'attendance',label:'Attendance',icon:Clock3}];
+const fullName=e=>`${e?.first_name||''} ${e?.last_name||''}`.trim()||'Employee';
+const text=v=>(v===null||v===undefined||v==='')?'—':String(v);
+const dateOnly=v=>v?String(v).slice(0,10):'—';
+const titleCase=v=>v?String(v).charAt(0).toUpperCase()+String(v).slice(1):'—';
+const zoneMoment=(value,tz)=>formatDateTime(value,tz||'UTC',{weekday:'short',year:undefined});
+const zoneTime=(value,tz)=>formatTimeInZone(value,tz||'UTC');
+const employeeScheduleColumns=[
+  {key:'client',label:'Client / Doctor',render:r=>r.client?.name||'—'},
+  {key:'weekday',label:'Doctor day'},
+  {key:'schedule_type',label:'Type',render:r=>r.repeat?<Badge tone="info">Weekly</Badge>:<Badge tone="neutral">{r.schedule_date?`Once · ${String(r.schedule_date).slice(0,10)}`:'Legacy weekly'}</Badge>},
+  {key:'doctor_shift',label:'Doctor local shift',render:r=>`${formatStoredTime12(r.start_time)} – ${formatStoredTime12(r.end_time)}`},
+  {key:'doctor_timezone',label:'Doctor timezone',render:r=>r.client_timezone||r.client?.timezone||r.timezone||'Not specified'},
+  {key:'va_shift',label:'VA local time',render:r=>{const tz=r.employee_timezone||r.employee?.timezone;return r.shift_starts_at&&r.shift_ends_at&&tz?`${zoneMoment(r.shift_starts_at,tz)} – ${zoneTime(r.shift_ends_at,tz)}`:'—'}},
+  {key:'hours',label:'Duration (H.MM)',render:r=><strong>{formatDurationHM(r.no_of_hours)}</strong>},
+  {key:'status',label:'Status',render:r=><Badge tone={r.enabled?'success':'danger'}>{r.enabled?'Enabled':'Disabled'}</Badge>},
+];
+
+export function EmployeeProfilePage(){
+  const {user}=useAuth(); const {employeeId}=useParams(); const navigate=useNavigate(); const n=useNotice();
+  const base=`${roleBase(user.role)}/employees`;
+  const [employee,setEmployee]=useState(null),[schedules,setSchedules]=useState(null),[options,setOptions]=useState({}),[tab,setTab]=useState('overview'),[modal,setModal]=useState(false),[form,setForm]=useState(emptyEmployee),[busy,setBusy]=useState(false);
+  const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[page,setPage]=useState(1),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'date',dir:'desc'}),[attendanceBusy,setAttendanceBusy]=useState(false);
+  const load=async()=>{try{const [e,s,o]=await Promise.all([api.get(`/management/employees/${employeeId}`),api.get('/management/schedules',{params:{employee_id:employeeId}}),api.get('/management/options')]);setEmployee(e.data);setSchedules(Array.isArray(s.data)?s.data:getList(s.data));setOptions(o.data||{})}catch(e){n.error(messageFrom(e));navigate(base,{replace:true})}};
+  useEffect(()=>{setEmployee(null);setTab('overview');setPage(1);load()},[employeeId]);
+  const loadAttendance=async()=>{setAttendanceBusy(true);try{const r=await api.get('/management/attendance',{params:{employee_id:employeeId,page,per_page:perPage,sort:sort.key,direction:sort.dir}});setRows(r.data.data);setMeta(r.data)}catch(e){n.error(messageFrom(e))}finally{setAttendanceBusy(false)}};
+  useEffect(()=>{if(tab==='attendance')loadAttendance()},[tab,employeeId,page,perPage,sort]);
+  if(!employee)return <Loading/>;
+
+  const save=async()=>{setBusy(true);try{await api.put(`/management/employees/${employee.id}`,form);n.success('Employee updated.');setModal(false);await load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+  const resendInvite=async()=>{setBusy(true);try{const {data}=await api.post(`/management/employees/${employee.id}/resend-invite`);if(data.activation_url&&navigator.clipboard){await navigator.clipboard.writeText(data.activation_url);n.success(`${data.message} Activation link copied.`)}else n.success(data.message)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+  const summary=employee.month_summary||{};
+  const docs=Array.isArray(employee.upload_documents)?employee.upload_documents:[];
+  const status=employee.employee_status?.name;
+  const clients=Object.values((schedules||[]).reduce((acc,s)=>{if(s.client){const c=acc[s.client.id]||(acc[s.client.id]={...s.client,hours:0,days:new Set()});c.hours+=Number(s.no_of_hours)||0;c.days.add(s.weekday)}return acc},{}));
+  const fileName=url=>String(url).split('/').pop().split('?')[0];
+
+  return <>
+    <PageHeader eyebrow="Workforce" title={fullName(employee)} description={[employee.employee_code,employee.designation?.name,employee.department?.name].filter(Boolean).join(' · ')||'Employee profile'} actions={<><Button variant="ghost" icon={ArrowLeft} onClick={()=>navigate(base)}>Employees</Button><Button variant="secondary" icon={Send} loading={busy} onClick={resendInvite}>Resend invite</Button><Button icon={Pencil} onClick={()=>{setForm(employeeForm(employee));setModal(true)}}>Edit</Button></>}/>
+    <div className="client-profile-shell">
+      <aside className="client-profile-tabs" aria-label="Employee profile sections">
+        <div className="employee-profile-identity">
+          <div className="avatar"><AvatarMedia src={employee.profile_picture} alt={fullName(employee)} fallback={`${employee.first_name?.[0]||''}${employee.last_name?.[0]||''}`||'?'}/></div>
+          <strong>{fullName(employee)}</strong><span>{employee.email}</span>
+          <Badge tone={statusTone(status)}>{status||'Not set'}</Badge>
+        </div>
+        {EMPLOYEE_TABS.map(t=>{const Icon=t.icon;return <button key={t.key} type="button" className={tab===t.key?'active':''} onClick={()=>setTab(t.key)}><Icon size={18}/><span>{t.label}</span></button>})}
+      </aside>
+      <main className="client-profile-content">
+        {tab==='overview'&&<>
+          <div className="metrics-grid employee-profile-metrics">
+            <MetricCard label="Hours this month" value={mins(summary.minutes||0)} icon={Clock3}/>
+            <MetricCard label="Sessions" value={summary.sessions||0} icon={Activity}/>
+            <MetricCard label="Late minutes" value={summary.late_minutes||0} icon={AlarmClock}/>
+            <MetricCard label="Overtime minutes" value={summary.overtime_minutes||0} icon={TimerReset}/>
+          </div>
+          <div className="two-col profile-layout">
+            <Card title="Personal" subtitle="Contact and personal details.">
+              <div className="detail-list">
+                <div><span>Email</span><strong>{text(employee.email)}</strong></div>
+                <div><span>Phone</span><strong>{text(employee.phone)}</strong></div>
+                <div><span>Date of birth</span><strong>{dateOnly(employee.date_of_birth)}</strong></div>
+                <div><span>Age</span><strong>{text(employee.age)}</strong></div>
+                <div><span>Gender</span><strong>{titleCase(employee.gender)}</strong></div>
+                <div><span>Marital status</span><strong>{titleCase(employee.marital_status)}</strong></div>
+                <div><span>Location</span><strong>{text(employee.location)}</strong></div>
+                <div><span>Timezone</span><strong>{text(employee.timezone)}</strong></div>
+                <div><span>Last seen</span><strong>{employee.user?.last_seen_at?dateTime(employee.user.last_seen_at,user?.assigned_timezone):'Never'}</strong></div>
+                <div><span>Profile</span><strong>{employee.profile_completed?'Completed':'Incomplete'}</strong></div>
+              </div>
+              {employee.about_me_notes&&<p className="employee-profile-notes">{employee.about_me_notes}</p>}
+            </Card>
+            <div className="stack">
+              <Card title="Work profile" subtitle="Organisation, role and employment terms.">
+                <div className="detail-list">
+                  <div><span>Employee #</span><strong>{text(employee.employee_code)}</strong></div>
+                  <div><span>Department</span><strong>{text(employee.department?.name)}</strong></div>
+                  <div><span>Role</span><strong>{text(employee.role?.name)}</strong></div>
+                  <div><span>Designation</span><strong>{text(employee.designation?.name)}</strong></div>
+                  <div><span>Employment type</span><strong>{text(employee.employment_type?.name)}</strong></div>
+                  <div><span>Shift type</span><strong>{text(employee.shift_type?.name)}</strong></div>
+                  <div><span>Status</span><strong><Badge tone={statusTone(status)}>{status||'Not set'}</Badge></strong></div>
+                  <div><span>Expertise</span><strong>{text(employee.expertise?.name)}</strong></div>
+                  <div><span>Reporting manager</span><strong>{text(employee.reporting_manager?.name)}</strong></div>
+                  <div><span>Joining date</span><strong>{dateOnly(employee.date_of_joining)}</strong></div>
+                  <div><span>Regularisation date</span><strong>{dateOnly(employee.date_of_regularisation)}</strong></div>
+                  <div><span>Source of hire</span><strong>{text(employee.source_of_hire)}</strong></div>
+                </div>
+              </Card>
+              <Card title="Compensation" subtitle="Monthly salary on record.">
+                <div className="detail-list">
+                  <div><span>Salary (PKR)</span><strong>{employee.salary_pkr?Number(employee.salary_pkr).toLocaleString():'—'}</strong></div>
+                  <div><span>Salary (USD)</span><strong>{employee.salary_usd?money(employee.salary_usd):'—'}</strong></div>
+                </div>
+              </Card>
+              <Card title="Documents" subtitle={docs.length?`${docs.length} file(s) uploaded by the VA.`:'Files the VA uploads from their profile appear here.'}>
+                {docs.length?<div className="document-list">{docs.map((d,i)=><div key={d}><a href={d} target="_blank" rel="noreferrer">Document {i+1}</a><span className="muted">{fileName(d)}</span></div>)}</div>:<EmptyState title="No documents" description="Nothing has been uploaded yet."/>}
+              </Card>
+              <Card title="Assigned clients" subtitle="Derived from this VA's schedule.">
+                {clients.length?<div className="detail-list">{clients.map(c=><div key={c.id}><span>{user.role==='hr'?c.name:<Link to={`/admin/client/${c.id}/profile`}>{c.name}</Link>}</span><strong>{c.days.size} day(s) · {formatDurationHM(c.hours)} h/week</strong></div>)}</div>:<EmptyState title="No clients assigned" description="Add a schedule to assign this VA to a client."/>}
+              </Card>
+            </div>
+          </div>
+        </>}
+        {tab==='schedule'&&<Card title="Weekly schedule" subtitle="Doctor-local shifts with the VA conversion." actions={<Button variant="secondary" icon={CalendarDays} onClick={()=>navigate(`${roleBase(user.role)}/schedules`)}>Manage schedules</Button>}>
+          {schedules===null?<Loading inline/>:<Table columns={employeeScheduleColumns} rows={schedules} emptyTitle="No schedules" emptyDescription="This VA has no shifts configured yet."/>}
+        </Card>}
+        {tab==='attendance'&&<Card title="Attendance" subtitle="Every session recorded for this VA.">
+          {attendanceBusy&&!rows.length?<Loading inline/>:<Table columns={attendanceColumns} rows={rows} emptyTitle="No attendance records" emptyDescription="No sessions have been recorded yet." meta={meta} onPage={setPage} perPage={perPage} onPerPage={v=>{setPerPage(v);setPage(1)}} sort={sort} onSort={s=>{setSort(s);setPage(1)}}/>}
+        </Card>}
+      </main>
+    </div>
+    <EmployeeFormModal open={modal} onClose={()=>setModal(false)} form={form} setForm={setForm} options={options} busy={busy} onSave={save}/>
+  </>;
+}
+
 export function AttendancePage(){
  const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[options,setOptions]=useState({}),[filters,setFilters]=useState({employee_id:'',from:'',to:'',search:''}),[page,setPage]=useState(1),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'date',dir:'desc'}),[busy,setBusy]=useState(false);const n=useNotice();
  const load=async(nextFilters=filters,nextPage=page)=>{setBusy(true);try{const [r,o]=await Promise.all([api.get('/management/attendance',{params:{...nextFilters,page:nextPage,per_page:perPage,sort:sort.key,direction:sort.dir}}),api.get('/management/options')]);setRows(r.data.data);setMeta(r.data);setOptions(o.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};useEffect(()=>{load(filters,page)},[page,perPage,sort]);const apply=()=>{setPage(1);load(filters,1)};const reset=()=>{const clean={employee_id:'',from:'',to:'',search:''};setFilters(clean);setPage(1);load(clean,1)};
- const columns=[{key:'employee',label:'Employee',render:r=>`${r.employee?.first_name||''} ${r.employee?.last_name||''}`},{key:'client',label:'Client',render:r=>r.client?.name||'Legacy / unallocated'},{key:'date',label:'Date',sortKey:'date',render:r=><DualDate value={r.clock_in||r.date} doctorTz={r.client_timezone||r.client?.timezone||'UTC'} vaTz={r.employee_timezone||r.employee?.timezone||'UTC'}/>},{key:'clock_in',label:'Clock in',sortKey:'clock_in',render:r=><DualTime value={r.clock_in} doctorTz={r.client_timezone||r.client?.timezone||'UTC'} vaTz={r.employee_timezone||r.employee?.timezone||'UTC'}/>},{key:'clock_out',label:'Clock out',sortKey:'clock_out',render:r=><DualTime value={r.clock_out} doctorTz={r.client_timezone||r.client?.timezone||'UTC'} vaTz={r.employee_timezone||r.employee?.timezone||'UTC'} live={!r.clock_out}/>},{key:'breaks',label:'Break',sortKey:'break_taken',render:r=>`${Math.floor(Number(r.break_taken||0)/60)} min`},{key:'worked',label:'Regular',sortKey:'total_minutes',render:r=>mins(r.total_minutes)},{key:'late',label:'Late',sortKey:'late_minutes',render:r=>`${r.late_minutes||0} min`},{key:'overtime',label:'Overtime',sortKey:'overtime',render:r=><Badge tone={(r.overtime||0)>0?'warning':'neutral'}>{r.overtime||0} min</Badge>}];
+ const columns=[{key:'employee',label:'Employee',render:r=>`${r.employee?.first_name||''} ${r.employee?.last_name||''}`},...attendanceColumns];
  return <><PageHeader eyebrow="Time operations" title="Attendance" description="Doctor time is the calculation source. VA time is the same attendance instant converted to the employee timezone."/><Card><div className="filter-grid"><Select label="Employee" value={filters.employee_id} onChange={e=>setFilters({...filters,employee_id:e.target.value})}><option value="">All employees</option>{(options.employees||[]).map(x=><option key={x.id} value={x.id}>{x.first_name} {x.last_name}</option>)}</Select><Input label="From date" type="date" value={filters.from} onChange={e=>setFilters({...filters,from:e.target.value})}/><Input label="To date" type="date" value={filters.to} onChange={e=>setFilters({...filters,to:e.target.value})}/><Input label="Search" value={filters.search} onChange={e=>setFilters({...filters,search:e.target.value})} placeholder="Date, time or employee"/><div className="filter-actions"><Button onClick={apply}>Filter</Button><Button variant="ghost" onClick={reset}>Reset</Button></div></div><Table columns={columns} rows={rows} emptyTitle="No attendance records" emptyDescription="No attendance matches these filters." meta={meta} onPage={setPage} perPage={perPage} onPerPage={v=>{setPerPage(v);setPage(1)}} sort={sort} onSort={s=>{setSort(s);setPage(1)}}/></Card></>;
 }
 
