@@ -592,6 +592,21 @@ class AdminApiController extends Controller
         ], 201);
     }
 
+    public function resendClientInvitation(Client $client)
+    {
+        $client->loadMissing('user');
+        abort_unless($client->user, 422, 'This client does not have a login account.');
+
+        $invite = $this->sendClientInvitation($client->user, $client);
+
+        return response()->json([
+            'message' => $invite['sent']
+                ? 'Client / Doctor password setup invitation sent again.'
+                : 'Email delivery failed. Check the Laravel mail log and SMTP settings, then try again.',
+            'invitation_sent' => $invite['sent'],
+        ]);
+    }
+
     public function updateClient(Request $request, Client $client)
     {
         $data = $request->validate([
@@ -1230,7 +1245,23 @@ class AdminApiController extends Controller
     public function updateAccount(Request $request)
     {
         $user = $request->user();
-        $data = $request->validate(['name' => ['required', 'string', 'max:255'], 'email' => ['required', 'email', Rule::unique('users', 'email')->ignore($user->id)]]);
+        abort_unless(in_array($user->role, ['admin', 'superadmin', 'hr'], true), 403);
+
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', Rule::unique('users', 'email')->ignore($user->id)],
+            'profile_picture' => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+        ]);
+
+        if ($request->hasFile('profile_picture')) {
+            if ($user->profile_picture) {
+                Storage::disk('public')->delete(ltrim(str_replace('/storage/', '', $user->profile_picture), '/'));
+            }
+            $data['profile_picture'] = '/storage/'.$request->file('profile_picture')->store('users/profile_pictures', 'public');
+        } else {
+            unset($data['profile_picture']);
+        }
+
         $user->update($data);
         return response()->json(['message' => 'Account updated.', 'user' => $user->fresh()]);
     }
