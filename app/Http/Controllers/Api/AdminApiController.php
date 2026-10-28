@@ -1084,7 +1084,30 @@ class AdminApiController extends Controller
             'adjustments.*.amount' => ['required_with:adjustments', 'numeric', 'gt:0', 'max:999999999.99'],
         ]);
 
-        DB::transaction(function () use ($invoice, $data, $request) {
+        // A paid or voided invoice is a settled financial record. Its status may still
+        // move -- voiding a paid invoice, or undoing a mistaken one -- but its lines,
+        // adjustments, period and totals must never be rewritten underneath it.
+        $locked = in_array($previousStatus, ['paid', 'void'], true);
+
+        if ($locked && ($data['status'] ?? $previousStatus) === $previousStatus) {
+            return response()->json([
+                'message' => 'This invoice is '.$previousStatus.' and its amounts can no longer be changed. Move it out of '.$previousStatus.' first if it needs correcting.',
+                'code' => 'INVOICE_LOCKED',
+            ], 422);
+        }
+
+        DB::transaction(function () use ($invoice, $data, $request, $locked) {
+            if ($locked) {
+                // Settled record: apply the status transition and nothing else.
+                $invoice->update([
+                    'status' => $data['status'],
+                    'edited_by' => $request->user()->id,
+                    'edited_at' => $this->clock->now('UTC'),
+                ]);
+
+                return;
+            }
+
             $totalHours = 0;
             $totalAmount = 0;
 
