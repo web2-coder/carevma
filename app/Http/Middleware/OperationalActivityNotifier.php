@@ -42,7 +42,19 @@ class OperationalActivityNotifier
         $payload = method_exists($response, 'getData') ? (array) $response->getData(true) : [];
         $message = $payload['message'] ?? $this->fallbackMessage($request);
         $title = $this->titleFor($request);
-        $recipients = $this->relatedRecipients($request, $payload)
+        $relatedRecipients = $this->relatedRecipients($request, $payload);
+
+        // Account creation already sends one dedicated activation email to the new
+        // VA or Client/Doctor. Do not send that new account a second generic activity
+        // email. Admins still receive the operational copy through operationsUsers().
+        if ($request->is('api/management/employees') && $request->isMethod('post')) {
+            $relatedRecipients = $relatedRecipients->reject(fn ($user) => $user?->role === 'employee');
+        }
+        if ($request->is('api/admin/clients') && $request->isMethod('post')) {
+            $relatedRecipients = $relatedRecipients->reject(fn ($user) => $user?->role === 'client');
+        }
+
+        $recipients = $relatedRecipients
             ->merge($this->notifier->operationsUsers())
             ->push($actor)
             ->filter(fn ($user) => $user instanceof User)

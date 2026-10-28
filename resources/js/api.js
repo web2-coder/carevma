@@ -18,21 +18,19 @@ import {
 
 const api = axios.create({
   baseURL: '/api',
-
-  // Required for Laravel session cookies.
   withCredentials: true,
-
-  // Axios should read Laravel's XSRF-TOKEN cookie.
-  withXSRFToken: true,
-
-  xsrfCookieName: 'XSRF-TOKEN',
-  xsrfHeaderName: 'X-XSRF-TOKEN',
-
   headers: {
     Accept: 'application/json',
     'X-Requested-With': 'XMLHttpRequest',
   },
 });
+
+// These routes use Laravel's web/session middleware. The SPA shell renders
+// the session CSRF token, so send that exact token with state-changing API calls.
+const csrf = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+if (csrf) {
+  api.defaults.headers.common['X-CSRF-TOKEN'] = csrf;
+}
 
 /*
 |--------------------------------------------------------------------------

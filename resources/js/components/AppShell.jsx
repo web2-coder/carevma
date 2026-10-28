@@ -137,6 +137,8 @@ export default function AppShell() {
   const pageLoadFallbackRef = useRef(null);
   const pageLoadFinishRef = useRef(null);
   const notificationMenuRef = useRef(null);
+  const profileMenuRef = useRef(null);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const employeeProfileIncomplete = profileIncomplete(user);
@@ -350,6 +352,27 @@ export default function AppShell() {
     }
   }, [employeeProfileIncomplete, location.pathname, navigate]);
 
+  useEffect(() => {
+    if (!profileMenuOpen) return;
+    const close = event => {
+      if (profileMenuRef.current && !profileMenuRef.current.contains(event.target)) setProfileMenuOpen(false);
+    };
+    const escape = event => { if (event.key === 'Escape') setProfileMenuOpen(false); };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [profileMenuOpen]);
+
+  const profilePath = user?.role === 'employee' ? '/employee/profile'
+    : user?.role === 'client' ? '/doctor/profile'
+    : user?.role === 'hr' ? '/hr/account'
+    : '/admin/account';
+  const settingsPath = user?.role === 'employee' ? '/employee/settings' : profilePath;
+  const openProfilePath = path => { setProfileMenuOpen(false); beginPageLoad(); navigate(path); };
+
   const signOut = async () => { await logout(); navigate('/login', { replace: true }); };
   const roleLabel = user?.role === 'client' ? 'Client / Doctor' : user?.role === 'employee' ? 'Team Member / VA' : user?.role === 'hr' ? 'Human Resources' : 'Administrator';
 
@@ -410,7 +433,21 @@ export default function AppShell() {
               <button type="button" className="notification-dropdown-footer" onClick={() => { setNotificationOpen(false); beginPageLoad(); navigate(notificationPath); }}>View all notifications <ChevronRight size={15}/></button>
             </div>}
           </div>}
-          <div className="status-pill"><span/>Secure session</div><div className="avatar small"><AvatarMedia src={user?.employee?.profile_picture || user?.client?.profile_picture} alt={user?.name||'User'} fallback={user?.name?.[0]?.toUpperCase()}/></div>
+          <div className="status-pill"><span/>Secure session</div>
+          <div className="profile-menu-wrap" ref={profileMenuRef}>
+            <button type="button" className={`profile-menu-trigger ${profileMenuOpen ? 'active' : ''}`} onClick={() => setProfileMenuOpen(open => !open)} aria-expanded={profileMenuOpen} aria-haspopup="menu">
+              <span className="avatar small"><AvatarMedia src={user?.employee?.profile_picture || user?.client?.profile_picture} alt={user?.name||'User'} fallback={user?.name?.[0]?.toUpperCase()}/></span>
+              <span className="profile-menu-trigger-copy"><strong>{user?.name}</strong><small>{roleLabel}</small></span>
+              <ChevronDown size={15}/>
+            </button>
+            {profileMenuOpen && <div className="profile-dropdown" role="menu">
+              <div className="profile-dropdown-head"><strong>{user?.name}</strong><span>{user?.email}</span></div>
+              <button type="button" onClick={() => openProfilePath(profilePath)}><UserCircle2 size={16}/><span>Profile</span></button>
+              <button type="button" onClick={() => openProfilePath(settingsPath)}><Settings size={16}/><span>Settings</span></button>
+              <div className="profile-dropdown-divider"/>
+              <button type="button" className="profile-dropdown-logout" onClick={signOut}><LogOut size={16}/><span>Logout</span></button>
+            </div>}
+          </div>
         </div>
       </header>
       <main className="content">

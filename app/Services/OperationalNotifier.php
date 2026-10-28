@@ -79,6 +79,6 @@ class OperationalNotifier
 
     public function operationsUsers(): Collection
     {
-        return User::query()->whereIn('role', ['superadmin', 'admin', 'hr'])->get();
+        return User::query()->whereIn('role', ['superadmin', 'admin'])->get();
     }
 }

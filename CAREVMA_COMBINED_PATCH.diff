@@ -1,0 +1,515 @@
+diff --git a/.htaccess b/.htaccess
+index b574a59..22e8d4a 100644
+--- a/.htaccess
++++ b/.htaccess
+@@ -5,21 +5,43 @@
+ 
+     RewriteEngine On
+ 
+-    # Handle Authorization Header
++    # =========================================================
++    # CareVMA - Serve Laravel public directory
++    # =========================================================
++
++    # Vite production build
++    RewriteRule ^build/(.*)$ public/build/$1 [L]
++
++    # Public storage
++    RewriteRule ^storage/(.*)$ public/storage/$1 [L]
++
++    # Favicon / robots and other common public files
++    RewriteCond %{DOCUMENT_ROOT}/public/$1 -f
++    RewriteRule ^(.+)$ public/$1 [L]
++
++    # =========================================================
++    # Authorization Header
++    # =========================================================
+     RewriteCond %{HTTP:Authorization} .
+     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+ 
+-    # Handle X-XSRF-Token Header
+-    RewriteCond %{HTTP:x-xsrf-token} .
++    # =========================================================
++    # XSRF Header
++    # =========================================================
++    RewriteCond %{HTTP:X-XSRF-Token} .
+     RewriteRule .* - [E=HTTP_X_XSRF_TOKEN:%{HTTP:X-XSRF-Token}]
+ 
+-    # Redirect Trailing Slashes If Not A Folder...
++    # =========================================================
++    # Remove trailing slash
++    # =========================================================
+     RewriteCond %{REQUEST_FILENAME} !-d
+     RewriteCond %{REQUEST_URI} (.+)/$
+     RewriteRule ^ %1 [L,R=301]
+ 
+-    # Send Requests To Front Controller...
+-    RewriteCond %{REQUEST_FILENAME} !-d
++    # =========================================================
++    # Laravel Front Controller
++    # =========================================================
+     RewriteCond %{REQUEST_FILENAME} !-f
++    RewriteCond %{REQUEST_FILENAME} !-d
+     RewriteRule ^ index.php [L]
+-</IfModule>
++</IfModule>
+\ No newline at end of file
+diff --git a/app/Http/Controllers/Api/AdminApiController.php b/app/Http/Controllers/Api/AdminApiController.php
+index 5cd0ed9..cc37d05 100644
+--- a/app/Http/Controllers/Api/AdminApiController.php
++++ b/app/Http/Controllers/Api/AdminApiController.php
+@@ -30,6 +30,7 @@
+ use App\Services\ClientTimezoneService;
+ use DateTimeZone;
+ use App\Mail\EmployeeInvitationMail;
++use App\Mail\ClientSetPasswordMail;
+ use Carbon\Carbon;
+ use Illuminate\Http\Request;
+ use Illuminate\Support\Facades\DB;
+@@ -39,6 +40,7 @@
+ use Illuminate\Support\Facades\Mail;
+ use Illuminate\Support\Facades\Password;
+ use Illuminate\Support\Facades\Storage;
++use Illuminate\Support\Facades\URL;
+ use Illuminate\Support\Str;
+ use Illuminate\Validation\Rule;
+ use Illuminate\Validation\ValidationException;
+@@ -556,7 +558,7 @@ public function storeClient(Request $request)
+         $data = $request->validate([
+             'name' => ['required', 'string', 'max:255'],
+             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
+-            'password' => ['required', 'string', 'min:8'],
++            // Client/Doctor chooses their own password from the signed invitation email.
+             'business_name' => ['nullable', 'string', 'max:255'],
+             'phone_number' => ['nullable', 'string', 'max:60'],
+             'country' => ['nullable', 'string', 'max:100'],
+@@ -566,11 +568,28 @@ public function storeClient(Request $request)
+             'service_id' => ['nullable', 'exists:services,id'],
+             'ring_center' => ['nullable', 'boolean'],
+         ]);
+-        return DB::transaction(function () use ($data) {
+-            $user = User::create(['name' => $data['name'], 'email' => $data['email'], 'password' => Hash::make($data['password']), 'role' => 'client']);
+-            $client = Client::create(array_merge(collect($data)->except('password')->all(), ['user_id' => $user->id]));
+-            return response()->json(['message' => 'Client created.', 'client' => $client], 201);
++        [$client, $user] = DB::transaction(function () use ($data) {
++            $user = User::create([
++                'name' => $data['name'],
++                'email' => $data['email'],
++                'password' => Hash::make(Str::random(64)),
++                'role' => 'client',
++            ]);
++
++            $client = Client::create(array_merge($data, ['user_id' => $user->id]));
++
++            return [$client, $user];
+         });
++
++        $invite = $this->sendClientInvitation($user, $client);
++
++        return response()->json([
++            'message' => $invite['sent']
++                ? 'Client / Doctor created and password setup invitation sent.'
++                : 'Client / Doctor created. Email delivery failed; resend the invitation after checking mail settings.',
++            'client' => $client->fresh(),
++            'invitation_sent' => $invite['sent'],
++        ], 201);
+     }
+ 
+     public function updateClient(Request $request, Client $client)
+@@ -1264,6 +1283,30 @@ private function employeePayload(array $data): array
+     }
+ 
+ 
++    private function sendClientInvitation(User $user, Client $client): array
++    {
++        $token = Str::random(64);
++
++        DB::table('password_reset_tokens')->updateOrInsert(
++            ['email' => $user->email],
++            ['token' => Hash::make($token), 'created_at' => now()]
++        );
++
++        $url = URL::temporarySignedRoute(
++            'client.password.form',
++            now()->addMinutes((int) config('auth.passwords.users.expire', 60)),
++            ['email' => $user->email, 'token' => $token]
++        );
++
++        try {
++            Mail::to($user->email)->send(new ClientSetPasswordMail($client, $url));
++            return ['sent' => true, 'url' => $url];
++        } catch (\Throwable $e) {
++            report($e);
++            return ['sent' => false, 'url' => $url];
++        }
++    }
++
+     private function storeEmployeeMedia(Request $request): array
+     {
+         $media = [];
+diff --git a/app/Http/Middleware/OperationalActivityNotifier.php b/app/Http/Middleware/OperationalActivityNotifier.php
+index 05b3667..92a536c 100644
+--- a/app/Http/Middleware/OperationalActivityNotifier.php
++++ b/app/Http/Middleware/OperationalActivityNotifier.php
+@@ -42,7 +42,19 @@ public function handle(Request $request, Closure $next): Response
+         $payload = method_exists($response, 'getData') ? (array) $response->getData(true) : [];
+         $message = $payload['message'] ?? $this->fallbackMessage($request);
+         $title = $this->titleFor($request);
+-        $recipients = $this->relatedRecipients($request, $payload)
++        $relatedRecipients = $this->relatedRecipients($request, $payload);
++
++        // Account creation already sends one dedicated activation email to the new
++        // VA or Client/Doctor. Do not send that new account a second generic activity
++        // email. Admins still receive the operational copy through operationsUsers().
++        if ($request->is('api/management/employees') && $request->isMethod('post')) {
++            $relatedRecipients = $relatedRecipients->reject(fn ($user) => $user?->role === 'employee');
++        }
++        if ($request->is('api/admin/clients') && $request->isMethod('post')) {
++            $relatedRecipients = $relatedRecipients->reject(fn ($user) => $user?->role === 'client');
++        }
++
++        $recipients = $relatedRecipients
+             ->merge($this->notifier->operationsUsers())
+             ->push($actor)
+             ->filter(fn ($user) => $user instanceof User)
+diff --git a/app/Services/OperationalNotifier.php b/app/Services/OperationalNotifier.php
+index fe01451..c055749 100644
+--- a/app/Services/OperationalNotifier.php
++++ b/app/Services/OperationalNotifier.php
+@@ -79,6 +79,6 @@ public function send(iterable|User $recipients, string $title, string $message,
+ 
+     public function operationsUsers(): Collection
+     {
+-        return User::query()->whereIn('role', ['superadmin', 'admin', 'hr'])->get();
++        return User::query()->whereIn('role', ['superadmin', 'admin'])->get();
+     }
+ }
+diff --git a/resources/css/app.css b/resources/css/app.css
+index a2a66b8..3cd8ad9 100644
+--- a/resources/css/app.css
++++ b/resources/css/app.css
+@@ -84,3 +84,11 @@ .pagination-pages{display:flex;align-items:center;gap:4px}
+ .pagination-pages button.active{background:linear-gradient(135deg,var(--brand),var(--brand-2));border-color:transparent;color:#fff;box-shadow:0 5px 12px rgba(10,119,102,.18)}
+ .pagination-pages span{font-size:11px;color:#8a989d;padding:0 2px}
+ @media(max-width:760px){.smart-table-tools{align-items:stretch}.smart-table-tools-left,.smart-table-tools-right{width:100%}.smart-table-tools-left .search-box{width:100%;min-width:0}.table-filter-select{flex:1;min-width:135px}.smart-table-tools-right{justify-content:space-between}.smart-table-pagination{align-items:flex-start;flex-direction:column}.smart-page-buttons{width:100%;justify-content:flex-start}.pagination-enhanced{align-items:flex-start;flex-direction:column}.pagination-buttons{width:100%;justify-content:flex-start}.pagination-pages{order:3;width:100%;overflow:auto;padding-bottom:2px}}
++
++
++/* CareVMA unified brand patch: login hero, charts and account dropdown */
++.auth-visual{isolation:isolate;background:#071921}.auth-hero-image{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;z-index:0;filter:saturate(.88) contrast(1.02)}.auth-visual-overlay{position:absolute;inset:0;z-index:1;background:linear-gradient(90deg,rgba(5,25,31,.92) 0%,rgba(6,31,38,.78) 46%,rgba(7,38,43,.5) 100%),linear-gradient(0deg,rgba(4,25,29,.72),transparent 58%)}.auth-visual:after{z-index:1}.auth-brand,.auth-hero{z-index:2}.auth-hero{margin-top:clamp(90px,16vh,180px);max-width:680px}.auth-hero h1{text-shadow:0 3px 24px rgba(0,0,0,.22)}.auth-kicker{backdrop-filter:blur(10px)}.auth-stats{padding:18px 20px;border:1px solid rgba(255,255,255,.12);border-radius:18px;background:rgba(4,28,32,.28);backdrop-filter:blur(10px);width:max-content;max-width:100%}.auth-panel{background:radial-gradient(circle at 20% 10%,#eef9f6 0%,#f7faf9 42%,#f4f7f7 100%)}.login-card{border-color:#dce9e6;box-shadow:0 26px 80px rgba(5,41,38,.12)}
++.client-invite-note{grid-column:1/-1;display:flex;flex-direction:column;gap:4px;padding:12px 14px;border:1px solid #cfe7e0;border-radius:12px;background:#f1faf7}.client-invite-note strong{font-size:11px;color:#145f52}.client-invite-note span{font-size:9.5px;line-height:1.5;color:#637a75}
++.chart-bar span{background:linear-gradient(to top,var(--brand),#4fc6ac)!important}.finance-chart-bars>.income,.finance-main-bars .income{background:linear-gradient(to top,#0b5b50,#4fc6ac)!important}.finance-chart-bars>.expense,.finance-main-bars .expense{background:linear-gradient(to top,#102d38,#4d7882)!important}.finance-income-text{color:#0a7766!important}.finance-expense-text{color:#355f68!important}.finance-mini-legend i.income{background:#0a7766!important}.finance-mini-legend i.expense{background:#355f68!important}
++.profile-menu-wrap{position:relative}.profile-menu-trigger{height:46px;display:flex;align-items:center;gap:9px;padding:5px 9px 5px 6px;border:1px solid var(--border);border-radius:13px;background:#fff;color:var(--text);transition:.16s}.profile-menu-trigger:hover,.profile-menu-trigger.active{border-color:#bcdad3;background:#f7fbfa;box-shadow:0 5px 18px rgba(9,71,61,.08)}.profile-menu-trigger-copy{display:flex;flex-direction:column;align-items:flex-start;max-width:150px}.profile-menu-trigger-copy strong{max-width:100%;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.profile-menu-trigger-copy small{font-size:8px;color:#849399;margin-top:1px}.profile-dropdown{position:absolute;right:0;top:calc(100% + 10px);z-index:330;width:230px;padding:8px;background:#fff;border:1px solid #dce7e5;border-radius:15px;box-shadow:0 22px 60px rgba(8,31,39,.18);animation:notificationDropIn .16s ease-out}.profile-dropdown-head{display:flex;flex-direction:column;padding:9px 10px 11px;border-bottom:1px solid #edf2f1;margin-bottom:5px}.profile-dropdown-head strong{font-size:11px}.profile-dropdown-head span{font-size:8.5px;color:#819095;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.profile-dropdown>button{width:100%;height:38px;display:flex;align-items:center;gap:10px;padding:0 10px;border:0;border-radius:9px;background:transparent;color:#40555c;text-align:left;font-size:10px;font-weight:700}.profile-dropdown>button:hover{background:#f2f8f6;color:var(--brand-2)}.profile-dropdown-divider{height:1px;background:#edf2f1;margin:5px 3px}.profile-dropdown>button.profile-dropdown-logout{color:#b94b4b}.profile-dropdown>button.profile-dropdown-logout:hover{background:#fff3f3;color:#a83e3e}
++@media(max-width:1100px){.profile-menu-trigger-copy{display:none}.profile-menu-trigger{padding-right:7px}.status-pill{display:none}}
+diff --git a/resources/js/api.js b/resources/js/api.js
+index 9eb6e38..3d0acb9 100644
+--- a/resources/js/api.js
++++ b/resources/js/api.js
+@@ -18,22 +18,20 @@ import {
+ 
+ const api = axios.create({
+   baseURL: '/api',
+-
+-  // Required for Laravel session cookies.
+   withCredentials: true,
+-
+-  // Axios should read Laravel's XSRF-TOKEN cookie.
+-  withXSRFToken: true,
+-
+-  xsrfCookieName: 'XSRF-TOKEN',
+-  xsrfHeaderName: 'X-XSRF-TOKEN',
+-
+   headers: {
+     Accept: 'application/json',
+     'X-Requested-With': 'XMLHttpRequest',
+   },
+ });
+ 
++// These routes use Laravel's web/session middleware. The SPA shell renders
++// the session CSRF token, so send that exact token with state-changing API calls.
++const csrf = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
++if (csrf) {
++  api.defaults.headers.common['X-CSRF-TOKEN'] = csrf;
++}
++
+ /*
+ |--------------------------------------------------------------------------
+ | Page Request Tracking
+diff --git a/resources/js/components/AppShell.jsx b/resources/js/components/AppShell.jsx
+index 99ce96b..6967f0f 100644
+--- a/resources/js/components/AppShell.jsx
++++ b/resources/js/components/AppShell.jsx
+@@ -137,6 +137,8 @@ export default function AppShell() {
+   const pageLoadFallbackRef = useRef(null);
+   const pageLoadFinishRef = useRef(null);
+   const notificationMenuRef = useRef(null);
++  const profileMenuRef = useRef(null);
++  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+   const navigate = useNavigate();
+   const location = useLocation();
+   const employeeProfileIncomplete = profileIncomplete(user);
+@@ -350,6 +352,27 @@ export default function AppShell() {
+     }
+   }, [employeeProfileIncomplete, location.pathname, navigate]);
+ 
++  useEffect(() => {
++    if (!profileMenuOpen) return;
++    const close = event => {
++      if (profileMenuRef.current && !profileMenuRef.current.contains(event.target)) setProfileMenuOpen(false);
++    };
++    const escape = event => { if (event.key === 'Escape') setProfileMenuOpen(false); };
++    document.addEventListener('mousedown', close);
++    document.addEventListener('keydown', escape);
++    return () => {
++      document.removeEventListener('mousedown', close);
++      document.removeEventListener('keydown', escape);
++    };
++  }, [profileMenuOpen]);
++
++  const profilePath = user?.role === 'employee' ? '/employee/profile'
++    : user?.role === 'client' ? '/doctor/profile'
++    : user?.role === 'hr' ? '/hr/account'
++    : '/admin/account';
++  const settingsPath = user?.role === 'employee' ? '/employee/settings' : profilePath;
++  const openProfilePath = path => { setProfileMenuOpen(false); beginPageLoad(); navigate(path); };
++
+   const signOut = async () => { await logout(); navigate('/login', { replace: true }); };
+   const roleLabel = user?.role === 'client' ? 'Client / Doctor' : user?.role === 'employee' ? 'Team Member / VA' : user?.role === 'hr' ? 'Human Resources' : 'Administrator';
+ 
+@@ -410,7 +433,21 @@ export default function AppShell() {
+               <button type="button" className="notification-dropdown-footer" onClick={() => { setNotificationOpen(false); beginPageLoad(); navigate(notificationPath); }}>View all notifications <ChevronRight size={15}/></button>
+             </div>}
+           </div>}
+-          <div className="status-pill"><span/>Secure session</div><div className="avatar small"><AvatarMedia src={user?.employee?.profile_picture || user?.client?.profile_picture} alt={user?.name||'User'} fallback={user?.name?.[0]?.toUpperCase()}/></div>
++          <div className="status-pill"><span/>Secure session</div>
++          <div className="profile-menu-wrap" ref={profileMenuRef}>
++            <button type="button" className={`profile-menu-trigger ${profileMenuOpen ? 'active' : ''}`} onClick={() => setProfileMenuOpen(open => !open)} aria-expanded={profileMenuOpen} aria-haspopup="menu">
++              <span className="avatar small"><AvatarMedia src={user?.employee?.profile_picture || user?.client?.profile_picture} alt={user?.name||'User'} fallback={user?.name?.[0]?.toUpperCase()}/></span>
++              <span className="profile-menu-trigger-copy"><strong>{user?.name}</strong><small>{roleLabel}</small></span>
++              <ChevronDown size={15}/>
++            </button>
++            {profileMenuOpen && <div className="profile-dropdown" role="menu">
++              <div className="profile-dropdown-head"><strong>{user?.name}</strong><span>{user?.email}</span></div>
++              <button type="button" onClick={() => openProfilePath(profilePath)}><UserCircle2 size={16}/><span>Profile</span></button>
++              <button type="button" onClick={() => openProfilePath(settingsPath)}><Settings size={16}/><span>Settings</span></button>
++              <div className="profile-dropdown-divider"/>
++              <button type="button" className="profile-dropdown-logout" onClick={signOut}><LogOut size={16}/><span>Logout</span></button>
++            </div>}
++          </div>
+         </div>
+       </header>
+       <main className="content">
+diff --git a/resources/js/context/AuthContext.jsx b/resources/js/context/AuthContext.jsx
+index 7108705..6256f68 100644
+--- a/resources/js/context/AuthContext.jsx
++++ b/resources/js/context/AuthContext.jsx
+@@ -1,173 +1,44 @@
+-import {
+-  createContext,
+-  useContext,
+-  useEffect,
+-  useMemo,
+-  useState,
+-} from 'react';
+-
+-import axios from 'axios';
++import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+ import api from '../api';
+ 
+ const AuthContext = createContext(null);
+ 
+-/*
+-|--------------------------------------------------------------------------
+-| Fresh Laravel CSRF Cookie
+-|--------------------------------------------------------------------------
+-|
+-| This request intentionally does NOT use our /api baseURL.
+-|
+-| Correct:
+-|   /sanctum/csrf-cookie
+-|
+-| Not:
+-|   /api/sanctum/csrf-cookie
+-|
+-*/
+-
+-const refreshCsrfCookie = async () => {
+-  await axios.get(
+-    '/sanctum/csrf-cookie',
+-    {
+-      withCredentials: true,
+-
+-      headers: {
+-        Accept: 'application/json',
+-        'X-Requested-With': 'XMLHttpRequest',
+-      },
+-    },
+-  );
+-};
+-
+ export function AuthProvider({ children }) {
+   const [user, setUser] = useState(null);
+   const [loading, setLoading] = useState(true);
+ 
+-  /*
+-  |--------------------------------------------------------------------------
+-  | Refresh Current User
+-  |--------------------------------------------------------------------------
+-  */
+-
+   const refresh = async () => {
+     try {
+-      const { data } = await api.get(
+-        '/me',
+-        {
+-          carevmaSilent: true,
+-        },
+-      );
+-
++      const { data } = await api.get('/me', { carevmaSilent: true });
+       setUser(data.user);
+-
+       return data.user;
+     } catch {
+       setUser(null);
+-
+       return null;
+     } finally {
+       setLoading(false);
+     }
+   };
+ 
+-  /*
+-  |--------------------------------------------------------------------------
+-  | Initial Authentication Check
+-  |--------------------------------------------------------------------------
+-  */
+-
+   useEffect(() => {
+     refresh();
+-
+-    const onUnauthorized = () => {
+-      setUser(null);
+-    };
+-
+-    window.addEventListener(
+-      'carevma:unauthorized',
+-      onUnauthorized,
+-    );
+-
+-    return () => {
+-      window.removeEventListener(
+-        'carevma:unauthorized',
+-        onUnauthorized,
+-      );
+-    };
++    const onUnauthorized = () => setUser(null);
++    window.addEventListener('carevma:unauthorized', onUnauthorized);
++    return () => window.removeEventListener('carevma:unauthorized', onUnauthorized);
+   }, []);
+ 
+-  /*
+-  |--------------------------------------------------------------------------
+-  | Login
+-  |--------------------------------------------------------------------------
+-  |
+-  | 1. Request a fresh Laravel CSRF cookie.
+-  | 2. Axios reads XSRF-TOKEN.
+-  | 3. Axios sends it as X-XSRF-TOKEN to /api/login.
+-  | 4. Laravel validates CSRF + session.
+-  |
+-  */
+-
+   const login = async values => {
+-    await refreshCsrfCookie();
+-
+-    const { data } = await api.post(
+-      '/login',
+-      values,
+-    );
+-
++    const { data } = await api.post('/login', values);
+     setUser(data.user);
+-
+     return data;
+   };
+ 
+-  /*
+-  |--------------------------------------------------------------------------
+-  | Logout
+-  |--------------------------------------------------------------------------
+-  */
+-
+   const logout = async () => {
+-    try {
+-      /*
+-       * Refresh CSRF before logout as logout is also a POST request.
+-       */
+-      await refreshCsrfCookie();
+-
+-      await api.post('/logout');
+-    } finally {
+-      setUser(null);
+-    }
++    try { await api.post('/logout'); } finally { setUser(null); }
+   };
+ 
+-  /*
+-  |--------------------------------------------------------------------------
+-  | Context
+-  |--------------------------------------------------------------------------
+-  */
+-
+-  const value = useMemo(
+-    () => ({
+-      user,
+-      loading,
+-      login,
+-      logout,
+-      refresh,
+-      setUser,
+-    }),
+-    [
+-      user,
+-      loading,
+-    ],
+-  );
+-
+-  return (
+-    <AuthContext.Provider value={value}>
+-      {children}
+-    </AuthContext.Provider>
+-  );
++  const value = useMemo(() => ({ user, loading, login, logout, refresh, setUser }), [user, loading]);
++  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+ }
+ 
+-export const useAuth = () =>
+-  useContext(AuthContext);
+\ No newline at end of file
++export const useAuth = () => useContext(AuthContext);
+diff --git a/resources/js/pages/Login.jsx b/resources/js/pages/Login.jsx
+index b9a7162..6496a46 100644
+--- a/resources/js/pages/Login.jsx
++++ b/resources/js/pages/Login.jsx
+@@ -13,7 +13,7 @@ export function LoginPage() {
+   const [show, setShow] = useState(false); const [error, setError] = useState(''); const [loading, setLoading] = useState(false);
+   const submit = async e => { e.preventDefault(); setLoading(true); setError(''); try { const data = await login(form); navigate(data.redirect, { replace: true }); } catch (e) { setError(messageFrom(e)); } finally { setLoading(false); } };
+   return <div className="auth-page">
+-    <section className="auth-visual"><div className="auth-orb orb-one"/><div className="auth-orb orb-two"/><div className="auth-brand"><BrandLogo/></div><div className="auth-hero"><span className="auth-kicker"><ShieldCheck size={16}/> Secure workforce operations</span><h1>One workspace for your people, time, approvals and billing.</h1><p>Run employee schedules, attendance, corrections, overtime reviews and client visibility from a single role-aware platform.</p><div className="auth-stats"><div><strong>4</strong><span>Role portals</span></div><div><strong>1</strong><span>Connected workflow</span></div><div><strong>24/7</strong><span>Operational visibility</span></div></div></div></section>
++    <section className="auth-visual"><img className="auth-hero-image" src="/VMA-Hero_Image.jpg" alt="CareVMA virtual medical assistant operations"/><div className="auth-visual-overlay"/><div className="auth-orb orb-one"/><div className="auth-orb orb-two"/><div className="auth-brand"><BrandLogo/></div><div className="auth-hero"><span className="auth-kicker"><ShieldCheck size={16}/> Secure workforce operations</span><h1>One workspace for your people, time, approvals and billing.</h1><p>Run employee schedules, attendance, corrections, overtime reviews and client visibility from a single role-aware platform.</p><div className="auth-stats"><div><strong>4</strong><span>Role portals</span></div><div><strong>1</strong><span>Connected workflow</span></div><div><strong>24/7</strong><span>Operational visibility</span></div></div></div></section>
+     <section className="auth-panel"><div className="login-card"><div className="mobile-brand"><BrandLogo/></div><div className="auth-copy"><span className="eyebrow">Welcome back</span><h2>Sign in to your workspace</h2><p>Your destination is selected automatically based on your role.</p></div>{error && <Notice type="error" onClose={() => setError('')}>{error}</Notice>}<form onSubmit={submit} className="auth-form"><label className="field icon-field"><span>Email address</span><div><Mail size={17}/><input type="email" autoComplete="email" required value={form.email} onChange={e => setForm({...form, email:e.target.value})} placeholder="you@company.com"/></div></label><label className="field icon-field"><span>Password</span><div><LockKeyhole size={17}/><input type={show ? 'text' : 'password'} autoComplete="current-password" required value={form.password} onChange={e => setForm({...form,password:e.target.value})} placeholder="Enter your password"/><button type="button" onClick={() => setShow(v => !v)}>{show ? <EyeOff size={17}/> : <Eye size={17}/>}</button></div></label><div className="auth-row"><label className="check"><input type="checkbox" checked={form.remember} onChange={e => setForm({...form,remember:e.target.checked})}/><span>Keep me signed in</span></label><Link to="/forgot-password">Forgot password?</Link></div><Button loading={loading} className="wide" icon={ArrowRight}>Sign in</Button></form><div className="auth-footnote">Authorized users only · Protected by Laravel session authentication</div></div></section>
+   </div>;
+ }
+diff --git a/resources/js/pages/Management.jsx b/resources/js/pages/Management.jsx
+index cafe809..32f5085 100644
+--- a/resources/js/pages/Management.jsx
++++ b/resources/js/pages/Management.jsx
+@@ -277,7 +277,7 @@ export function ClientsPage(){
+  const open=(r=null)=>{setEdit(r);setForm(r?{...emptyClient,...r,password:'',ring_center:!!r.ring_center}:emptyClient);setModal(true)};const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+  const save=async()=>{setBusy(true);try{edit?await api.put(`/admin/clients/${edit.id}`,form):await api.post('/admin/clients',form);n.success(edit?'Client updated.':'Client created.');setModal(false);load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};const remove=async r=>{try{await api.delete(`/admin/clients/${r.id}`);n.success('Client deleted.');load()}catch(e){n.error(messageFrom(e))}};
+  const columns=[{key:'name',label:'Client',render:r=><div className="person-cell"><div className="avatar client-avatar">{r.name?.[0]}</div><div><strong className="client-profile-name-link" onClick={()=>navigate(`/admin/client/${r.id}/profile`)}>{r.name}</strong><span>{r.email}</span></div></div>},{key:'business_name',label:'Business'},{key:'country',label:'Country'},{key:'rate',label:'Rate / hr',render:r=>r.per_hour_charges?money(r.per_hour_charges):'—'},{key:'timezone',label:'Timezone'},{key:'service',label:'Service',render:r=>r.service?.name||'—'},{key:'actions',label:'Actions',render:r=><div className="row-actions"><button className="client-profile-open-btn" title="Open client profile" onClick={()=>navigate(`/admin/client/${r.id}/profile`)}><Stethoscope size={16}/></button><button title="Edit client" onClick={()=>open(r)}><Pencil size={16}/></button><button title="Delete client" className="danger" onClick={()=>remove(r)}><Trash2 size={16}/></button></div>}];
+- return <><PageHeader eyebrow="Client operations" title="Clients" description="Manage doctor/client accounts, rates, contract classification and timezone." actions={<Button icon={Plus} onClick={()=>open()}>Add client</Button>}/><NoticeBar notice={n.notice} clear={n.clear}/><Card><div className="toolbar"><SearchBox value={search} onChange={v=>{setSearch(v);setPage(1)}} placeholder="Search client or business"/><span className="record-count">{meta?.total??rows.length} clients</span></div><Table columns={columns} rows={rows} emptyTitle="No clients found"/><Pagination meta={meta} onPage={setPage}/></Card><Modal open={modal} onClose={()=>setModal(false)} title={edit?'Edit client':'Add client'} wide footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={save} icon={Save}>Save client</Button></>}><div className="form-grid"><Input label="Name *" value={form.name||''} onChange={e=>set('name',e.target.value)}/><Input label="Email *" type="email" value={form.email||''} onChange={e=>set('email',e.target.value)}/>{!edit&&<Input label="Temporary password *" type="password" value={form.password||''} onChange={e=>set('password',e.target.value)}/>}<Input label="Business name" value={form.business_name||''} onChange={e=>set('business_name',e.target.value)}/><Input label="Phone" value={form.phone_number||''} onChange={e=>set('phone_number',e.target.value)}/><Input label="Country" value={form.country||''} onChange={e=>set('country',e.target.value)}/><TimezonePicker label="Timezone *" value={form.timezone||''} onChange={value=>set('timezone',value)} onCitySelect={place=>setForm(current=>({...current,timezone:place.timezone,country:place.country||current.country}))}/><Input label="Per hour charge" type="number" step="0.01" value={form.per_hour_charges||''} onChange={e=>set('per_hour_charges',e.target.value)}/><Select label="Service" value={form.service_id||''} onChange={e=>set('service_id',e.target.value)}><option value="">Select</option>{(options.services||[]).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</Select><Select label="Contract type" value={form.contract_type_id||''} onChange={e=>set('contract_type_id',e.target.value)}><option value="">Select</option>{(options.contracts||[]).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</Select><label className="check field-check"><input type="checkbox" checked={!!form.ring_center} onChange={e=>set('ring_center',e.target.checked)}/><span>Ring Center enabled</span></label></div></Modal></>;
++ return <><PageHeader eyebrow="Client operations" title="Clients" description="Manage doctor/client accounts, rates, contract classification and timezone." actions={<Button icon={Plus} onClick={()=>open()}>Add client</Button>}/><NoticeBar notice={n.notice} clear={n.clear}/><Card><div className="toolbar"><SearchBox value={search} onChange={v=>{setSearch(v);setPage(1)}} placeholder="Search client or business"/><span className="record-count">{meta?.total??rows.length} clients</span></div><Table columns={columns} rows={rows} emptyTitle="No clients found"/><Pagination meta={meta} onPage={setPage}/></Card><Modal open={modal} onClose={()=>setModal(false)} title={edit?'Edit client':'Add client'} wide footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={save} icon={Save}>Save client</Button></>}><div className="form-grid"><Input label="Name *" value={form.name||''} onChange={e=>set('name',e.target.value)}/><Input label="Email *" type="email" value={form.email||''} onChange={e=>set('email',e.target.value)}/>{!edit&&<div className="client-invite-note"><strong>Password setup by email</strong><span>The Client / Doctor will receive a secure CareVMA link and choose their own password.</span></div>}<Input label="Business name" value={form.business_name||''} onChange={e=>set('business_name',e.target.value)}/><Input label="Phone" value={form.phone_number||''} onChange={e=>set('phone_number',e.target.value)}/><Input label="Country" value={form.country||''} onChange={e=>set('country',e.target.value)}/><TimezonePicker label="Timezone *" value={form.timezone||''} onChange={value=>set('timezone',value)} onCitySelect={place=>setForm(current=>({...current,timezone:place.timezone,country:place.country||current.country}))}/><Input label="Per hour charge" type="number" step="0.01" value={form.per_hour_charges||''} onChange={e=>set('per_hour_charges',e.target.value)}/><Select label="Service" value={form.service_id||''} onChange={e=>set('service_id',e.target.value)}><option value="">Select</option>{(options.services||[]).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</Select><Select label="Contract type" value={form.contract_type_id||''} onChange={e=>set('contract_type_id',e.target.value)}><option value="">Select</option>{(options.contracts||[]).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</Select><label className="check field-check"><input type="checkbox" checked={!!form.ring_center} onChange={e=>set('ring_center',e.target.checked)}/><span>Ring Center enabled</span></label></div></Modal></>;
+ }
+ 
+ function parseTime12(value='00:00'){

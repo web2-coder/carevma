@@ -30,6 +30,7 @@ use App\Services\TrustedTimeService;
 use App\Services\ClientTimezoneService;
 use DateTimeZone;
 use App\Mail\EmployeeInvitationMail;
+use App\Mail\ClientSetPasswordMail;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -39,6 +40,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -556,7 +558,7 @@ class AdminApiController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
-            'password' => ['required', 'string', 'min:8'],
+            // Client/Doctor chooses their own password from the signed invitation email.
             'business_name' => ['nullable', 'string', 'max:255'],
             'phone_number' => ['nullable', 'string', 'max:60'],
             'country' => ['nullable', 'string', 'max:100'],
@@ -566,11 +568,28 @@ class AdminApiController extends Controller
             'service_id' => ['nullable', 'exists:services,id'],
             'ring_center' => ['nullable', 'boolean'],
         ]);
-        return DB::transaction(function () use ($data) {
-            $user = User::create(['name' => $data['name'], 'email' => $data['email'], 'password' => Hash::make($data['password']), 'role' => 'client']);
-            $client = Client::create(array_merge(collect($data)->except('password')->all(), ['user_id' => $user->id]));
-            return response()->json(['message' => 'Client created.', 'client' => $client], 201);
+        [$client, $user] = DB::transaction(function () use ($data) {
+            $user = User::create([
+                'name' => $data['name'],
+                'email' => $data['email'],
+                'password' => Hash::make(Str::random(64)),
+                'role' => 'client',
+            ]);
+
+            $client = Client::create(array_merge($data, ['user_id' => $user->id]));
+
+            return [$client, $user];
         });
+
+        $invite = $this->sendClientInvitation($user, $client);
+
+        return response()->json([
+            'message' => $invite['sent']
+                ? 'Client / Doctor created and password setup invitation sent.'
+                : 'Client / Doctor created. Email delivery failed; resend the invitation after checking mail settings.',
+            'client' => $client->fresh(),
+            'invitation_sent' => $invite['sent'],
+        ], 201);
     }
 
     public function updateClient(Request $request, Client $client)
@@ -1263,6 +1282,30 @@ class AdminApiController extends Controller
         return collect($data)->except(['password', 'profile_picture', 'upload_documents'])->merge(['email' => $data['email']])->all();
     }
 
+
+    private function sendClientInvitation(User $user, Client $client): array
+    {
+        $token = Str::random(64);
+
+        DB::table('password_reset_tokens')->updateOrInsert(
+            ['email' => $user->email],
+            ['token' => Hash::make($token), 'created_at' => now()]
+        );
+
+        $url = URL::temporarySignedRoute(
+            'client.password.form',
+            now()->addMinutes((int) config('auth.passwords.users.expire', 60)),
+            ['email' => $user->email, 'token' => $token]
+        );
+
+        try {
+            Mail::to($user->email)->send(new ClientSetPasswordMail($client, $url));
+            return ['sent' => true, 'url' => $url];
+        } catch (\Throwable $e) {
+            report($e);
+            return ['sent' => false, 'url' => $url];
+        }
+    }
 
     private function storeEmployeeMedia(Request $request): array
     {
