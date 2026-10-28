@@ -651,10 +651,6 @@ class AdminApiController extends Controller
         if ($request->filled('employee_id')) $query->where('employee_id', $request->integer('employee_id'));
         if ($request->filled('client_id')) $query->where('client_id', $request->integer('client_id'));
 
-        $query->orderByRaw("FIELD(weekday,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')")
-            ->orderBy('start_time')
-            ->orderBy('id');
-
         $decorate = function ($rows) {
             $rates = ClientEmployeeRate::query()
                 ->whereIn('client_id', $rows->pluck('client_id')->unique()->filter()->values())
@@ -672,12 +668,20 @@ class AdminApiController extends Controller
         // The global schedules screen can contain thousands of rows; paginate it.
         // Client/employee-scoped callers keep the original array response for compatibility.
         if ($request->boolean('paginate')) {
-            $paginator = $query->paginate(min(max((int) $request->query('per_page', 50), 10), 100));
+            $paginator = $this->sortAndPaginate($request, $query, [
+                'weekday' => [DB::raw("FIELD(weekday,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')"), 'start_time'],
+                'start_time' => 'start_time', 'end_time' => 'end_time', 'no_of_hours' => 'no_of_hours',
+                'timezone' => 'timezone', 'enabled' => 'enabled', 'schedule_date' => 'schedule_date', 'id' => 'id',
+            ], 'weekday', 'asc', 50);
             $decorate($paginator->getCollection());
             return response()->json($paginator);
         }
 
-        $rows = $query->get();
+        $rows = $query
+            ->orderByRaw("FIELD(weekday,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')")
+            ->orderBy('start_time')
+            ->orderBy('id')
+            ->get();
         $decorate($rows);
         return response()->json($rows);
     }

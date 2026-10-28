@@ -210,4 +210,37 @@ class ListSortingAndPaginationTest extends TestCase
         $this->assertSame(3, $overtime['total']);
         $this->assertSame(90, (int) $overtime['data'][0]['overtime']);
     }
+
+    public function test_schedules_sort_and_page_while_keeping_their_calendar_default(): void
+    {
+        $admin = $this->admin();
+        $client = $this->client();
+        $employee = $this->employee('Alice', 'alice@carevma.test');
+
+        foreach ([['Monday', '13:00'], ['Monday', '09:00'], ['Tuesday', '08:00'], ['Monday', '11:00']] as [$weekday, $start]) {
+            DB::table('employee_client_schedules')->insert([
+                'client_id' => $client->id, 'employee_id' => $employee->id, 'weekday' => $weekday,
+                'start_time' => "{$start}:00", 'end_time' => '17:00:00', 'no_of_hours' => 4, 'timezone' => 'UTC',
+                'enabled' => 1, 'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+        $starts = fn (array $rows) => array_map(fn ($r) => substr($r['start_time'], 0, 5), $rows);
+
+        // Descending plus a page size the old branch clamped up to 10: red on both counts before.
+        $page = $this->actingAs($admin)
+            ->getJson('/api/management/schedules?paginate=1&sort=start_time&direction=desc&per_page=2')
+            ->assertOk()->json();
+        $this->assertSame(['13:00', '11:00'], $starts($page['data']));
+        $this->assertSame(2, $page['per_page']);
+        $this->assertSame(4, $page['total']);
+
+        // No sort: calendar weekday order, then start time -- the composite default survives.
+        $default = $this->actingAs($admin)->getJson('/api/management/schedules?paginate=1')->assertOk()->json('data');
+        $this->assertSame(['Monday', 'Monday', 'Monday', 'Tuesday'], array_column($default, 'weekday'));
+        $this->assertSame(['09:00', '11:00', '13:00', '08:00'], $starts($default));
+
+        // The non-paginated response other screens rely on keeps the same ordering.
+        $plain = $this->actingAs($admin)->getJson("/api/management/schedules?employee_id={$employee->id}")->assertOk()->json();
+        $this->assertSame(['09:00', '11:00', '13:00', '08:00'], $starts($plain));
+    }
 }

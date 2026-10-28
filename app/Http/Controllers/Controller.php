@@ -14,7 +14,9 @@ class Controller extends BaseController
     /**
      * Order and paginate a list endpoint from ?sort, ?direction and ?per_page.
      *
-     * $sortable maps the sort keys a client may send to the columns they order by.
+     * $sortable maps the sort keys a client may send to the columns they order by. A
+     * value may be a column, a raw expression, or a list of them applied in order (so
+     * 'weekday' can mean weekday then start_time).
      * Anything else falls back to $defaultSort, so a request can never order by an
      * arbitrary column. Rows are tie-broken by id so pages stay stable under equal keys.
      */
@@ -31,8 +33,11 @@ class Controller extends BaseController
             $direction = $defaultDirection;
         }
 
-        $query->orderBy($column, $direction);
-        if ($column !== 'id') {
+        $columns = is_array($column) ? $column : [$column];
+        foreach ($columns as $orderColumn) {
+            $query->orderBy($orderColumn, $direction);
+        }
+        if ($columns[0] !== 'id') {
             $query->orderBy('id', 'desc');
         }
 
