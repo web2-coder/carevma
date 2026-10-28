@@ -1310,7 +1310,7 @@ class AdminApiController extends Controller
             'salary_pkr' => ['nullable', 'numeric', 'min:0'], 'salary_usd' => ['nullable', 'numeric', 'min:0'],
             'source_of_hire' => ['nullable', 'string', 'max:120'], 'date_of_joining' => ['nullable', 'date'],
             'date_of_regularisation' => ['nullable', 'date'], 'break_allowed_hours' => ['nullable', 'numeric', 'min:0', 'max:12'],
-            'gender' => ['nullable', Rule::in(['male','female','other'])], 'marital_status' => ['nullable', 'string', 'max:50'],
+            'gender' => ['nullable', Rule::in(['male','female','other'])], 'marital_status' => ['nullable', Rule::in(['single','married','divorced','widowed'])],
             'date_of_birth' => ['nullable', 'date'], 'age' => ['nullable', 'integer', 'min:16', 'max:100'], 'about_me_notes' => ['nullable', 'string', 'max:3000'],
             'profile_picture' => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
             'upload_documents' => ['nullable', 'array', 'max:10'],

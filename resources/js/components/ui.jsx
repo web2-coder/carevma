@@ -69,6 +69,9 @@ export function Input({ label, error, hint, ...props }) {
 export function Select({ label, error, children, ...props }) {
   return <label className="field"><span>{label}</span><select {...props}>{children}</select>{error && <em>{error}</em>}</label>;
 }
+export function MaritalStatusSelect(props) {
+  return <Select {...props}><option value="">Select status</option><option value="single">Single</option><option value="married">Married</option><option value="divorced">Divorced</option><option value="widowed">Widowed</option></Select>;
+}
 export function Textarea({ label, error, ...props }) {
   return <label className="field"><span>{label}</span><textarea {...props}/>{error && <em>{error}</em>}</label>;
 }

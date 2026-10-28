@@ -428,7 +428,7 @@ class EmployeeApiController extends Controller
             'first_name' => ['required', 'string', 'max:120'], 'last_name' => ['required', 'string', 'max:120'],
             'email' => ['required', 'email', Rule::unique('users', 'email')->ignore($request->user()->id)],
             'phone' => ['required', 'string', 'max:60'], 'date_of_birth' => ['required', 'date', 'before_or_equal:today'], 'gender' => ['required', Rule::in(['male','female','other'])],
-            'marital_status' => ['required', 'string', 'max:60'], 'about_me_notes' => ['nullable', 'string', 'max:3000'],
+            'marital_status' => ['required', Rule::in(['single','married','divorced','widowed'])], 'about_me_notes' => ['nullable', 'string', 'max:3000'],
             'profile_picture' => ['nullable', 'image', 'mimes:jpg,jpeg,png', 'max:800'],
             'documents.*' => ['nullable', 'file', 'max:5120', 'mimes:pdf,doc,docx,jpg,jpeg,png'],
         ]);

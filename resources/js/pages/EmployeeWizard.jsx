@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import api, { messageFrom } from '../api';
 import { useAuth } from '../context/AuthContext';
-import { Button, Card, Input, Select, Textarea } from '../components/ui';
+import { Button, Card, Input, Select, MaritalStatusSelect, Textarea } from '../components/ui';
 import { emitToast } from '../feedback';
 import TimezonePicker from '../components/TimezonePicker';
 import SalaryConverter from '../components/SalaryConverter';
@@ -224,7 +224,7 @@ export default function EmployeeWizardPage() {
 
         {step === 3 && <div className="form-grid">
           <Select label="Gender" value={form.gender} onChange={e => set('gender', e.target.value)}><option value="">Not specified</option><option value="male">Male</option><option value="female">Female</option><option value="other">Other</option></Select>
-          <Input label="Marital status" value={form.marital_status} onChange={e => set('marital_status', e.target.value)} placeholder="Single / Married"/>
+          <MaritalStatusSelect label="Marital status" value={form.marital_status} onChange={e => set('marital_status', e.target.value)}/>
           <Input label="Date of birth" type="date" value={form.date_of_birth} onChange={e => set('date_of_birth', e.target.value)}/>
           <Input label="Age" type="number" min="16" max="100" value={form.age} error={errors.age} onChange={e => set('age', e.target.value)}/>
           <div className="wizard-span-2"><Textarea label="About employee" value={form.about_me_notes} onChange={e => set('about_me_notes', e.target.value)} placeholder="Optional notes about the VA"/></div>

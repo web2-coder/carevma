@@ -6,7 +6,7 @@ import { Coffee, LogIn, LogOut, TimerReset, Upload, Trash2, Save, KeyRound, Link
 import api, { messageFrom } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { formatDate, formatDateTime, formatTime, formatWeekday, zonedNowParts } from '../timezone';
-import { PageHeader, Card, Button, Input, Select, Textarea, Badge, statusTone, useNotice, Table, Pagination, Loading, Modal, mins, dateTime, timeValue, AvatarMedia } from '../components/ui';
+import { PageHeader, Card, Button, Input, Select, MaritalStatusSelect, Textarea, Badge, statusTone, useNotice, Table, Pagination, Loading, Modal, mins, dateTime, timeValue, AvatarMedia } from '../components/ui';
 
 
 function tzDate(value,timeZone){return formatDate(value,timeZone||'UTC')}
@@ -302,7 +302,7 @@ export function EmployeeProfile(){
      <Input label="Phone *" value={form.phone||''} onChange={e=>setForm({...form,phone:e.target.value})}/>
      <Input label="Date of birth *" type="date" value={String(form.date_of_birth||'').slice(0,10)} onChange={e=>setForm({...form,date_of_birth:e.target.value})}/>
      <Select label="Gender *" value={form.gender||''} onChange={e=>setForm({...form,gender:e.target.value})}><option value="">Select gender</option><option value="male">Male</option><option value="female">Female</option><option value="other">Other</option></Select>
-     <Input label="Marital status *" value={form.marital_status||''} onChange={e=>setForm({...form,marital_status:e.target.value})} placeholder="Single, Married, etc."/>
+     <MaritalStatusSelect label="Marital status *" value={form.marital_status||''} onChange={e=>setForm({...form,marital_status:e.target.value})}/>
      <Textarea label="About me" value={form.about_me_notes||''} onChange={e=>setForm({...form,about_me_notes:e.target.value})}/>
     </div>
    </Card>
