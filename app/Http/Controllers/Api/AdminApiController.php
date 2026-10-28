@@ -1586,14 +1586,30 @@ class AdminApiController extends Controller
         $attendance->total_minutes = max(0, (int) $regularStart->diffInMinutes($regularEnd) - $breakMinutes);
         $attendance->is_late = $late > 0;
         $attendance->late_minutes = $late;
+        $previousOvertime = (int) ($attendance->overtime ?? 0);
         $attendance->overtime = $overtime;
         if (Schema::hasColumn('attendances', 'overtime_status')) {
-            $attendance->overtime_status = $overtime > 0 ? 'pending' : 'none';
-            $attendance->approved_overtime_minutes = 0;
-            $attendance->overtime_amount = null;
-            $attendance->overtime_approved_by = null;
-            $attendance->overtime_approved_at = null;
+            // An approved overtime decision carries a priced amount and an approver.
+            // Only a changed overtime figure makes that decision stale, so an unchanged
+            // recalculation must leave it alone instead of silently voiding the money.
+            $alreadyDecided = in_array($attendance->overtime_status, ['approved', 'rejected'], true);
+
+            if ($overtime <= 0) {
+                $attendance->overtime_status = 'none';
+                $this->clearOvertimeApproval($attendance);
+            } elseif (!$alreadyDecided || $overtime !== $previousOvertime) {
+                $attendance->overtime_status = 'pending';
+                $this->clearOvertimeApproval($attendance);
+            }
         }
         $attendance->save();
+    }
+
+    private function clearOvertimeApproval(Attendance $attendance): void
+    {
+        $attendance->approved_overtime_minutes = 0;
+        $attendance->overtime_amount = null;
+        $attendance->overtime_approved_by = null;
+        $attendance->overtime_approved_at = null;
     }
 }
