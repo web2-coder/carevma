@@ -8,6 +8,11 @@ return [
     'timeout' => (float) env('CARE_VMA_TRUSTED_TIME_TIMEOUT', 2.0),
     'cache_seconds' => (int) env('CARE_VMA_TRUSTED_TIME_CACHE_SECONDS', 300),
 
+    // How long to stop retrying after the clock endpoint fails. Short enough that a
+    // recovered endpoint is picked up quickly, long enough that an outage costs one
+    // timeout per window instead of one per request.
+    'failure_cache_seconds' => (int) env('CARE_VMA_TRUSTED_TIME_FAILURE_CACHE_SECONDS', 60),
+
     // Emergency/manual override. Leave blank normally. Example: 43200 = +12h.
     'manual_offset_seconds' => env('CARE_VMA_CLOCK_OFFSET_SECONDS'),
 ];

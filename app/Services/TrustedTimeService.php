@@ -6,6 +6,7 @@ use Carbon\Carbon;
 use DateTimeZone;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 /**
  * CareVMA trusted clock.
@@ -104,6 +105,26 @@ class TrustedTimeService
 
         $this->resolvedOffsetSeconds = 0;
         $this->resolvedSource = 'system-utc-fallback';
+
+        // Remember the failure as well as the success. Without this, every request on
+        // every PHP worker re-paid the full connect+read timeout until the endpoint
+        // recovered. A short TTL means an outage costs one timeout per window instead
+        // of one per request, and a recovered endpoint is picked up within a minute.
+        if ($url !== '') {
+            $retryAfter = max(5, (int) config('trusted-time.failure_cache_seconds', 60));
+
+            Log::warning('CareVMA trusted clock unavailable; using system UTC until the next retry.', [
+                'url' => $url,
+                'retry_after_seconds' => $retryAfter,
+            ]);
+
+            try {
+                Cache::put($cacheKey, ['offset' => 0, 'source' => 'system-utc-fallback'], $retryAfter);
+            } catch (\Throwable) {
+                // Persistent cache unavailable; the in-memory fallback above still applies.
+            }
+        }
+
         return 0;
     }
 
