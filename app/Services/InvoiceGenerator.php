@@ -8,7 +8,6 @@ use App\Models\ClientEmployeeRate;
 use App\Models\EmployeeSalary;
 use App\Models\Invoice;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class InvoiceGenerator
@@ -56,14 +55,7 @@ class InvoiceGenerator
             $attendanceQuery->whereNotBetween('clock_in', [$coveredStartUtc, $coveredEndUtc]);
         }
 
-        if (Schema::hasColumn('attendances', 'client_id')) {
-            $attendanceQuery->where('client_id', $client->id);
-        } else {
-            $employeeIds = DB::table('employee_client_schedules')
-                ->where('client_id', $client->id)
-                ->pluck('employee_id');
-            $attendanceQuery->whereIn('employee_id', $employeeIds);
-        }
+        $attendanceQuery->where('client_id', $client->id);
 
         $attendance = $attendanceQuery->get()->groupBy('employee_id');
         if ($attendance->isEmpty()) {
@@ -88,9 +80,7 @@ class InvoiceGenerator
 
             foreach ($attendance as $employeeId => $records) {
                 $regularMinutes = (int) $records->sum('total_minutes');
-                $approvedOvertime = Schema::hasColumn('attendances', 'approved_overtime_minutes')
-                    ? (int) $records->sum('approved_overtime_minutes')
-                    : 0;
+                $approvedOvertime = (int) $records->sum('approved_overtime_minutes');
 
                 $rate = ClientEmployeeRate::where([
                     'client_id' => $client->id,

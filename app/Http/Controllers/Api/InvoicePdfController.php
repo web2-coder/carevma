@@ -8,7 +8,6 @@ use App\Models\Invoice;
 use App\Services\ClientTimezoneService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Schema;
 
 class InvoicePdfController extends Controller
 {
@@ -44,9 +43,7 @@ class InvoicePdfController extends Controller
                 ->whereBetween('clock_in', [$startUtc, $endUtc])
                 ->whereNotNull('clock_out')
                 ->orderBy('clock_in');
-            if (Schema::hasColumn('attendances', 'client_id')) {
-                $attendanceQuery->where('client_id', $invoice->client_id);
-            }
+            $attendanceQuery->where('client_id', $invoice->client_id);
             $attendanceByEmployee = $attendanceQuery->get()->groupBy('employee_id');
         }
 

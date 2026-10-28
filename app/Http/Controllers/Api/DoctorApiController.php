@@ -9,7 +9,6 @@ use App\Models\Employee;
 use App\Services\ClientTimezoneService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
@@ -67,7 +66,7 @@ class DoctorApiController extends Controller
             'employees' => $employees,
             'metrics' => [
                 'assigned_employees' => $employees->count(),
-                'attendance_sessions' => Schema::hasColumn('attendances', 'client_id') ? Attendance::where('client_id', $client->id)->count() : Attendance::whereIn('employee_id', $employees->pluck('id'))->count(),
+                'attendance_sessions' => Attendance::where('client_id', $client->id)->count(),
             ],
         ]);
     }
@@ -76,7 +75,7 @@ class DoctorApiController extends Controller
     {
         $client = $this->client($request); $this->assertAssigned($client, $employee);
         $query = Attendance::with('breaks')->where('employee_id', $employee->id);
-        if (Schema::hasColumn('attendances', 'client_id')) $query->where('client_id', $client->id);
+        $query->where('client_id', $client->id);
         [$filterStartUtc, $filterEndUtc] = $this->timezones->utcRangeForLocalFilters(
             $request->input('from'),
             $request->input('to'),
@@ -118,7 +117,7 @@ class DoctorApiController extends Controller
             'country' => ['nullable', 'string', 'max:100'], 'timezone' => ['required', 'timezone'],
             'profile_picture' => ['nullable', 'image', 'mimes:jpg,jpeg,png', 'max:800'],
         ]);
-        if ($request->hasFile('profile_picture') && Schema::hasColumn('clients', 'profile_picture')) {
+        if ($request->hasFile('profile_picture')) {
             if ($client->profile_picture) Storage::disk('public')->delete(ltrim(str_replace('/storage/', '', $client->profile_picture), '/'));
             $data['profile_picture'] = '/storage/'.$request->file('profile_picture')->store('clients/profile_pictures', 'public');
         }

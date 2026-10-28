@@ -35,7 +35,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\Storage;
@@ -74,18 +73,6 @@ class AdminApiController extends Controller
         $minDate = $dates->first();
         $maxDate = $dates->last();
 
-        if (!Schema::hasColumn('attendances', 'client_id') || !Schema::hasColumn('attendances', 'clock_in')) {
-            $rows = Attendance::query()
-                ->selectRaw('date, COUNT(*) as sessions, COALESCE(SUM(total_minutes),0) as minutes')
-                ->whereBetween('date', [$minDate, $maxDate])
-                ->groupBy('date')
-                ->get();
-            foreach ($rows as $row) {
-                $key = optional($row->date)->toDateString() ?: (string) $row->date;
-                if (isset($result[$key])) $result[$key] = ['sessions' => (int) $row->sessions, 'minutes' => (int) $row->minutes];
-            }
-            return $result;
-        }
 
         $clients = Client::query()->get(['id', 'timezone'])->keyBy('id');
         // All IANA zones are within this small UTC envelope around the requested local dates.
@@ -142,9 +129,7 @@ class AdminApiController extends Controller
         });
 
         $activeQuery = Attendance::query()->whereNull('clock_out');
-        $pendingOvertime = Schema::hasColumn('attendances', 'overtime_status')
-            ? Attendance::where('overtime_status', 'pending')->count()
-            : Attendance::where('overtime', '>', 0)->count();
+        $pendingOvertime = Attendance::where('overtime_status', 'pending')->count();
 
         $birthdaysToday = Employee::query()
             ->whereNotNull('date_of_birth')
@@ -628,7 +613,7 @@ class AdminApiController extends Controller
             // Schedule wall-clock values are Doctor-local/canonical. If the client changes
             // timezone, keep the same wall-clock schedule and synchronize legacy metadata so
             // every downstream path resolves the new IANA timezone consistently.
-            if ($previousTimezone !== $client->timezone && Schema::hasColumn('employee_client_schedules', 'timezone')) {
+            if ($previousTimezone !== $client->timezone) {
                 EmployeeClientSchedule::where('client_id', $client->id)->update(['timezone' => $client->timezone]);
             }
         });
@@ -637,7 +622,7 @@ class AdminApiController extends Controller
 
     public function destroyClient(Client $client)
     {
-        $hasAttendance = Schema::hasColumn('attendances', 'client_id') && Attendance::where('client_id', $client->id)->exists();
+        $hasAttendance = Attendance::where('client_id', $client->id)->exists();
         if ($client->employeeSchedules()->exists() || $client->salaries()->exists() || Invoice::where('client_id', $client->id)->exists() || $hasAttendance) {
             return response()->json(['message' => 'Client cannot be deleted while schedules, attendance, salaries, or invoices are linked.'], 422);
         }
@@ -728,11 +713,9 @@ class AdminApiController extends Controller
     public function attendance(Request $request)
     {
         $query = Attendance::with(['employee:id,first_name,last_name,employee_code,timezone,profile_picture', 'breaks']);
-        if (Schema::hasColumn('attendances', 'client_id')) $query->with('client:id,name,business_name,timezone');
+        $query->with('client:id,name,business_name,timezone');
         if ($request->filled('employee_id')) $query->where('employee_id', $request->integer('employee_id'));
-        $selectedClientId = $request->filled('client_id') && Schema::hasColumn('attendances', 'client_id')
-            ? $request->integer('client_id')
-            : null;
+        $selectedClientId = $request->filled('client_id') ? $request->integer('client_id') : null;
         if ($selectedClientId) {
             $query->where('client_id', $selectedClientId);
         }
@@ -768,12 +751,6 @@ class AdminApiController extends Controller
     private function applyAttendanceLocalDateFilter($query, ?string $from, ?string $to, ?int $clientId = null): void
     {
         if (!$from && !$to) {
-            return;
-        }
-
-        if (!Schema::hasColumn('attendances', 'client_id') || !Schema::hasColumn('attendances', 'clock_in')) {
-            if ($from) $query->whereDate('date', '>=', $from);
-            if ($to) $query->whereDate('date', '<=', $to);
             return;
         }
 
@@ -825,11 +802,12 @@ class AdminApiController extends Controller
                 $attendance->save();
                 $this->recalculateAttendance($attendance);
             }
-            $update = ['status' => $data['decision']];
-            if (Schema::hasColumn('attendance_change_requests', 'reviewed_by')) {
-                $update += ['reviewed_by' => $request->user()->id, 'reviewed_at' => $this->clock->now('UTC'), 'review_note' => $data['note'] ?? null];
-            }
-            $changeRequest->update($update);
+            $changeRequest->update([
+                'status' => $data['decision'],
+                'reviewed_by' => $request->user()->id,
+                'reviewed_at' => $this->clock->now('UTC'),
+                'review_note' => $data['note'] ?? null,
+            ]);
         });
         return response()->json(['message' => 'Change request '.$data['decision'].'.']);
     }
@@ -837,13 +815,12 @@ class AdminApiController extends Controller
     public function overtime(Request $request)
     {
         $query = Attendance::with('employee:id,first_name,last_name,employee_code')->where('overtime', '>', 0);
-        if (Schema::hasColumn('attendances', 'overtime_status')) $query->whereIn('overtime_status', ['pending', 'approved', 'rejected']);
+        $query->whereIn('overtime_status', ['pending', 'approved', 'rejected']);
         return response()->json($query->latest('date')->paginate(25));
     }
 
     public function reviewOvertime(Request $request, Attendance $attendance)
     {
-        if (!Schema::hasColumn('attendances', 'overtime_status')) return response()->json(['message' => 'Run the CareVMA upgrade migration first.'], 422);
         $data = $request->validate([
             'decision' => ['required', Rule::in(['approved', 'rejected'])],
             'approved_minutes' => ['nullable', 'integer', 'min:0', 'max:'.$attendance->overtime],
@@ -904,15 +881,13 @@ class AdminApiController extends Controller
             });
         }
 
-        $entries = Schema::hasTable('company_finance_entries')
-            ? CompanyFinanceEntry::query()
-                ->with('creator:id,name')
-                ->whereBetween('entry_date', [$from->toDateString(), $to->toDateString()])
-                ->latest('entry_date')
-                ->latest('id')
-                ->limit(100)
-                ->get()
-            : collect();
+        $entries = CompanyFinanceEntry::query()
+            ->with('creator:id,name')
+            ->whereBetween('entry_date', [$from->toDateString(), $to->toDateString()])
+            ->latest('entry_date')
+            ->latest('id')
+            ->limit(100)
+            ->get();
 
         return response()->json([
             'view' => $view,
@@ -926,8 +901,6 @@ class AdminApiController extends Controller
 
     public function storeCompanyFinanceEntry(Request $request)
     {
-        abort_unless(Schema::hasTable('company_finance_entries'), 422, 'Run php artisan migrate first.');
-
         $data = $request->validate([
             'entry_date' => ['required', 'date'],
             'type' => ['required', Rule::in(['income', 'expense'])],
@@ -982,18 +955,16 @@ class AdminApiController extends Controller
             $daily[$key]['invoice_received'] = (float) $row->received;
         }
 
-        if (Schema::hasTable('company_finance_entries')) {
-            $entryRows = CompanyFinanceEntry::query()
-                ->selectRaw("entry_date, COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END),0) as manual_income, COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END),0) as outgoing")
-                ->whereBetween('entry_date', [$fromDate, $toDate])
-                ->groupBy('entry_date')
-                ->get();
-            foreach ($entryRows as $row) {
-                $key = Carbon::parse($row->entry_date)->toDateString();
-                $daily[$key] ??= $this->emptyFinanceSnapshot();
-                $daily[$key]['manual_income'] = (float) $row->manual_income;
-                $daily[$key]['outgoing'] = (float) $row->outgoing;
-            }
+        $entryRows = CompanyFinanceEntry::query()
+            ->selectRaw("entry_date, COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END),0) as manual_income, COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END),0) as outgoing")
+            ->whereBetween('entry_date', [$fromDate, $toDate])
+            ->groupBy('entry_date')
+            ->get();
+        foreach ($entryRows as $row) {
+            $key = Carbon::parse($row->entry_date)->toDateString();
+            $daily[$key] ??= $this->emptyFinanceSnapshot();
+            $daily[$key]['manual_income'] = (float) $row->manual_income;
+            $daily[$key]['outgoing'] = (float) $row->outgoing;
         }
 
         foreach ($daily as $key => $snapshot) {
@@ -1592,7 +1563,7 @@ class AdminApiController extends Controller
     private function recalculateAttendance(Attendance $attendance): void
     {
         if (!$attendance->clock_in || !$attendance->clock_out) return;
-        $schedule = Schema::hasColumn('attendances', 'schedule_id') && $attendance->schedule_id ? EmployeeClientSchedule::find($attendance->schedule_id) : null;
+        $schedule = $attendance->schedule_id ? EmployeeClientSchedule::find($attendance->schedule_id) : null;
         $tz = $attendance->timezone_snapshot ?? $schedule?->timezone ?? $attendance->employee?->timezone ?? 'UTC';
         $in = $attendance->clock_in->copy()->setTimezone($tz)->startOfMinute(); $out = $attendance->clock_out->copy()->setTimezone($tz)->startOfMinute();
         $regularStart = $in->copy(); $regularEnd = $out->copy(); $overtime = 0; $late = 0;
@@ -1615,19 +1586,17 @@ class AdminApiController extends Controller
         $attendance->late_minutes = $late;
         $previousOvertime = (int) ($attendance->overtime ?? 0);
         $attendance->overtime = $overtime;
-        if (Schema::hasColumn('attendances', 'overtime_status')) {
-            // An approved overtime decision carries a priced amount and an approver.
-            // Only a changed overtime figure makes that decision stale, so an unchanged
-            // recalculation must leave it alone instead of silently voiding the money.
-            $alreadyDecided = in_array($attendance->overtime_status, ['approved', 'rejected'], true);
+        // An approved overtime decision carries a priced amount and an approver.
+        // Only a changed overtime figure makes that decision stale, so an unchanged
+        // recalculation must leave it alone instead of silently voiding the money.
+        $alreadyDecided = in_array($attendance->overtime_status, ['approved', 'rejected'], true);
 
-            if ($overtime <= 0) {
-                $attendance->overtime_status = 'none';
-                $this->clearOvertimeApproval($attendance);
-            } elseif (!$alreadyDecided || $overtime !== $previousOvertime) {
-                $attendance->overtime_status = 'pending';
-                $this->clearOvertimeApproval($attendance);
-            }
+        if ($overtime <= 0) {
+            $attendance->overtime_status = 'none';
+            $this->clearOvertimeApproval($attendance);
+        } elseif (!$alreadyDecided || $overtime !== $previousOvertime) {
+            $attendance->overtime_status = 'pending';
+            $this->clearOvertimeApproval($attendance);
         }
         $attendance->save();
     }

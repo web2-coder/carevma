@@ -18,7 +18,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
@@ -212,12 +211,6 @@ class EmployeeApiController extends Controller
             return;
         }
 
-        if (!Schema::hasColumn('attendances', 'client_id') || !Schema::hasColumn('attendances', 'clock_in')) {
-            if ($from) $query->whereDate('date', '>=', $from);
-            if ($to) $query->whereDate('date', '<=', $to);
-            return;
-        }
-
         $clientIds = Attendance::query()
             ->where('employee_id', $employeeId)
             ->whereNotNull('client_id')
@@ -328,12 +321,12 @@ class EmployeeApiController extends Controller
                 'employee_id' => $employee->id, 'date' => $date, 'clock_in' => $now->copy()->utc(),
                 'break_limit' => $breakLimit, 'break_taken' => 0, 'is_late' => $late > 0, 'late_minutes' => $late, 'overtime' => 0,
             ];
-            if (Schema::hasColumn('attendances', 'client_id')) $payload['client_id'] = $schedule->client_id;
-            if (Schema::hasColumn('attendances', 'schedule_id')) $payload['schedule_id'] = $schedule->id;
-            if (Schema::hasColumn('attendances', 'timezone_snapshot')) $payload['timezone_snapshot'] = $tz;
-            if (Schema::hasColumn('attendances', 'shift_start_snapshot')) $payload['shift_start_snapshot'] = $start->copy()->utc();
-            if (Schema::hasColumn('attendances', 'shift_end_snapshot')) $payload['shift_end_snapshot'] = $end->copy()->utc();
-            if (Schema::hasColumn('attendances', 'overtime_status')) $payload['overtime_status'] = 'none';
+            $payload['client_id'] = $schedule->client_id;
+            $payload['schedule_id'] = $schedule->id;
+            $payload['timezone_snapshot'] = $tz;
+            $payload['shift_start_snapshot'] = $start->copy()->utc();
+            $payload['shift_end_snapshot'] = $end->copy()->utc();
+            $payload['overtime_status'] = 'none';
             $attendance = Attendance::create($payload);
 
             return response()->json(['message' => 'Clocked in successfully.', 'attendance' => $attendance->load(['client', 'breaks'])], 201);
@@ -411,7 +404,7 @@ class EmployeeApiController extends Controller
             $breakMinutes = (int) floor(($attendance->break_taken ?? 0) / 60);
             $attendance->total_minutes = max(0, (int) $regularStart->diffInMinutes($regularEnd) - $breakMinutes);
             $attendance->is_late = $late > 0; $attendance->late_minutes = $late; $attendance->overtime = $overtime;
-            if (Schema::hasColumn('attendances', 'overtime_status')) $attendance->overtime_status = $overtime > 0 ? 'pending' : 'none';
+            $attendance->overtime_status = $overtime > 0 ? 'pending' : 'none';
             $attendance->save();
             return response()->json(['message' => 'Clocked out successfully.', 'attendance' => $attendance->fresh(['client', 'breaks'])]);
         });
