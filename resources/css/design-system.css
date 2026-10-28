@@ -206,17 +206,20 @@ p { text-wrap: pretty; }
   position: sticky;
   top: 0;
   z-index: 30;
-  height: 72px;
-  padding: 0 1.5rem;
+  flex: 0 0 auto;                    /* a flex item of the scrolling column: never let the content below squeeze it */
+  height: auto;
+  padding: 1rem 1.75rem;             /* the bar breathes like the sidebar; sides clear the 20px corners */
+  gap: 1rem;
   background: var(--card);
   border-bottom: 1px solid var(--border);
   border-radius: var(--radius-panel) var(--radius-panel) 0 0;
   box-shadow: none;
   backdrop-filter: none;
 }
+.topbar-left, .topbar-right { gap: .875rem; }
 .topbar-context span { color: var(--muted-foreground); font-size: .6875rem; letter-spacing: .08em; }
 .topbar-context strong { color: var(--foreground); font-size: .875rem; }
-.content { width: 100%; max-width: 1680px; margin: 0 auto; padding: 1.5rem; }
+.content { width: 100%; max-width: 1680px; margin: 0 auto; padding: 1.5rem 1.75rem; }   /* same side inset as the bar, so title and controls share a left line */
 
 .icon-btn { width: 40px; height: 40px; border: 1px solid var(--border); border-radius: var(--radius-field); background: var(--card); color: var(--ink-soft); }
 .icon-btn:hover { background: var(--surface-2); color: var(--foreground); }
@@ -244,7 +247,8 @@ p { text-wrap: pretty; }
     transition: transform .22s ease;
   }
   .sidebar.mobile-open { transform: none; }
-  .topbar { height: 64px; padding: 0 1rem; }
+  .topbar { padding: .75rem 1rem; }
+  .topbar-left, .topbar-right { gap: .625rem; }
   .content { padding: 1rem; }
   .card { padding: 1.125rem; }
   .metric-card { padding: 1rem 1.125rem; }
