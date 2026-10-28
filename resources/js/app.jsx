@@ -15,6 +15,7 @@ import EmployeeWizardPage from './pages/EmployeeWizard';
 import ClientProfilePage from './pages/ClientProfile';
 import '../css/app.css';
 import '../css/carevma-professional-theme.css';
+import '../css/design-system.css';
 import GlobalFeedbackHost from './components/GlobalFeedbackHost';
 
 function dashboardFor(user) {

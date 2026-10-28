@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, Fragment } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, UserRoundCog, CalendarDays, Clock3, FileCheck2, TimerReset,
@@ -34,46 +34,46 @@ function navFor(user) {
   if (!user) return [];
   if (['admin', 'superadmin'].includes(user.role)) {
     return [
-      { label: 'Dashboard', to: '/admin/dashboard', icon: LayoutDashboard },
-      { label: 'Live Workforce', to: '/admin/live-users', icon: Activity },
-      { label: 'Employees', to: '/admin/employees', icon: Users },
-      { label: 'HR Team', to: '/admin/hr-team', icon: UserRoundCog },
-      { label: 'Clients', to: '/admin/clients', icon: Stethoscope },
-      { label: 'Schedules', to: '/admin/schedules', icon: CalendarDays },
-      { label: 'Attendance', to: '/admin/attendance', icon: Clock3 },
-      { label: 'Change Requests', to: '/admin/change-requests', icon: FileCheck2 },
-      { label: 'Overtime Review', to: '/admin/overtime', icon: TimerReset },
-      { label: 'Invoices', to: '/admin/invoices', icon: ReceiptText },
-      { label: 'Company Finance', to: '/admin/company-finance', icon: CircleDollarSign },
+      { group: 'Overview', label: 'Dashboard', to: '/admin/dashboard', icon: LayoutDashboard },
+      { group: 'Overview', label: 'Live Workforce', to: '/admin/live-users', icon: Activity },
+      { group: 'People', label: 'Employees', to: '/admin/employees', icon: Users },
+      { group: 'People', label: 'HR Team', to: '/admin/hr-team', icon: UserRoundCog },
+      { group: 'People', label: 'Clients', to: '/admin/clients', icon: Stethoscope },
+      { group: 'Time', label: 'Schedules', to: '/admin/schedules', icon: CalendarDays },
+      { group: 'Time', label: 'Attendance', to: '/admin/attendance', icon: Clock3 },
+      { group: 'Time', label: 'Change Requests', to: '/admin/change-requests', icon: FileCheck2 },
+      { group: 'Time', label: 'Overtime Review', to: '/admin/overtime', icon: TimerReset },
+      { group: 'Billing', label: 'Invoices', to: '/admin/invoices', icon: ReceiptText },
+      { group: 'Billing', label: 'Company Finance', to: '/admin/company-finance', icon: CircleDollarSign },
       {
-        label: 'Configuration', icon: SlidersHorizontal, children: [
+        group: 'Setup', label: 'Configuration', icon: SlidersHorizontal, children: [
           ['Departments','departments'], ['Roles','roles'], ['Employment Types','employment-types'],
           ['Shift Types','shift-types'], ['Designations','designations'], ['Employee Statuses','employee-statuses'],
           ['Expertise','expertises'], ['Reporting Managers','reporting-managers'], ['Services','services'], ['Contract Types','contracts'],
         ].map(([label, slug]) => ({ label, to: `/admin/options/${slug}` })),
       },
-      { label: 'Notifications', to: '/admin/notifications', icon: Bell },
-      { label: 'My Account', to: '/admin/account', icon: UserCircle2 },
+      { group: 'Account', label: 'Notifications', to: '/admin/notifications', icon: Bell },
+      { group: 'Account', label: 'My Account', to: '/admin/account', icon: UserCircle2 },
     ];
   }
   if (user.role === 'hr') {
     return [
-      { label: 'Dashboard', to: '/hr/dashboard', icon: LayoutDashboard },
-      { label: 'Live Workforce', to: '/hr/live-users', icon: Activity },
-      { label: 'Employees', to: '/hr/employees', icon: Users },
-      { label: 'Schedules', to: '/hr/schedules', icon: CalendarDays },
-      { label: 'Attendance', to: '/hr/attendance', icon: Clock3 },
-      { label: 'Change Requests', to: '/hr/change-requests', icon: FileCheck2 },
-      { label: 'Overtime Review', to: '/hr/overtime', icon: TimerReset },
+      { group: 'Overview', label: 'Dashboard', to: '/hr/dashboard', icon: LayoutDashboard },
+      { group: 'Overview', label: 'Live Workforce', to: '/hr/live-users', icon: Activity },
+      { group: 'People', label: 'Employees', to: '/hr/employees', icon: Users },
+      { group: 'Time', label: 'Schedules', to: '/hr/schedules', icon: CalendarDays },
+      { group: 'Time', label: 'Attendance', to: '/hr/attendance', icon: Clock3 },
+      { group: 'Time', label: 'Change Requests', to: '/hr/change-requests', icon: FileCheck2 },
+      { group: 'Time', label: 'Overtime Review', to: '/hr/overtime', icon: TimerReset },
       {
-        label: 'HR Configuration', icon: SlidersHorizontal, children: [
+        group: 'Setup', label: 'HR Configuration', icon: SlidersHorizontal, children: [
           ['Departments','departments'], ['Roles','roles'], ['Employment Types','employment-types'],
           ['Shift Types','shift-types'], ['Designations','designations'], ['Employee Statuses','employee-statuses'],
           ['Expertise','expertises'], ['Reporting Managers','reporting-managers'],
         ].map(([label, slug]) => ({ label, to: `/hr/options/${slug}` })),
       },
-      { label: 'Notifications', to: '/hr/notifications', icon: Bell },
-      { label: 'My Account', to: '/hr/account', icon: UserCircle2 },
+      { group: 'Account', label: 'Notifications', to: '/hr/notifications', icon: Bell },
+      { group: 'Account', label: 'My Account', to: '/hr/account', icon: UserCircle2 },
     ];
   }
   if (user.role === 'employee') {
@@ -382,10 +382,13 @@ export default function AppShell() {
     <aside className={`sidebar ${mobileOpen ? 'mobile-open' : ''}`}>
       <div className="brand-row">
         <BrandLogo compact={collapsed}/>
-        <button className="icon-btn mobile-only" onClick={() => setMobileOpen(false)}><X size={20}/></button>
+        <button className="icon-btn mobile-only" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X size={20}/></button>
       </div>
       <div className="workspace-chip">{!collapsed && <><span className="workspace-dot"/><div><strong>Operations</strong><small>{roleLabel}</small></div></>}</div>
-      <nav className="sidebar-nav">{nav.map(item => <NavItem key={item.label} item={item} collapsed={collapsed} mobileClose={() => setMobileOpen(false)} liveCount={liveCount} beginPageLoad={beginPageLoad}/>)}</nav>
+      <nav className="sidebar-nav" aria-label="Primary">{nav.map((item, index) => <Fragment key={item.label}>
+        {item.group && item.group !== nav[index - 1]?.group && (collapsed ? index > 0 && <div className="nav-group-separator" role="presentation"/> : <div className="nav-group-label eyebrow">{item.group}</div>)}
+        <NavItem item={item} collapsed={collapsed} mobileClose={() => setMobileOpen(false)} liveCount={liveCount} beginPageLoad={beginPageLoad}/>
+      </Fragment>)}</nav>
       <div className="sidebar-foot">
         {!collapsed && <div className="user-mini"><div className="avatar"><AvatarMedia src={user?.profile_picture || user?.employee?.profile_picture || user?.client?.profile_picture} alt={user?.name||'User'} fallback={user?.name?.split(' ').map(x => x[0]).slice(0,2).join('').toUpperCase()}/></div><div><strong>{user?.name}</strong><span>{user?.email}</span></div></div>}
         <button className="nav-link danger-link" onClick={signOut} title="Sign out"><span className="nav-icon"><LogOut size={19}/></span>{!collapsed && <span>Sign out</span>}</button>
@@ -402,8 +405,8 @@ export default function AppShell() {
       </div>}
       <header className="topbar">
         <div className="topbar-left">
-          <button className="icon-btn mobile-only" onClick={() => setMobileOpen(true)}><Menu size={21}/></button>
-          <button className="icon-btn desktop-only" onClick={() => setCollapsed(v => !v)}>{collapsed ? <PanelLeftOpen size={20}/> : <PanelLeftClose size={20}/>}</button>
+          <button className="icon-btn mobile-only" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu size={21}/></button>
+          <button className="icon-btn desktop-only" onClick={() => setCollapsed(v => !v)} aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}>{collapsed ? <PanelLeftOpen size={20}/> : <PanelLeftClose size={20}/>}</button>
           <div className="topbar-context"><span>CareVMA</span><strong>{roleLabel}</strong></div>
         </div>
         <div className="topbar-right">

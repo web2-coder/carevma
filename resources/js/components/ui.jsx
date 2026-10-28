@@ -34,7 +34,7 @@ export function PageHeader({ eyebrow, title, description, actions }) {
 
 export function Card({ children, className = '', title, subtitle, actions }) {
   return <section className={`card ${className}`}>
-    {(title || actions) && <div className="card-head"><div><h3>{title}</h3>{subtitle && <p>{subtitle}</p>}</div>{actions}</div>}
+    {(title || actions) && <div className="card-head"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div>{actions}</div>}
     {children}
   </section>;
 }
@@ -50,7 +50,7 @@ export function MetricCard({ label, value, hint, icon: Icon, live = false }) {
     </div>
     <div className="metric-copy">
       <span>{label}{live && <em className="metric-live-label"><i/>LIVE</em>}</span>
-      <strong key={live ? String(value ?? 0) : 'metric-value'} className={live ? 'metric-live-value' : ''}>{value ?? '—'}</strong>
+      <strong key={live ? String(value ?? 0) : 'metric-value'} className={`tabular${live ? ' metric-live-value' : ''}`}>{value ?? '—'}</strong>
       {hint && <small>{hint}</small>}
     </div>
   </div>;
