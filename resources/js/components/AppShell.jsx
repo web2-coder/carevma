@@ -19,7 +19,6 @@ import '../../css/carevma-brand-clock.css';
 import '../../css/birthday-popup.css';
 import '../../css/profile-onboarding-lock.css';
 import '../../css/admin-avatar-media.css';
-import '../../css/page-transition-loader.css';
 
 const managementBase = role => role === 'hr' ? '/hr' : '/admin';
 
@@ -102,7 +101,7 @@ function navFor(user) {
   return [];
 }
 
-function NavItem({ item, collapsed, mobileClose, liveCount = 0, beginPageLoad }) {
+function NavItem({ item, collapsed, mobileClose, liveCount = 0 }) {
   const location = useLocation();
   const [open, setOpen] = useState(() => item.children?.some(c => location.pathname.startsWith(c.to)) ?? false);
   const Icon = item.icon;
@@ -111,11 +110,11 @@ function NavItem({ item, collapsed, mobileClose, liveCount = 0, beginPageLoad })
       <button className={`nav-link nav-parent ${open ? 'is-open' : ''}`} onClick={() => setOpen(v => !v)} title={collapsed ? item.label : undefined}>
         <span className="nav-icon">{Icon && <Icon size={19}/>}</span>{!collapsed && <><span>{item.label}</span>{open ? <ChevronDown size={15}/> : <ChevronRight size={15}/>}</>}
       </button>
-      {open && !collapsed && <div className="nav-children">{item.children.map(child => <NavLink key={child.to} to={child.to} onClick={() => { beginPageLoad?.(); mobileClose?.(); }} className={({isActive}) => `nav-child ${isActive ? 'active' : ''}`}>{child.label}</NavLink>)}</div>}
+      {open && !collapsed && <div className="nav-children">{item.children.map(child => <NavLink key={child.to} to={child.to} onClick={mobileClose} className={({isActive}) => `nav-child ${isActive ? 'active' : ''}`}>{child.label}</NavLink>)}</div>}
     </div>;
   }
   const isLiveWorkforce = item.label === 'Live Workforce';
-  return <NavLink to={item.to} onClick={() => { beginPageLoad?.(); mobileClose?.(); }} title={collapsed ? item.label : undefined} className={({isActive}) => `nav-link ${isActive ? 'active' : ''}`}>
+  return <NavLink to={item.to} onClick={mobileClose} title={collapsed ? item.label : undefined} className={({isActive}) => `nav-link ${isActive ? 'active' : ''}`}>
     <span className="nav-icon nav-icon-with-badge">{Icon && <Icon size={19}/>} {isLiveWorkforce && liveCount > 0 && collapsed && <span className="live-count-badge live-count-badge-mini">{liveCount > 99 ? '99+' : liveCount}</span>}</span>
     {!collapsed && <span>{item.label}</span>}
     {isLiveWorkforce && liveCount > 0 && !collapsed && <span className="live-count-badge"><i/> {liveCount > 99 ? '99+' : liveCount}</span>}
@@ -132,10 +131,6 @@ export default function AppShell() {
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [notificationRows, setNotificationRows] = useState([]);
   const [notificationLoading, setNotificationLoading] = useState(false);
-  const [pageLoading, setPageLoading] = useState(false);
-  const pageLoadSeenRequestRef = useRef(false);
-  const pageLoadFallbackRef = useRef(null);
-  const pageLoadFinishRef = useRef(null);
   const notificationMenuRef = useRef(null);
   const profileMenuRef = useRef(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
@@ -143,64 +138,6 @@ export default function AppShell() {
   const location = useLocation();
   const employeeProfileIncomplete = profileIncomplete(user);
   const nav = useMemo(() => navFor(user), [user]);
-
-  const finishPageLoad = () => {
-    if (pageLoadFinishRef.current) clearTimeout(pageLoadFinishRef.current);
-    pageLoadFinishRef.current = setTimeout(() => {
-      setPageLoading(false);
-      pageLoadSeenRequestRef.current = false;
-      if (typeof window !== 'undefined') window.__carevmaPageNavigationActive = false;
-    }, 140);
-  };
-
-  const beginPageLoad = () => {
-    if (pageLoadFallbackRef.current) clearTimeout(pageLoadFallbackRef.current);
-    if (pageLoadFinishRef.current) clearTimeout(pageLoadFinishRef.current);
-    pageLoadSeenRequestRef.current = false;
-    if (typeof window !== 'undefined') window.__carevmaPageNavigationActive = true;
-    setPageLoading(true);
-    pageLoadFallbackRef.current = setTimeout(() => finishPageLoad(), 8000);
-  };
-
-  useEffect(() => {
-    const onInternalLinkClick = event => {
-      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-      const anchor = event.target?.closest?.('a[href]');
-      if (!anchor || anchor.target === '_blank' || anchor.hasAttribute('download')) return;
-      try {
-        const url = new URL(anchor.href, window.location.origin);
-        const isAppRoute = ['/admin/', '/hr/', '/employee/', '/doctor/'].some(prefix => url.pathname.startsWith(prefix));
-        if (url.origin === window.location.origin && isAppRoute && url.pathname !== window.location.pathname) beginPageLoad();
-      } catch {}
-    };
-    const onRequestState = event => {
-      if (!window.__carevmaPageNavigationActive) return;
-      const pending = Math.max(0, Number(event?.detail?.pending) || 0);
-      if (pending > 0) {
-        pageLoadSeenRequestRef.current = true;
-        setPageLoading(true);
-        return;
-      }
-      if (pageLoadSeenRequestRef.current) finishPageLoad();
-    };
-    const onPopState = () => beginPageLoad();
-    document.addEventListener('click', onInternalLinkClick, true);
-    window.addEventListener('carevma:page-request-state', onRequestState);
-    window.addEventListener('popstate', onPopState);
-    return () => {
-      document.removeEventListener('click', onInternalLinkClick, true);
-      window.removeEventListener('carevma:page-request-state', onRequestState);
-      window.removeEventListener('popstate', onPopState);
-      if (pageLoadFallbackRef.current) clearTimeout(pageLoadFallbackRef.current);
-      if (pageLoadFinishRef.current) clearTimeout(pageLoadFinishRef.current);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!pageLoading || pageLoadSeenRequestRef.current) return;
-    const noRequestFallback = setTimeout(() => finishPageLoad(), 650);
-    return () => clearTimeout(noRequestFallback);
-  }, [location.pathname]);
 
   const notificationPath = user?.role === 'employee' ? '/employee/notifications' : user?.role === 'client' ? '/doctor/notifications' : user?.role === 'hr' ? '/hr/notifications' : '/admin/notifications';
   const loadNotificationDropdown = async () => {
@@ -316,7 +253,7 @@ export default function AppShell() {
       }
     }
     setNotificationOpen(false);
-    if (row.action_url) { beginPageLoad(); navigate(row.action_url); }
+    if (row.action_url) navigate(row.action_url);
   };
 
   const markAllNotificationsRead = async () => {
@@ -371,13 +308,12 @@ export default function AppShell() {
     : user?.role === 'hr' ? '/hr/account'
     : '/admin/account';
   const settingsPath = user?.role === 'employee' ? '/employee/settings' : profilePath;
-  const openProfilePath = path => { setProfileMenuOpen(false); beginPageLoad(); navigate(path); };
+  const openProfilePath = path => { setProfileMenuOpen(false); navigate(path); };
 
   const signOut = async () => { await logout(); navigate('/login', { replace: true }); };
   const roleLabel = user?.role === 'client' ? 'Client / Doctor' : user?.role === 'employee' ? 'Team Member / VA' : user?.role === 'hr' ? 'Human Resources' : 'Administrator';
 
-  return <div className={`app-shell ${collapsed ? 'sidebar-collapsed' : ''} ${pageLoading ? 'is-page-loading' : ''}`}>
-    {pageLoading && <div className="carevma-page-transition-line" role="status" aria-live="polite" aria-label="Loading page"><span/></div>}
+  return <div className={`app-shell ${collapsed ? 'sidebar-collapsed' : ''}`}>
     {mobileOpen && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMobileOpen(false)}/>} 
     <aside className={`sidebar ${mobileOpen ? 'mobile-open' : ''}`}>
       <div className="brand-row">
@@ -387,7 +323,7 @@ export default function AppShell() {
       <div className="workspace-chip">{!collapsed && <><span className="workspace-dot"/><div><strong>Operations</strong><small>{roleLabel}</small></div></>}</div>
       <nav className="sidebar-nav" aria-label="Primary">{nav.map((item, index) => <Fragment key={item.label}>
         {item.group && item.group !== nav[index - 1]?.group && (collapsed ? index > 0 && <div className="nav-group-separator" role="presentation"/> : <div className="nav-group-label eyebrow">{item.group}</div>)}
-        <NavItem item={item} collapsed={collapsed} mobileClose={() => setMobileOpen(false)} liveCount={liveCount} beginPageLoad={beginPageLoad}/>
+        <NavItem item={item} collapsed={collapsed} mobileClose={() => setMobileOpen(false)} liveCount={liveCount}/>
       </Fragment>)}</nav>
       <div className="sidebar-foot">
         {!collapsed && <div className="user-mini"><div className="avatar"><AvatarMedia src={user?.profile_picture || user?.employee?.profile_picture || user?.client?.profile_picture} alt={user?.name||'User'} fallback={user?.name?.split(' ').map(x => x[0]).slice(0,2).join('').toUpperCase()}/></div><div><strong>{user?.name}</strong><span>{user?.email}</span></div></div>}
@@ -397,7 +333,7 @@ export default function AppShell() {
     <div className="app-main">
       {realtimeNotice && <div className="realtime-toast" role="status" aria-live="polite">
         <div className="realtime-toast-icon"><Bell size={18}/></div>
-        <button type="button" className="realtime-toast-body" onClick={() => { if (realtimeNotice.action_url) { beginPageLoad(); navigate(realtimeNotice.action_url); } setRealtimeNotice(null); }}>
+        <button type="button" className="realtime-toast-body" onClick={() => { if (realtimeNotice.action_url) navigate(realtimeNotice.action_url); setRealtimeNotice(null); }}>
           <strong>{realtimeNotice.title || 'CareVMA notification'}</strong>
           <span>{realtimeNotice.message || 'A new update is available.'}</span>
         </button>
@@ -433,7 +369,7 @@ export default function AppShell() {
                   {!row.is_read && <i aria-label="Unread"/>}
                 </button>) : <div className="notification-dropdown-state"><Bell size={21}/><strong>No notifications</strong><span>New activity will appear here.</span></div>}
               </div>
-              <button type="button" className="notification-dropdown-footer" onClick={() => { setNotificationOpen(false); beginPageLoad(); navigate(notificationPath); }}>View all notifications <ChevronRight size={15}/></button>
+              <button type="button" className="notification-dropdown-footer" onClick={() => { setNotificationOpen(false); navigate(notificationPath); }}>View all notifications <ChevronRight size={15}/></button>
             </div>}
           </div>}
           <div className="profile-menu-wrap" ref={profileMenuRef}>
@@ -458,9 +394,7 @@ export default function AppShell() {
           <FileCheck2 size={20}/>
           <div><strong>Complete your profile to unlock CareVMA</strong><span>Finish the required personal fields below. Dashboard, schedules, attendance, notifications and settings will unlock automatically after you save a complete profile.</span></div>
         </div>}
-        <div className={`carevma-route-content ${pageLoading ? 'is-loading' : ''}`} aria-busy={pageLoading ? 'true' : 'false'}>
-          <Outlet/>
-        </div>
+        <Outlet/>
       </main>
     </div>
   </div>;

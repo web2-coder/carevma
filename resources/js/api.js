@@ -33,26 +33,6 @@ const api = axios.create({
 
 /*
 |--------------------------------------------------------------------------
-| Page Request Tracking
-|--------------------------------------------------------------------------
-*/
-
-let pagePendingRequests = 0;
-
-const emitPageRequestState = () => {
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(
-      new CustomEvent('carevma:page-request-state', {
-        detail: {
-          pending: pagePendingRequests,
-        },
-      }),
-    );
-  }
-};
-
-/*
-|--------------------------------------------------------------------------
 | Request Interceptor
 |--------------------------------------------------------------------------
 */
@@ -92,56 +72,11 @@ api.interceptors.request.use(
       config.carevmaConfirmed = true;
     }
 
-    /*
-     * Existing page-navigation request tracking.
-     */
-    const method = String(
-      config?.method || 'get',
-    ).toLowerCase();
-
-    const navigationActive =
-      typeof window !== 'undefined' &&
-      window.__carevmaPageNavigationActive === true;
-
-    const silent =
-      config?.carevmaSilent === true;
-
-    if (
-      method === 'get' &&
-      navigationActive &&
-      !silent
-    ) {
-      config.__carevmaPageTracked = true;
-
-      pagePendingRequests += 1;
-
-      emitPageRequestState();
-    }
-
     return config;
   },
 
   error => Promise.reject(error),
 );
-
-/*
-|--------------------------------------------------------------------------
-| Settle Tracked Request
-|--------------------------------------------------------------------------
-*/
-
-const settlePageRequest = config => {
-  if (!config?.__carevmaPageTracked) {
-    return;
-  }
-
-  pagePendingRequests = Math.max(
-    0,
-    pagePendingRequests - 1,
-  );
-
-  emitPageRequestState();
-};
 
 /*
 |--------------------------------------------------------------------------
@@ -151,8 +86,6 @@ const settlePageRequest = config => {
 
 api.interceptors.response.use(
   response => {
-    settlePageRequest(response?.config);
-
     const method = String(
       response?.config?.method || 'get',
     ).toLowerCase();
@@ -180,8 +113,6 @@ api.interceptors.response.use(
   },
 
   error => {
-    settlePageRequest(error?.config);
-
     if (
       error?.carevmaCancelled ||
       axios.isCancel(error)
