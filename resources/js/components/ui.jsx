@@ -120,11 +120,21 @@ export function Table({
   rowKey = 'id',
   emptyTitle,
   emptyDescription,
-  searchable = true,
+  searchable,
   localPagination = true,
   defaultPageSize = 25,
+  // Server mode: pass the Laravel paginator as `meta` (with onPage, perPage, onPerPage)
+  // and optionally sort / onSort. Local search and paging switch off; the API owns them.
+  meta = null,
+  onPage,
+  perPage,
+  onPerPage,
+  sort,
+  onSort,
 }) {
   const safeRows = Array.isArray(rows) ? rows : [];
+  const serverMode = Boolean(meta);
+  const showSearch = searchable ?? !serverMode;
   const [query, setQuery] = useState('');
   const [filterColumn, setFilterColumn] = useState('');
   const [filterValue, setFilterValue] = useState('');
@@ -168,7 +178,7 @@ export function Table({
   const effectivePageSize = Math.max(1, Number(pageSize) || 25);
   // Avoid stacking a second pager on API-paginated pages that already load one normal page (usually <= 25 rows).
   // Local pagination automatically activates for larger in-memory tables.
-  const useLocalPager = localPagination && safeRows.length > defaultPageSize;
+  const useLocalPager = !serverMode && localPagination && safeRows.length > defaultPageSize;
   const lastPage = useLocalPager ? Math.max(1, Math.ceil(total / effectivePageSize)) : 1;
   const currentPage = Math.min(page, lastPage);
   const startIndex = useLocalPager ? (currentPage - 1) * effectivePageSize : 0;
@@ -188,24 +198,37 @@ export function Table({
   return <div className="smart-table">
     <div className="smart-table-tools">
       <div className="smart-table-tools-left">
-        {searchable && <SearchBox value={query} onChange={setQuery} placeholder="Search this table…"/>}
-        {filterableColumns.length > 0 && <select className="table-filter-select" value={filterColumn} onChange={e => { setFilterColumn(e.target.value); setFilterValue(''); }} aria-label="Filter table column">
+        {showSearch && <SearchBox value={query} onChange={setQuery} placeholder="Search this table…"/>}
+        {!serverMode && filterableColumns.length > 0 && <select className="table-filter-select" value={filterColumn} onChange={e => { setFilterColumn(e.target.value); setFilterValue(''); }} aria-label="Filter table column">
           <option value="">Filter column</option>
           {filterableColumns.map(column => <option key={column.key} value={column.key}>{column.label}</option>)}
         </select>}
-        {activeFilter && <select className="table-filter-select" value={filterValue} onChange={e => setFilterValue(e.target.value)} aria-label={`Filter ${activeFilter.label}`}>
+        {!serverMode && activeFilter && <select className="table-filter-select" value={filterValue} onChange={e => setFilterValue(e.target.value)} aria-label={`Filter ${activeFilter.label}`}>
           <option value="">All {activeFilter.label}</option>
           {activeFilter.values.map(value => <option key={value} value={value}>{value}</option>)}
         </select>}
         {(query || filterColumn || filterValue) && <button type="button" className="table-reset-btn" onClick={resetTools}>Reset</button>}
       </div>
       <div className="smart-table-tools-right">
-        <span className="table-result-count">{total === safeRows.length ? `${total} records` : `${total} of ${safeRows.length} records`}</span>
-        {useLocalPager && <label className="table-page-size"><span>Rows</span><select value={effectivePageSize} onChange={e => setPageSize(Number(e.target.value))}><option value={10}>10</option><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></select></label>}
+        <span className="table-result-count">{serverMode ? `${meta.total ?? safeRows.length} records` : total === safeRows.length ? `${total} records` : `${total} of ${safeRows.length} records`}</span>
+        {(useLocalPager || (serverMode && onPerPage)) && <label className="table-page-size"><span>Rows</span><select value={serverMode ? Number(perPage) || 25 : effectivePageSize} onChange={e => serverMode ? onPerPage(Number(e.target.value)) : setPageSize(Number(e.target.value))}><option value={10}>10</option><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></select></label>}
       </div>
     </div>
 
-    {visibleRows.length ? <div className="table-wrap"><table><thead><tr>{columns.map(c => <th key={c.key}>{c.label}</th>)}</tr></thead><tbody>{visibleRows.map((row, index) => <tr key={row?.[rowKey] ?? `${currentPage}-${index}`}>{columns.map(c => <td key={c.key} data-label={c.label}>{c.render ? c.render(row) : row?.[c.key] ?? '—'}</td>)}</tr>)}</tbody></table></div> : <EmptyState title="No matching records" description="Change the search or filter to see more results."/>}
+    {visibleRows.length ? <div className="table-wrap"><table><thead><tr>{columns.map(c => {
+      const sortable = Boolean(c.sortKey && onSort);
+      const active = sortable && sort?.key === c.sortKey;
+      const nextDir = active && sort.dir === 'asc' ? 'desc' : 'asc';
+      const apply = () => onSort({ key: c.sortKey, dir: nextDir });
+      return <th key={c.key}
+        className={sortable ? `sortable${active ? ` sorted-${sort.dir}` : ''}` : undefined}
+        aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined}
+        tabIndex={sortable ? 0 : undefined}
+        onClick={sortable ? apply : undefined}
+        onKeyDown={sortable ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); apply(); } } : undefined}>
+        {c.label}{sortable && <span className="sort-indicator" aria-hidden="true">{active ? (sort.dir === 'asc' ? '▲' : '▼') : '⇅'}</span>}
+      </th>;
+    })}</tr></thead><tbody>{visibleRows.map((row, index) => <tr key={row?.[rowKey] ?? `${currentPage}-${index}`}>{columns.map(c => <td key={c.key} data-label={c.label}>{c.render ? c.render(row) : row?.[c.key] ?? '—'}</td>)}</tr>)}</tbody></table></div> : <EmptyState title="No matching records" description="Change the search or filter to see more results."/>}
 
     {useLocalPager && total > effectivePageSize && <div className="smart-table-pagination">
       <span>Showing {from}–{to} of {total}</span>
@@ -217,6 +240,8 @@ export function Table({
         <button type="button" disabled={currentPage >= lastPage} onClick={() => setPage(lastPage)} aria-label="Last page">»</button>
       </div>
     </div>}
+
+    {serverMode && <Pagination meta={meta} onPage={onPage}/>}
   </div>;
 }
 
