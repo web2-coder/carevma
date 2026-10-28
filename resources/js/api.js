@@ -238,7 +238,10 @@ api.interceptors.response.use(
     /*
      * Show friendly API error.
      */
-    const message = messageFrom(error);
+    // Callers that pass carevmaSilent own their own error handling. The auth probe
+    // on first load (/me) is the case that matters: a visitor who has never signed
+    // in gets a 401 there, and "your session has expired" is simply wrong for them.
+    const message = error?.config?.carevmaSilent === true ? '' : messageFrom(error);
 
     if (message) {
       emitToast(
