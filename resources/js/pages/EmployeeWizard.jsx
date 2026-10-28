@@ -7,7 +7,8 @@ import {
 } from 'lucide-react';
 import api, { messageFrom } from '../api';
 import { useAuth } from '../context/AuthContext';
-import { Button, Card, Input, Notice, Select, Textarea } from '../components/ui';
+import { Button, Card, Input, Select, Textarea } from '../components/ui';
+import { emitToast } from '../feedback';
 import TimezonePicker from '../components/TimezonePicker';
 import SalaryConverter from '../components/SalaryConverter';
 
@@ -38,7 +39,6 @@ export default function EmployeeWizardPage() {
   const [form, setForm] = useState(emptyEmployee);
   const [options, setOptions] = useState({});
   const [errors, setErrors] = useState({});
-  const [notice, setNotice] = useState(null);
   const [busy, setBusy] = useState(false);
   const [profilePicture, setProfilePicture] = useState(null);
   const [documents, setDocuments] = useState([]);
@@ -47,7 +47,7 @@ export default function EmployeeWizardPage() {
   useEffect(() => {
     api.get('/management/options')
       .then(({data}) => setOptions(data))
-      .catch(error => { const message=messageFrom(error); if(message) setNotice({type:'error', text:message}); });
+      .catch(error => emitToast(messageFrom(error), 'error'));
   }, []);
 
   const set = (key, value) => {
@@ -75,7 +75,7 @@ export default function EmployeeWizardPage() {
     for (let i = 0; i < target; i += 1) {
       if (!validateStep(i)) {
         setStep(i);
-        setNotice({type:'error', text:`Complete the required fields in ${steps[i].label} before continuing.`});
+        emitToast(`Complete the required fields in ${steps[i].label} before continuing.`, 'error');
         return false;
       }
     }
@@ -84,7 +84,6 @@ export default function EmployeeWizardPage() {
 
   const goTo = target => {
     if (canReach(target)) {
-      setNotice(null);
       setStep(target);
       window.scrollTo({top:0, behavior:'smooth'});
     }
@@ -92,10 +91,9 @@ export default function EmployeeWizardPage() {
 
   const next = () => {
     if (!validateStep(step)) {
-      setNotice({type:'error', text:'Please complete the required fields before moving to the next step.'});
+      emitToast('Please complete the required fields before moving to the next step.', 'error');
       return;
     }
-    setNotice(null);
     setStep(current => Math.min(current + 1, steps.length - 1));
   };
 
@@ -103,7 +101,7 @@ export default function EmployeeWizardPage() {
     for (let i = 0; i < steps.length; i += 1) {
       if (!validateStep(i)) {
         setStep(i);
-        setNotice({type:'error', text:`Complete the required fields in ${steps[i].label}.`});
+        emitToast(`Complete the required fields in ${steps[i].label}.`, 'error');
         return;
       }
     }
@@ -116,7 +114,6 @@ export default function EmployeeWizardPage() {
     documents.forEach(file => payload.append('upload_documents[]', file));
 
     setBusy(true);
-    setNotice(null);
     try {
       const {data} = await api.post('/management/employees', payload);
       setResult(data);
@@ -136,7 +133,7 @@ export default function EmployeeWizardPage() {
         setStep(stepMap[firstKey] ?? 0);
         setErrors(current => ({...current, ...Object.fromEntries(Object.entries(responseErrors).map(([k,v]) => [k, Array.isArray(v) ? v[0] : v]))}));
       }
-      { const message=messageFrom(error); if(message) setNotice({type:'error', text:message}); }
+      emitToast(messageFrom(error), 'error');
     } finally {
       setBusy(false);
     }
@@ -145,7 +142,7 @@ export default function EmployeeWizardPage() {
   const copyInvite = async () => {
     if (!result?.activation_url) return;
     await navigator.clipboard.writeText(result.activation_url);
-    setNotice({type:'success', text:'Activation link copied.'});
+    emitToast('Activation link copied.', 'success');
   };
 
   const completion = useMemo(() => steps.map((_, index) => index < step), [step]);
@@ -160,7 +157,6 @@ export default function EmployeeWizardPage() {
           ? `An activation email was sent to ${form.email}. The VA will choose their own password.`
           : `The account was created, but email delivery did not complete. Copy the activation link and send it securely to ${form.email}.`}</p>
         {result.activation_url && <div className="invite-link-box"><code>{result.activation_url}</code><Button variant="secondary" icon={ClipboardCopy} onClick={copyInvite}>Copy link</Button></div>}
-        {notice && <Notice type={notice.type}>{notice.text}</Notice>}
         <div className="wizard-success-actions">
           <Button variant="secondary" onClick={() => navigate(`${base}/employees`)}>Employees</Button>
           <Button onClick={() => { setResult(null); setForm(emptyEmployee); setStep(0); setProfilePicture(null); setDocuments([]); }}>Add another VA</Button>
@@ -179,7 +175,6 @@ export default function EmployeeWizardPage() {
       <Link className="btn btn-ghost btn-link" to={`${base}/employees`}>Employees</Link>
     </div>
 
-    {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
 
     <div className="employee-wizard-layout carevma-onboarding-shell">
       <aside className="employee-wizard-steps" aria-label="Employee onboarding steps">

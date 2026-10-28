@@ -17,13 +17,13 @@ import {
   UsersRound,
 } from 'lucide-react';
 import api, { messageFrom } from '../api';
+import { emitToast } from '../feedback';
 import {
   Badge,
   Button,
   Card,
   Input,
   Loading,
-  Notice,
   Pagination,
   Select,
   Table,
@@ -154,7 +154,6 @@ export default function ClientProfilePage() {
   const [schedules, setSchedules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState(null);
 
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleSearch, setScheduleSearch] = useState('');
@@ -174,7 +173,7 @@ export default function ClientProfilePage() {
   const [reportLoading, setReportLoading] = useState(false);
   const [reportFilters, setReportFilters] = useState({ employee_id: '', from: '', to: '', search: '' });
 
-  const notify = (type, text) => { if (text) setNotice({ type, text }); };
+  const notify = (type, text) => emitToast(text, type);
 
   const goTab = (tabKey) => {
     const tab = TABS.find(item => item.key === tabKey) || TABS[0];
@@ -861,7 +860,6 @@ export default function ClientProfilePage() {
         </div>
       </div>
 
-      {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
 
       <div className="client-profile-shell">
         <aside className="client-profile-tabs" aria-label="Client profile sections">

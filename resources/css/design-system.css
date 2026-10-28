@@ -342,6 +342,20 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
 .notice { border: 0; border-radius: var(--radius-field); font-size: .75rem; }
 .notice-success { background: var(--success-soft); color: var(--success); }
 .notice-error { background: var(--danger-soft); color: var(--danger); }
+
+/* Toasts: page feedback goes through the global toast host, not inline banners */
+.carevma-toast-stack { top: 6.75rem; right: 1.5rem; gap: .625rem; }
+.carevma-toast { padding: .75rem .875rem; border: 1px solid var(--border); border-radius: var(--radius-card); box-shadow: var(--shadow-raised); color: var(--foreground); font-size: .8125rem; font-weight: 500; line-height: 1.45; animation: toast-in .2s ease-out; }
+.carevma-toast > svg { flex: none; box-sizing: content-box; width: 18px; height: 18px; padding: 7px; border-radius: var(--radius-pill); }
+.carevma-toast-success > svg { background: var(--success-soft); color: var(--success); }
+.carevma-toast-error > svg { background: var(--danger-soft); color: var(--danger); }
+.carevma-toast-warning > svg { background: var(--warning-soft); color: var(--warning); }
+.carevma-toast-info > svg { background: var(--primary-soft); color: var(--primary); }
+.carevma-toast button { padding: 4px; border-radius: var(--radius-pill); color: var(--muted-foreground); }
+.carevma-toast button:hover { background: var(--surface-2); color: var(--foreground); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } }
+@media (prefers-reduced-motion: reduce) { .carevma-toast { animation: none; } }
+@media (max-width: 640px) { .carevma-toast-stack { top: 5.25rem; right: 1rem; } }
 .empty-mark { background: var(--primary-soft); color: var(--primary); }
 .empty-state h3 { font-size: .8125rem; color: var(--foreground); }
 .empty-state p { font-size: .75rem; color: var(--muted-foreground); }

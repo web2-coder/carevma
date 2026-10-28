@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { LoaderCircle, Search, X, CheckCircle2, AlertCircle } from 'lucide-react';
 import { formatDateTime, formatTime24 } from '../timezone';
+import { emitToast } from '../feedback';
 
 
 function normalizeMediaSrc(value) {
@@ -89,6 +90,9 @@ export function EmptyState({ title = 'Nothing here yet', description = 'No recor
   return <div className="empty-state"><div className="empty-mark">✦</div><h3>{title}</h3><p>{description}</p></div>;
 }
 export function Loading() { return <div className="screen-loader"><LoaderCircle className="spin"/><span>Loading CareVMA…</span></div>; }
+const toastNotice = { success: text => emitToast(text, 'success'), error: text => emitToast(text, 'error') };
+export function useNotice() { return toastNotice; }
+
 export function Notice({ type = 'success', children, onClose }) {
   return <div className={`notice notice-${type}`}>{type === 'success' ? <CheckCircle2 size={18}/> : <AlertCircle size={18}/>}<span>{children}</span>{onClose && <button onClick={onClose}><X size={15}/></button>}</div>;
 }

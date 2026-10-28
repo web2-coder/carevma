@@ -50,10 +50,6 @@
   min-width: 112px;
 }
 
-.employee-wizard-page.carevma-onboarding > .notice {
-  margin-bottom: 18px;
-}
-
 .employee-wizard-page.carevma-onboarding .carevma-onboarding-shell {
   display: grid;
   grid-template-columns: 250px minmax(0, 1fr);
