@@ -874,7 +874,12 @@ class AdminApiController extends Controller
             default => [$anchor->copy()->startOfMonth(), $anchor->copy()->endOfMonth()],
         };
 
-        $daily = $this->financeDailySeries($from, $to);
+        // The day view's trend is the week ending on the anchor, so load that whole
+        // window. financeSummaryFromDaily still filters the summary to $from..$to, so
+        // the day's own figures are unaffected. Previously the series covered only the
+        // anchor day and the six earlier points in the trend were always zero.
+        $seriesFrom = $view === 'day' ? $anchor->copy()->subDays(6)->startOfDay() : $from;
+        $daily = $this->financeDailySeries($seriesFrom, $to);
         $summary = $this->financeSummaryFromDaily($daily, $from, $to);
 
         if ($view === 'year') {
@@ -890,14 +895,13 @@ class AdminApiController extends Controller
                 return ['label' => (string) $day, 'income' => $snapshot['incoming'], 'outgoing' => $snapshot['outgoing'], 'net' => $snapshot['net']];
             });
         } else {
+            // range(6, 0) already ends on the anchor day; the extra push() that used to
+            // follow drew today twice and made this a seven-day chart with eight points.
             $trend = collect(range(6, 0))->map(function ($offset) use ($anchor, $daily) {
                 $point = $anchor->copy()->subDays($offset);
                 $snapshot = $daily[$point->toDateString()] ?? $this->emptyFinanceSnapshot();
                 return ['label' => $point->format('D'), 'income' => $snapshot['incoming'], 'outgoing' => $snapshot['outgoing'], 'net' => $snapshot['net']];
-            })->push((function () use ($anchor, $daily) {
-                $snapshot = $daily[$anchor->toDateString()] ?? $this->emptyFinanceSnapshot();
-                return ['label' => $anchor->format('D'), 'income' => $snapshot['incoming'], 'outgoing' => $snapshot['outgoing'], 'net' => $snapshot['net']];
-            })());
+            });
         }
 
         $entries = Schema::hasTable('company_finance_entries')
