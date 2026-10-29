@@ -358,6 +358,7 @@ export function SchedulesPage(){
  const formatMoment=(value,timeZone)=>formatDateTime(value,timeZone||'UTC',{weekday:'short',year:undefined});
  const formatTime=(value,timeZone)=>formatTimeInZone(value,timeZone||'UTC');
  const doctorRange=row=>{const tz=row.client_timezone||row.client?.timezone;if(!row.client_shift_starts_at||!row.client_shift_ends_at||!tz)return 'Saved after timezone sync';return `${formatMoment(row.client_shift_starts_at,tz)} – ${formatTime(row.client_shift_ends_at,tz)}`};
+ const vaRange=row=>{const tz=row.employee_timezone||row.employee?.timezone;if(!row.shift_starts_at||!row.shift_ends_at||!tz)return 'Saved after timezone sync';return `${formatMoment(row.shift_starts_at,tz)} – ${formatTime(row.shift_ends_at,tz)} · ${tz}`};
 
  const load=async(nextPage=page)=>{setBusy(true);try{const [r,o]=await Promise.all([api.get('/management/schedules',{params:{paginate:1,page:nextPage,per_page:10}}),api.get('/management/options')]);setRows(r.data?.data||[]);setMeta(r.data||null);setOptions(o.data||{})}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
  useEffect(()=>{load(page)},[page]);
@@ -400,6 +401,7 @@ export function SchedulesPage(){
    {key:'weekday',label:'Doctor day'},
    {key:'schedule_type',label:'Type',render:r=>r.repeat?<Badge tone="info">Weekly</Badge>:<Badge tone="neutral">{r.schedule_date?`Once · ${String(r.schedule_date).slice(0,10)}`:'Legacy weekly'}</Badge>},
    {key:'doctor_shift',label:'Doctor local shift',render:r=>`${formatStoredTime12(r.start_time)} – ${formatStoredTime12(r.end_time)}`},
+   {key:'va_local_shift',label:'VA local shift',render:r=>vaRange(r)},
    {key:'doctor_timezone',label:'Doctor timezone',render:r=>r.client_timezone||r.client?.timezone||r.timezone||'Not specified'},
    {key:'doctor_break',label:'Doctor break',render:r=><Badge tone="info">{breakCodeText(r.break_allowed_hours)}</Badge>},
    {key:'hours',label:'Duration (H.MM)',render:r=><strong>{formatDurationHM(r.no_of_hours)}</strong>},
@@ -408,7 +410,7 @@ export function SchedulesPage(){
  ];
 
  return <>
-   <PageHeader eyebrow="Assignment planning" title="Schedules" description="Enter and display the shift in the Client / Doctor timezone. CareVMA uses that timezone consistently for check-in, lateness, overtime and VMA views." actions={<Button icon={Plus} onClick={()=>open()}>Add schedule</Button>}/>
+   <PageHeader eyebrow="Assignment planning" title="Schedules" description="Doctor time remains the calculation source. VA local shift is shown only as a converted reference for Admin / HR and the assigned VA." actions={<Button icon={Plus} onClick={()=>open()}>Add schedule</Button>}/>
    <NoticeBar notice={n.notice} clear={n.clear}/>
    <Card>{busy&&!rows.length?<Loading/>:<><Table columns={columns} rows={rows} emptyTitle="No schedules configured"/><Pagination meta={meta} onPage={setPage}/></>}</Card>
    <Modal open={modal} onClose={()=>setModal(false)} title={edit?'Edit schedule':'New schedule'} footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={save}>Save schedule</Button></>}>

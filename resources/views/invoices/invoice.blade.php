@@ -87,8 +87,6 @@
             <tr>
                 <th>VA Name</th>
                 <th>Worked Time</th>
-                <th>Break Time</th>
-                <th>Work + Break</th>
                 <th>Rate/h</th>
                 <th>From</th>
                 <th>To</th>
@@ -100,9 +98,6 @@
             @php
                 $rate = isset($clientEmployeeRates[$salary->employee_id]) ? $clientEmployeeRates[$salary->employee_id]->per_hour_rate : 0;
                 $workedMinutes = max(0, (int) round(((float) $salary->total_hours) * 60));
-                $breakSeconds = (int) $salary->employee->attendances->sum(fn ($attendance) => max(0, (int) ($attendance->break_taken ?? 0)));
-                $breakMinutes = (int) round($breakSeconds / 60);
-                $workPlusBreakMinutes = $workedMinutes + $breakMinutes;
                 $formatMinutes = function (int $minutes): string {
                     $minutes = max(0, $minutes);
                     $hours = intdiv($minutes, 60);
@@ -113,8 +108,6 @@
             <tr>
                 <td>{{ $salary->employee->first_name }} {{ $salary->employee->last_name }}</td>
                 <td>{{ $formatMinutes($workedMinutes) }}</td>
-                <td>{{ $formatMinutes($breakMinutes) }}</td>
-                <td><strong>{{ $formatMinutes($workPlusBreakMinutes) }}</strong></td>
                 <td>${{ number_format($rate, 2) }}</td>
                 <td>{{ \Carbon\Carbon::parse($salary->period_start)->format('d-M') }}</td>
                 <td>{{ \Carbon\Carbon::parse($salary->period_end)->format('d-M') }}</td>
@@ -122,7 +115,7 @@
             </tr>
         @endforeach
             <tr class="subtotal-row">
-                <td colspan="7" class="text-right">Attendance / Salary Subtotal</td>
+                <td colspan="5" class="text-right">Attendance / Salary Subtotal</td>
                 <td class="text-right">${{ number_format($baseSubtotal, 2) }}</td>
             </tr>
         </tbody>
@@ -198,7 +191,7 @@
             <table>
                 <thead>
                     <tr>
-                        <th>Date</th><th>Clock In</th><th>Clock Out</th><th>Worked Time</th><th>Break Time</th><th>Work + Break</th><th>Late (mins)</th><th>Overtime (mins)</th>
+                        <th>Date</th><th>Clock In</th><th>Clock Out</th><th>Worked Time</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -217,30 +210,15 @@
                             $minutes = max(0, (int) $clockInLocal->copy()->startOfMinute()->diffInMinutes($clockOutLocal->copy()->startOfMinute()));
                             $workedHours = $minutes . ' min';
                         }
-                        $workedMinutesValue = max(0, (int) ($attendance->total_minutes ?? 0));
-                        $breakMinutesValue = max(0, (int) round(((int) ($attendance->break_taken ?? 0)) / 60));
-                        $workPlusBreakMinutes = $workedMinutesValue + $breakMinutesValue;
-                        $formatAttendanceMinutes = function (int $minutes): string {
-                            $minutes = max(0, $minutes);
-                            $hours = intdiv($minutes, 60);
-                            $mins = $minutes % 60;
-                            return $hours > 0 ? sprintf('%dh %02dm', $hours, $mins) : sprintf('%dm', $mins);
-                        };
-                        $lateMinutes = (int) ($attendance->late_minutes ?? 0);
-                        $overtimeMinutes = (int) ($attendance->approved_overtime_minutes ?? $attendance->overtime ?? 0);
                     @endphp
                     <tr>
                         <td>{{ $attendanceDate }}</td>
                         <td>{{ $clockIn }}</td>
                         <td>{{ $clockOut }}</td>
                         <td>{{ $workedHours }}</td>
-                        <td>{{ $formatAttendanceMinutes($breakMinutesValue) }}</td>
-                        <td><strong>{{ $formatAttendanceMinutes($workPlusBreakMinutes) }}</strong></td>
-                        <td>{{ $lateMinutes > 0 ? $lateMinutes : '-' }}</td>
-                        <td>{{ $overtimeMinutes > 0 ? $overtimeMinutes : '-' }}</td>
                     </tr>
                 @empty
-                    <tr><td colspan="8" class="text-center">No attendance records found for this period</td></tr>
+                    <tr><td colspan="4" class="text-center">No attendance records found for this period</td></tr>
                 @endforelse
                 </tbody>
             </table>
