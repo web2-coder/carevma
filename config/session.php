@@ -26,7 +26,10 @@ $sessionDomain = $normalizedSessionDomain !== '' ? $normalizedSessionDomain : nu
 if ($sessionDomain && $appHost) {
     $domainOwnsAppHost = $sessionDomain === $appHost || str_ends_with($appHost, '.'.$sessionDomain);
     if (!$domainOwnsAppHost) {
-        $sessionDomain = $appHost;
+        // Invalid SESSION_DOMAIN must not produce a Domain cookie. A host-only
+        // cookie is safer and also avoids collisions with stale parent-domain
+        // cookies left by earlier deployments.
+        $sessionDomain = null;
     }
 }
 
@@ -157,7 +160,7 @@ return [
 
     'cookie' => env(
         'SESSION_COOKIE',
-        Str::slug(env('APP_NAME', 'laravel')).'-session'
+        'carevma_portal_session_v2'
     ),
 
     /*

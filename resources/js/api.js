@@ -29,24 +29,18 @@ const api = axios.create({
 // Keep CSRF dynamic. Laravel regenerates the session token on logout and some
 // security-sensitive session changes, so a token captured only once at boot can
 // become stale and cause 419 / TokenMismatchException errors.
-let runtimeCsrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+let runtimeCsrfToken = '';
 let csrfRefreshPromise = null;
 
-function cookieValue(name) {
-  if (typeof document === 'undefined') return '';
-  const prefix = `${name}=`;
-  const part = document.cookie.split('; ').find(item => item.startsWith(prefix));
-  return part ? decodeURIComponent(part.slice(prefix.length)) : '';
-}
 
 async function refreshCsrfToken({ force = false } = {}) {
-  if (!force) {
-    const currentCookie = cookieValue('XSRF-TOKEN');
-    if (currentCookie) return currentCookie;
-  }
-
+  if (!force && runtimeCsrfToken) return runtimeCsrfToken;
   if (csrfRefreshPromise) return csrfRefreshPromise;
 
+  // Use the token returned by Laravel for the CURRENT session instead of
+  // reading XSRF-TOKEN from document.cookie. Old deployments may have left
+  // duplicate XSRF cookies with different Domain attributes; browsers can
+  // expose the stale one first and cause a permanent 419 loop.
   csrfRefreshPromise = axios.get('/api/csrf-token', {
     withCredentials: true,
     headers: {
@@ -56,8 +50,11 @@ async function refreshCsrfToken({ force = false } = {}) {
       Pragma: 'no-cache',
     },
   }).then(response => {
-    runtimeCsrfToken = String(response?.data?.token || runtimeCsrfToken || '');
-    return cookieValue('XSRF-TOKEN') || runtimeCsrfToken;
+    runtimeCsrfToken = String(response?.data?.token || '');
+    if (!runtimeCsrfToken) {
+      throw new Error('Laravel did not return a CSRF token for the current session.');
+    }
+    return runtimeCsrfToken;
   }).finally(() => {
     csrfRefreshPromise = null;
   });
@@ -141,21 +138,9 @@ api.interceptors.request.use(
     ).toLowerCase();
 
     if (!['get', 'head', 'options'].includes(method)) {
-      let xsrfCookie = cookieValue('XSRF-TOKEN');
-
-      // A fresh browser/tab can legitimately have no XSRF cookie yet. Prime it
-      // before the first write instead of allowing the first POST to fail 419.
-      if (!xsrfCookie) {
-        await refreshCsrfToken();
-        xsrfCookie = cookieValue('XSRF-TOKEN');
-      }
-
-      if (xsrfCookie) {
-        config.headers['X-XSRF-TOKEN'] = xsrfCookie;
-        delete config.headers['X-CSRF-TOKEN'];
-      } else if (runtimeCsrfToken) {
-        config.headers['X-CSRF-TOKEN'] = runtimeCsrfToken;
-      }
+      const token = await refreshCsrfToken();
+      delete config.headers['X-XSRF-TOKEN'];
+      config.headers['X-CSRF-TOKEN'] = token;
     }
 
     const navigationActive =
@@ -265,10 +250,7 @@ api.interceptors.response.use(
           delete retry.headers['X-XSRF-TOKEN'];
           delete retry.headers['X-CSRF-TOKEN'];
 
-          const xsrfCookie = cookieValue('XSRF-TOKEN');
-          if (xsrfCookie) {
-            retry.headers['X-XSRF-TOKEN'] = xsrfCookie;
-          } else if (token) {
+          if (token) {
             retry.headers['X-CSRF-TOKEN'] = token;
           }
 
@@ -405,7 +387,7 @@ export const messageFrom = error => {
   }
 
   if (status === 419) {
-    return 'Your session could not be validated. Please sign in again.';
+    return 'Your secure session could not be renewed. Please sign in again.';
   }
 
   if (status === 422) {
