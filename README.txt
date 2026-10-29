@@ -1,14 +1,22 @@
-CareVMA Final Doctor/VA Timezone Consistency Patch
+CareVMA Resend Blank Screen Fix - 2026-10-28
 
-Rules:
-- Client/Doctor IANA timezone is the schedule/check-in/late/overtime calculation source.
-- VA sees the same absolute shift converted to the VA's own timezone.
-- Dashboard shows next shift with Doctor time, VA time, Doctor check-in opening, and VA-local check-in opening.
-- Check-in button availability is based on the Doctor-local schedule instant, so VA sees it at the correct converted local time.
-- Invoice attendance timestamps remain Client/Doctor timezone based.
-- DST is handled by IANA timezones such as America/New_York.
+Replace only:
+resources/js/pages/Management.jsx
 
-Apply at project root, overwrite files, then run:
-php artisan optimize:clear
-npm run build
-php artisan serve
+Fix:
+- Employee Resend Activation no longer toggles the page-wide busy/loading state.
+- Keeps Employees dashboard rendered while the POST request runs.
+- Safely reads activation_url / invitation_sent from the API response.
+- Shows the generated activation link card even when SMTP delivery fails.
+- Does not change SMTP, backend routes, database, sessions, or other project files.
+
+After replacing locally:
+  npm run build
+  git add resources/js/pages/Management.jsx public/build
+  git commit -m "Fix resend activation blank screen"
+  git push origin main
+
+On live server:
+  cd /home/u671369435/domains/carevma.com/public_html/app
+  git pull origin main
+  php artisan view:clear
