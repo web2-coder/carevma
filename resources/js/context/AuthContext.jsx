@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import api from '../api';
+import api, { primeCsrf } from '../api';
 
 const AuthContext = createContext(null);
 
@@ -28,13 +28,24 @@ export function AuthProvider({ children }) {
   }, []);
 
   const login = async values => {
+    // Login must start from a CSRF token tied to the current session cookie.
+    // Doing this explicitly prevents the recurring 419 / refresh-required loop.
+    await primeCsrf();
     const { data } = await api.post('/login', values);
     setUser(data.user);
     return data;
   };
 
   const logout = async () => {
-    try { await api.post('/logout'); } finally { setUser(null); }
+    try {
+      await api.post('/logout');
+    } finally {
+      setUser(null);
+      // Laravel invalidates the session and rotates its CSRF token on logout.
+      // Prepare the guest session immediately so the next login works without
+      // a hard browser refresh.
+      primeCsrf().catch(() => {});
+    }
   };
 
   const value = useMemo(() => ({ user, loading, login, logout, refresh, setUser }), [user, loading]);

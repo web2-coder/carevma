@@ -1,4 +1,6 @@
 CAREVMA_FINAL_PATCH_README.md
+CAREVMA_SESSION_FIX_README.md
+CHANGED_FILES.txt
 app/Console/Commands/GenerateMonthlyInvoices.php
 app/Http/Controllers/Api/AdminApiController.php
 app/Http/Controllers/Api/AuthApiController.php
@@ -21,7 +23,9 @@ app/Services/InvoiceGenerator.php
 app/Services/InvoicePdfService.php
 app/Services/MailDeliveryService.php
 app/Services/OperationalNotifier.php
+bootstrap/app.php
 config/mail.php
+config/session.php
 database/migrations/2026_10_28_100000_add_billing_cycle_month_and_notebook_documents.php
 database/migrations/2026_10_28_110000_create_birthday_wishes_table.php
 database/migrations/2026_10_28_111000_add_birthday_popup_seen_date_to_users.php
@@ -41,6 +45,7 @@ resources/js/components/BirthdayBanner.jsx
 resources/js/components/BirthdayPopup.jsx
 resources/js/components/LiveNavbarClock.jsx
 resources/js/components/ui.jsx
+resources/js/context/AuthContext.jsx
 resources/js/pages/ClientProfile.jsx
 resources/js/pages/Doctor.jsx
 resources/js/pages/Employee.jsx

@@ -22,7 +22,12 @@ Route::prefix('api')->group(function () {
     Route::post('/login', [AuthApiController::class, 'login'])->middleware('guest');
     Route::post('/forgot-password', [AuthApiController::class, 'forgot'])->middleware('guest');
     Route::post('/reset-password', [AuthApiController::class, 'reset'])->middleware('guest');
-    Route::get('/csrf-token', fn (\Illuminate\Http\Request $request) => response()->json(['token' => $request->session()->token()]));
+    Route::get('/csrf-token', function (\Illuminate\Http\Request $request) {
+        return response()
+            ->json(['token' => $request->session()->token()])
+            ->header('Cache-Control', 'no-store, no-cache, must-revalidate, private')
+            ->header('Pragma', 'no-cache');
+    });
 
     Route::middleware(['auth', OperationalActivityNotifier::class])->group(function () {
         Route::get('/me', [AuthApiController::class, 'me']);

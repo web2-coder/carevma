@@ -111,3 +111,10 @@ This replace patch also applies the following portal requirements:
 - Legacy employee document-upload endpoints/routes are disabled so the removed UI cannot be bypassed through the old self-service flow.
 
 No `.env`, passwords, SMTP credentials, `vendor`, or `node_modules` are included in this patch.
+
+
+## Session / CSRF hotfix
+- Fixed repeated 419 / TokenMismatch login loop.
+- Added CSRF preflight before login and automatic single retry after token rotation.
+- Added safe session-domain fallback when SESSION_DOMAIN cannot own APP_URL.
+- IMPORTANT: live `.env` must use `SESSION_DOMAIN=app.carevma.com` (the uploaded environment had `app.carevma.com8`).
