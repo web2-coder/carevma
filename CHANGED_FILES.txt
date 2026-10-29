@@ -1,4 +1,0 @@
-app/Http/Controllers/Api/DoctorApiController.php
-resources/js/pages/Doctor.jsx
-resources/views/invoices/invoice.blade.php
-CAREVMA_DOCTOR_VA_STATUS_PDF_FIX_README.md

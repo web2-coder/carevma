@@ -616,9 +616,10 @@ class AdminApiController extends Controller
         return response()->json([
             'message' => $invite['sent']
                 ? 'Client / Doctor created and password setup invitation sent.'
-                : 'Client / Doctor created. Email delivery failed; check SMTP settings and resend the invitation.',
+                : 'Client / Doctor created. Email delivery failed; use the activation link below or resend the invitation.',
             'client' => $client->fresh(),
             'invitation_sent' => $invite['sent'],
+            'activation_url' => $invite['url'],
         ], 201);
     }
 
@@ -632,8 +633,9 @@ class AdminApiController extends Controller
         return response()->json([
             'message' => $invite['sent']
                 ? 'Client / Doctor password setup invitation sent again.'
-                : ($invite['error'] ?? 'Email delivery failed. Check the Laravel mail log and SMTP settings, then try again.'),
+                : ($invite['error'] ?? 'Email delivery failed. Use the activation link below or check SMTP settings.'),
             'invitation_sent' => $invite['sent'],
+            'activation_url' => $invite['url'],
         ]);
     }
 

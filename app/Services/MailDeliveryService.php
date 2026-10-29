@@ -26,18 +26,18 @@ class MailDeliveryService
             return ['sent' => false, 'error' => 'Recipient email is missing.'];
         }
 
+        // Critical invitation / invoice mail is sent immediately, just like the
+        // original working CareVMA flow. Do not reserve a filesystem/provider
+        // slot here: that regression could delay or block one-off activation
+        // emails. Only retry when the SMTP provider explicitly rate-limits us.
         for ($attempt = 1; $attempt <= 3; $attempt++) {
             try {
-                $delaySeconds = $this->reserveDeliverySlot();
-                if ($delaySeconds > 0) {
-                    sleep($delaySeconds);
-                }
-
                 Mail::to($recipient)->send($mailable);
+
                 return ['sent' => true, 'error' => null];
             } catch (\Throwable $e) {
                 if ($attempt < 3 && $this->looksRateLimited($e->getMessage())) {
-                    // Reserve a brand-new provider slot before the next attempt.
+                    sleep($attempt * 2);
                     continue;
                 }
 
