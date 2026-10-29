@@ -44,9 +44,8 @@ class OperationalActivityNotifier
         $title = $this->titleFor($request);
         $relatedRecipients = $this->relatedRecipients($request, $payload);
 
-        // Account creation already sends one dedicated activation email to the new
-        // VA or Client/Doctor. Do not send that new account a second generic activity
-        // email. Admins still receive the operational copy through operationsUsers().
+        // Notifications are recipient-scoped: never echo an admin/HR action back to
+        // the actor and never fan it out to unrelated operations users.
         if ($request->is('api/management/employees') && $request->isMethod('post')) {
             $relatedRecipients = $relatedRecipients->reject(fn ($user) => $user?->role === 'employee');
         }
@@ -55,9 +54,7 @@ class OperationalActivityNotifier
         }
 
         $recipients = $relatedRecipients
-            ->merge($this->notifier->operationsUsers())
-            ->push($actor)
-            ->filter(fn ($user) => $user instanceof User)
+            ->filter(fn ($user) => $user instanceof User && $user->id !== $actor->id)
             ->unique('id')
             ->values();
 
@@ -90,13 +87,13 @@ class OperationalActivityNotifier
             if ($parameter instanceof Employee) $users->push($parameter->user);
             if ($parameter instanceof Client) $users->push($parameter->user);
             if ($parameter instanceof EmployeeClientSchedule) {
-                $users->push($parameter->employee?->user, $parameter->client?->user);
+                $users->push($parameter->employee?->user);
             }
             if ($parameter instanceof Attendance) {
-                $users->push($parameter->employee?->user, $parameter->client?->user);
+                $users->push($parameter->employee?->user);
             }
             if ($parameter instanceof AttendanceChangeRequest) {
-                $users->push($parameter->employee?->user, $parameter->attendance?->client?->user);
+                $users->push($parameter->employee?->user);
             }
         }
 
@@ -108,30 +105,30 @@ class OperationalActivityNotifier
             if ($key === 'client' && !empty($item['id'])) $users->push(Client::find($item['id'])?->user);
             if ($key === 'schedule' && !empty($item['id'])) {
                 $schedule = EmployeeClientSchedule::find($item['id']);
-                $users->push($schedule?->employee?->user, $schedule?->client?->user);
+                $users->push($schedule?->employee?->user);
             }
             if ($key === 'attendance' && !empty($item['id'])) {
                 $attendance = Attendance::find($item['id']);
-                $users->push($attendance?->employee?->user, $attendance?->client?->user);
+                $users->push($attendance?->employee?->user);
             }
             if ($key === 'request' && !empty($item['id'])) {
                 $change = AttendanceChangeRequest::find($item['id']);
-                $users->push($change?->employee?->user, $change?->attendance?->client?->user);
+                $users->push($change?->employee?->user);
             }
             if ($key === 'break' && !empty($item['id'])) {
                 $break = EmployeeBreak::find($item['id']);
-                $users->push($break?->attendance?->employee?->user, $break?->attendance?->client?->user);
+                $users->push($break?->attendance?->employee?->user);
             }
         }
 
         // Creation endpoints can identify related records only by submitted IDs.
         if ($request->filled('employee_id')) $users->push(Employee::find($request->integer('employee_id'))?->user);
-        if ($request->filled('client_id') && !str_contains($request->path(), 'invoices')) {
+        if ($request->filled('client_id') && str_contains($request->path(), 'clients') && !str_contains($request->path(), 'invoices')) {
             $users->push(Client::find($request->integer('client_id'))?->user);
         }
         if ($request->filled('schedule_id')) {
             $schedule = EmployeeClientSchedule::find($request->integer('schedule_id'));
-            $users->push($schedule?->employee?->user, $schedule?->client?->user);
+            $users->push($schedule?->employee?->user);
         }
 
         return $users->filter(fn ($user) => $user instanceof User)->unique('id')->values();
@@ -143,7 +140,11 @@ class OperationalActivityNotifier
             'api/logout',
             'api/notifications/read-all',
             'api/notifications/*/read',
-            'api/management/notifications/read-all'
+            'api/management/notifications/read-all',
+            'api/management/schedules/batch',
+            'api/birthday-popup/seen',
+            'api/admin/invoices/*/send',
+            'api/employee/birthday-wishes/*'
         );
     }
 

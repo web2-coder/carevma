@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Employee;
+use App\Models\BirthdayWish;
 use App\Services\TrustedTimeService;
 use App\Services\BirthdayReminderService;
 use App\Services\ClientTimezoneService;
@@ -65,6 +66,16 @@ class AuthApiController extends Controller
             'source' => $this->clock->source(),
             'timezone' => $this->assignedTimezone($request->user()->loadMissing(['employee', 'client'])),
         ]);
+    }
+
+    public function markBirthdayPopupSeen(Request $request)
+    {
+        $user = $request->user()->loadMissing(['employee', 'client']);
+        $timezone = $this->assignedTimezone($user);
+        $date = $this->clock->now($timezone)->toDateString();
+        $user->forceFill(['birthday_popup_seen_date' => $date])->save();
+
+        return response()->json(['message' => 'Birthday popup marked as shown.', 'date_key' => $date]);
     }
 
     public function logout(Request $request)
@@ -165,77 +176,127 @@ class AuthApiController extends Controller
 
     private function birthdayPayload(User $user, string $assignedTimezone): array
     {
+        $today = $this->clock->now($assignedTimezone);
+        $dateKey = $today->toDateString();
+        $birthdays = Employee::query()
+            ->whereNotNull('date_of_birth')
+            ->get(['id', 'user_id', 'first_name', 'last_name', 'date_of_birth', 'timezone', 'profile_picture'])
+            ->filter(function (Employee $employee) use ($today) {
+                $birthDate = $employee->date_of_birth;
+                return $birthDate
+                    && (int) $birthDate->format('m') === (int) $today->format('m')
+                    && (int) $birthDate->format('d') === (int) $today->format('d');
+            })
+            ->values();
+
+        $selfEmployeeId = $user->role === 'employee' ? $user->employee?->id : null;
+        $sentIds = collect();
+        $received = collect();
         if ($user->role === 'employee') {
-            $employee = $user->employee;
-            $now = $this->clock->now($assignedTimezone);
-            $birthDate = $employee?->date_of_birth;
-            $isToday = $birthDate
-                ? ((int) $birthDate->format('m') === (int) $now->format('m')
-                    && (int) $birthDate->format('d') === (int) $now->format('d'))
-                : false;
+            $sentIds = BirthdayWish::query()
+                ->where('sender_user_id', $user->id)
+                ->whereDate('birthday_date', $dateKey)
+                ->pluck('recipient_employee_id');
 
-            return [
-                'today' => $isToday,
-                'date_key' => $now->toDateString(),
-                'employees' => $isToday && $employee ? [[
-                    'id' => $employee->id,
-                    'name' => trim($employee->first_name.' '.$employee->last_name),
-                    'timezone' => $assignedTimezone,
-                    'profile_picture' => $employee->profile_picture,
-                    'age' => max(0, $now->year - (int) $birthDate->format('Y')),
-                ]] : [],
-            ];
+            if ($selfEmployeeId && $birthdays->contains('id', $selfEmployeeId)) {
+                $received = BirthdayWish::query()
+                    ->with('sender:id,name,profile_picture')
+                    ->where('recipient_employee_id', $selfEmployeeId)
+                    ->whereDate('birthday_date', $dateKey)
+                    ->latest('id')
+                    ->get()
+                    ->map(fn (BirthdayWish $wish) => [
+                        'id' => $wish->id,
+                        'sender_id' => $wish->sender_user_id,
+                        'sender_name' => $wish->sender?->name ?: 'CareVMA teammate',
+                        'sender_picture' => $wish->sender?->profile_picture,
+                        'sent_at' => optional($wish->created_at)->toIso8601String(),
+                    ]);
+            }
         }
 
-        if (in_array($user->role, ['admin', 'superadmin', 'hr'], true)) {
-            $birthdays = Employee::query()
-                ->whereNotNull('date_of_birth')
-                ->get(['id', 'first_name', 'last_name', 'date_of_birth', 'timezone', 'profile_picture'])
-                ->filter(function (Employee $employee) {
-                    $timezone = $this->timezones->valid($employee->timezone, $this->timezones->businessTimezone());
-                    $today = $this->clock->now($timezone);
-                    $birthDate = $employee->date_of_birth;
-
-                    return $birthDate
-                        && (int) $birthDate->format('m') === (int) $today->format('m')
-                        && (int) $birthDate->format('d') === (int) $today->format('d');
-                })
-                ->map(function (Employee $employee) {
-                    $timezone = $this->timezones->valid($employee->timezone, $this->timezones->businessTimezone());
-                    $today = $this->clock->now($timezone);
-
-                    return [
-                        'id' => $employee->id,
-                        'name' => trim($employee->first_name.' '.$employee->last_name),
-                        'timezone' => $timezone,
-                        'profile_picture' => $employee->profile_picture,
-                        'age' => max(0, $today->year - (int) $employee->date_of_birth->format('Y')),
-                    ];
-                })
-                ->values()
-                ->all();
-
+        $people = $birthdays->map(function (Employee $employee) use ($assignedTimezone, $today, $sentIds, $selfEmployeeId) {
             return [
-                'today' => count($birthdays) > 0,
-                'date_key' => $this->clock->now($this->timezones->businessTimezone())->toDateString(),
-                'employees' => $birthdays,
+                'id' => $employee->id,
+                'user_id' => $employee->user_id,
+                'name' => trim($employee->first_name.' '.$employee->last_name),
+                // Employee portal uses its current Doctor timezone consistently.
+                'timezone' => $assignedTimezone,
+                'profile_picture' => $employee->profile_picture,
+                'age' => max(0, $today->year - (int) $employee->date_of_birth->format('Y')),
+                'is_self' => $selfEmployeeId === $employee->id,
+                'sticker_sent' => $sentIds->contains($employee->id),
             ];
-        }
+        })->values()->all();
 
         return [
-            'today' => false,
-            'date_key' => $this->clock->now($assignedTimezone)->toDateString(),
-            'employees' => [],
+            'today' => count($people) > 0,
+            'date_key' => $dateKey,
+            'self_employee_id' => $selfEmployeeId,
+            'is_self_birthday' => $selfEmployeeId ? $birthdays->contains('id', $selfEmployeeId) : false,
+            'employees' => $people,
+            'stickers_received' => $received->values()->all(),
+            'popup_seen' => optional($user->birthday_popup_seen_date)->toDateString() === $dateKey,
         ];
     }
 
     private function assignedTimezone(User $user): string
     {
         return match ($user->role) {
-            'employee' => $this->timezones->valid($user->employee?->timezone, $this->timezones->businessTimezone()),
+            'employee' => $this->employeeDoctorTimezone($user->employee),
             'client' => $this->timezones->valid($user->client?->timezone, $this->timezones->businessTimezone()),
             default => $this->timezones->businessTimezone(),
         };
+    }
+
+    private function employeeDoctorTimezone(?Employee $employee): string
+    {
+        if (!$employee) {
+            return $this->timezones->businessTimezone();
+        }
+
+        $active = $employee->attendances()
+            ->with('client:id,timezone')
+            ->whereNull('clock_out')
+            ->latest('id')
+            ->first();
+        if ($active?->client?->timezone) {
+            return $this->timezones->valid($active->client->timezone, $this->timezones->businessTimezone());
+        }
+
+        $nowUtc = $this->clock->now('UTC');
+        $next = $employee->clientSchedules()
+            ->with('client:id,timezone')
+            ->where(function ($query) {
+                $query->where('enabled', true)->orWhereNull('enabled');
+            })
+            ->get()
+            ->map(function ($schedule) use ($nowUtc) {
+                $zone = $this->timezones->valid($schedule->client?->timezone ?: $schedule->timezone, $this->timezones->businessTimezone());
+                $localNow = $nowUtc->copy()->setTimezone($zone);
+
+                if ($schedule->schedule_date) {
+                    $date = Carbon::parse($schedule->schedule_date)->toDateString();
+                    $start = Carbon::parse($date.' '.$schedule->start_time, $zone);
+                    if ($start->lt($localNow->copy()->subMinutes(15))) return null;
+                    return ['timezone' => $zone, 'start_utc' => $start->utc()->timestamp];
+                }
+
+                for ($offset = 0; $offset <= 7; $offset++) {
+                    $date = $localNow->copy()->addDays($offset);
+                    if (strcasecmp($date->format('l'), (string) $schedule->weekday) !== 0) continue;
+                    $start = Carbon::parse($date->toDateString().' '.$schedule->start_time, $zone);
+                    if ($start->lt($localNow->copy()->subMinutes(15))) continue;
+                    return ['timezone' => $zone, 'start_utc' => $start->utc()->timestamp];
+                }
+
+                return null;
+            })
+            ->filter()
+            ->sortBy('start_utc')
+            ->first();
+
+        return $next['timezone'] ?? $this->timezones->valid($employee->timezone, $this->timezones->businessTimezone());
     }
 
 }

@@ -122,7 +122,7 @@ export function Table({
   emptyDescription,
   searchable = true,
   localPagination = true,
-  defaultPageSize = 25,
+  defaultPageSize = 10,
 }) {
   const safeRows = Array.isArray(rows) ? rows : [];
   const [query, setQuery] = useState('');
@@ -165,8 +165,8 @@ export function Table({
   }, [filterColumn, filterableColumns]);
 
   const total = filteredRows.length;
-  const effectivePageSize = Math.max(1, Number(pageSize) || 25);
-  // Avoid stacking a second pager on API-paginated pages that already load one normal page (usually <= 25 rows).
+  const effectivePageSize = Math.max(1, Number(pageSize) || 10);
+  // Avoid stacking a second pager on API-paginated pages that already load one normal page (usually <= 10 rows).
   // Local pagination automatically activates for larger in-memory tables.
   const useLocalPager = localPagination && safeRows.length > defaultPageSize;
   const lastPage = useLocalPager ? Math.max(1, Math.ceil(total / effectivePageSize)) : 1;

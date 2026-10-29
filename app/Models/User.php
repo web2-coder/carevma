@@ -47,6 +47,7 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'last_seen_at' => 'datetime',
+            'birthday_popup_seen_date' => 'date',
         ];
     }
 

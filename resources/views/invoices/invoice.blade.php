@@ -4,172 +4,237 @@
     <meta charset="utf-8">
     <title>Invoice {{ $invoice->invoice_number }}</title>
     <style>
-        body { font-family: DejaVu Sans, sans-serif; font-size: 13px; margin: 0; padding: 0; }
-        .invoice-box { width: 100%; color: #333; }
-        .header { border-bottom: 2px solid #0b5b50; padding-bottom: 10px; margin-bottom: 20px; }
+        @page { margin: 28px 30px; }
+        body { font-family: DejaVu Sans, sans-serif; font-size: 12px; margin: 0; padding: 0; color: #333; }
+        .invoice-box { width: 100%; }
+        .header { border-bottom: 2px solid #083589; padding-bottom: 10px; margin-bottom: 18px; }
         .header img { width: 245px; max-width: 245px; height: auto; display: block; }
-        .title { font-size: 22px; font-weight: bold; color: #0b5b50; }
-        .flex { display: flex; justify-content: space-between; align-items: center; }
-        .section-title { background: #0b5b50; color: #fff; padding: 6px; font-weight: bold; margin-top: 20px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        table th, table td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+        .flex { display: table; width: 100%; }
+        .flex > div { display: table-cell; vertical-align: top; width: 50%; }
+        .section-title { background: #083589; color: #fff; padding: 7px; font-weight: bold; margin-top: 18px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 9px; }
+        table th, table td { border: 1px solid #ccc; padding: 7px; text-align: left; }
         table th { background: #f2f2f2; }
         .text-right { text-align: right; }
         .text-center { text-align: center; }
-        .total-row td { font-weight: bold; }
-        .blue-total { background: #0b5b50; color: #fff; font-weight: bold; }
-        .account-details p { margin: 2px 0; }
-        .note { font-size: 11px; color: #555; margin-top: 10px; }
-        .footer { text-align: center; font-weight: bold; color: #0b5b50; margin-top: 20px; }
+        .subtotal-row td { font-weight: bold; background: #f7f9f9; }
         .page-break { page-break-after: always; }
-        .attendance-section { margin-bottom: 30px; }
+        .attendance-section { margin-bottom: 24px; page-break-inside: auto; }
+        .payment-page { page-break-before: always; page-break-inside: avoid; }
+        .payment-card { border: 1px solid #d7dfdd; padding: 18px; page-break-inside: avoid; }
+        .grand-total { background: #083589; color: #fff; padding: 14px 16px; margin-bottom: 18px; page-break-inside: avoid; }
+        .grand-total table { margin: 0; }
+        .grand-total table td { border: 0; color: #fff; padding: 2px 0; font-size: 16px; }
+        .account-details { border: 1px solid #d7dfdd; padding: 14px 16px; page-break-inside: avoid; }
+        .account-details p { margin: 5px 0; }
+        .note { font-size: 10px; line-height: 1.45; color: #555; margin-top: 14px; page-break-inside: avoid; }
+        .footer { text-align: center; font-weight: bold; color: #083589; margin-top: 20px; }
+        .meta-line { margin: 4px 0; }
     </style>
 </head>
 <body>
-    <div class="invoice-box">
+@php
+    $clientTimezone = $clientTimezone ?? ($invoice->client->timezone ?: 'UTC');
+    $carevmaLogoPath = public_path('images/CareVMA-full-logo.png');
+    $carevmaLogoSrc = file_exists($carevmaLogoPath)
+        ? 'data:image/png;base64,' . base64_encode(file_get_contents($carevmaLogoPath))
+        : null;
+    $serviceName = $invoice->client?->service?->name ?: 'Medical VA Service';
+    $doctorType = $invoice->client?->contractType?->name ?: 'Not specified';
+    $generatedLocal = \Carbon\Carbon::parse($invoice->generated_at ?: $invoice->created_at)->setTimezone($clientTimezone);
+    $billingMonthDate = $invoice->billing_cycle_month
+        ? \Carbon\Carbon::parse($invoice->billing_cycle_month)
+        : ($generatedLocal->day > 20 ? $generatedLocal->copy()->addMonthNoOverflow()->startOfMonth() : $generatedLocal->copy()->startOfMonth());
+    $baseSubtotal = (float) $invoice->salaries->sum('salary_amount');
+    $adjustmentNet = $invoice->adjustments->sum(function ($item) {
+        return $item->direction === 'deduction' ? -((float) $item->amount) : (float) $item->amount;
+    });
+@endphp
 
-        {{-- Header --}}
-        @php
-            $clientTimezone = $clientTimezone ?? ($invoice->client->timezone ?: 'UTC');
-            $carevmaLogoPath = public_path('images/CareVMA-full-logo.png');
-            $carevmaLogoSrc = file_exists($carevmaLogoPath)
-                ? 'data:image/png;base64,' . base64_encode(file_get_contents($carevmaLogoPath))
-                : null;
-        @endphp
-        <div class="header flex">
-            <div>
-                @if($carevmaLogoSrc)
-                    <img src="{{ $carevmaLogoSrc }}" alt="CareVMA">
-                @else
-                    <div style="font-size:28px;font-weight:700;color:#153a8a;">CARE <span style="color:#48cfdd;">VMA</span></div>
-                @endif
-            </div>
-            <div style="text-align:right;">
-                <h3 style="margin:0; color:#0b5b50;">INVOICE</h3>
-            </div>
+<div class="invoice-box">
+    <div class="header flex">
+        <div>
+            @if($carevmaLogoSrc)
+                <img src="{{ $carevmaLogoSrc }}" alt="CareVMA">
+            @else
+                <div style="font-size:28px;font-weight:700;color:#153a8a;">CARE <span style="color:#48cfdd;">VMA</span></div>
+            @endif
         </div>
+        <div style="text-align:right;"><h3 style="margin:0;color:#083589;">INVOICE</h3></div>
+    </div>
 
-        {{-- Invoice Info --}}
-        <div class="flex">
-            <div>
-                <p><strong>INVOICE #:</strong> {{ $invoice->invoice_number }}</p>
-                <p><strong>Date:</strong> {{ \Carbon\Carbon::parse($invoice->created_at)->setTimezone($clientTimezone)->format('d F Y') }}</p>
-            </div>
-            <div style="text-align:right;">
-                <p><strong>FOR:</strong> Medical VA Service</p>
-                <p><strong>BILL MONTH:</strong> {{ \Carbon\Carbon::parse($invoice->period_end)->format('F Y') }}</p>
-            </div>
+    <div class="flex">
+        <div>
+            <p class="meta-line"><strong>INVOICE #:</strong> {{ $invoice->invoice_number }}</p>
+            <p class="meta-line"><strong>Date:</strong> {{ $generatedLocal->format('d F Y') }}</p>
+            <p class="meta-line"><strong>Cycle:</strong> {{ \Carbon\Carbon::parse($invoice->period_start)->format('d M Y') }} - {{ \Carbon\Carbon::parse($invoice->period_end)->format('d M Y') }}</p>
         </div>
+        <div style="text-align:right;">
+            <p class="meta-line"><strong>FOR:</strong> {{ $serviceName }}</p>
+            <p class="meta-line"><strong>DOCTOR TYPE:</strong> {{ $doctorType }}</p>
+            <p class="meta-line"><strong>BILL MONTH:</strong> {{ $billingMonthDate->format('F Y') }}</p>
+        </div>
+    </div>
 
-        {{-- Bill To --}}
-        <div class="section-title">BILL TO</div>
-        <p><strong>{{ $invoice->client->name }}</strong></p>
-        <p>{{ $invoice->client->address ?? '' }}</p>
-        @if($invoice->client->email)
-            <p>{{ $invoice->client->email }}</p>
-        @endif
+    <div class="section-title">BILL TO</div>
+    <p><strong>{{ $invoice->client->name }}</strong></p>
+    @if($invoice->client->address ?? null)<p>{{ $invoice->client->address }}</p>@endif
+    @if($invoice->client->email ?? null)<p>{{ $invoice->client->email }}</p>@endif
 
-        {{-- Table --}}
-        <div class="section-title">ITEM DESCRIPTION</div>
+    <div class="section-title">ITEM DESCRIPTION</div>
+    <table>
+        <thead>
+            <tr>
+                <th>VA Name</th>
+                <th>Worked Time</th>
+                <th>Break Time</th>
+                <th>Work + Break</th>
+                <th>Rate/h</th>
+                <th>From</th>
+                <th>To</th>
+                <th class="text-right">Amount</th>
+            </tr>
+        </thead>
+        <tbody>
+        @foreach($invoice->salaries as $salary)
+            @php
+                $rate = isset($clientEmployeeRates[$salary->employee_id]) ? $clientEmployeeRates[$salary->employee_id]->per_hour_rate : 0;
+                $workedMinutes = max(0, (int) round(((float) $salary->total_hours) * 60));
+                $breakSeconds = (int) $salary->employee->attendances->sum(fn ($attendance) => max(0, (int) ($attendance->break_taken ?? 0)));
+                $breakMinutes = (int) round($breakSeconds / 60);
+                $workPlusBreakMinutes = $workedMinutes + $breakMinutes;
+                $formatMinutes = function (int $minutes): string {
+                    $minutes = max(0, $minutes);
+                    $hours = intdiv($minutes, 60);
+                    $mins = $minutes % 60;
+                    return $hours > 0 ? sprintf('%dh %02dm', $hours, $mins) : sprintf('%dm', $mins);
+                };
+            @endphp
+            <tr>
+                <td>{{ $salary->employee->first_name }} {{ $salary->employee->last_name }}</td>
+                <td>{{ $formatMinutes($workedMinutes) }}</td>
+                <td>{{ $formatMinutes($breakMinutes) }}</td>
+                <td><strong>{{ $formatMinutes($workPlusBreakMinutes) }}</strong></td>
+                <td>${{ number_format($rate, 2) }}</td>
+                <td>{{ \Carbon\Carbon::parse($salary->period_start)->format('d-M') }}</td>
+                <td>{{ \Carbon\Carbon::parse($salary->period_end)->format('d-M') }}</td>
+                <td class="text-right">${{ number_format($salary->salary_amount, 2) }}</td>
+            </tr>
+        @endforeach
+            <tr class="subtotal-row">
+                <td colspan="7" class="text-right">Attendance / Salary Subtotal</td>
+                <td class="text-right">${{ number_format($baseSubtotal, 2) }}</td>
+            </tr>
+        </tbody>
+    </table>
+
+    @if($invoice->adjustments->isNotEmpty())
+        <div class="section-title">INVOICE ADJUSTMENTS</div>
         <table>
             <thead>
-                <tr>
-                    <th>VA Name</th>
-                    <th>Worked Time</th>
-                    <th>Break Time</th>
-                    <th>Work + Break</th>
-                    <th>Rate/h</th>
-                    <th>From</th>
-                    <th>To</th>
-                    <th class="text-right">Amount</th>
-                </tr>
+                <tr><th>VA / Applies To</th><th>Type</th><th>Category</th><th>Description</th><th class="text-right">Amount</th></tr>
             </thead>
             <tbody>
-                @foreach($invoice->salaries as $salary)
+            @foreach($invoice->adjustments as $adjustment)
                 @php
-                    $rate = isset($clientEmployeeRates[$salary->employee_id]) ? $clientEmployeeRates[$salary->employee_id]->per_hour_rate : 0;
-                    $workedMinutes = max(0, (int) round(((float) $salary->total_hours) * 60));
-                    $breakSeconds = (int) $salary->employee->attendances->sum(function ($attendance) {
-                        return max(0, (int) ($attendance->break_taken ?? 0));
-                    });
-                    $breakMinutes = (int) round($breakSeconds / 60);
-                    $workPlusBreakMinutes = $workedMinutes + $breakMinutes;
-                    $formatMinutes = function (int $minutes): string {
-                        $minutes = max(0, $minutes);
-                        $hours = intdiv($minutes, 60);
-                        $mins = $minutes % 60;
-                        return $hours > 0 ? sprintf('%dh %02dm', $hours, $mins) : sprintf('%dm', $mins);
-                    };
+                    $isDeduction = $adjustment->direction === 'deduction';
+                    $employeeLabel = $adjustment->employee
+                        ? trim($adjustment->employee->first_name . ' ' . $adjustment->employee->last_name)
+                        : 'Whole invoice';
                 @endphp
                 <tr>
-                    <td>{{ $salary->employee->first_name }} {{ $salary->employee->last_name }}</td>
-                    <td>{{ $formatMinutes($workedMinutes) }}</td>
-                    <td>{{ $formatMinutes($breakMinutes) }}</td>
-                    <td><strong>{{ $formatMinutes($workPlusBreakMinutes) }}</strong></td>
-                    <td>${{ number_format($rate, 2) }}</td>
-                    <td>{{ \Carbon\Carbon::parse($salary->period_start)->format('d-M') }}</td>
-                    <td>{{ \Carbon\Carbon::parse($salary->period_end)->format('d-M') }}</td>
-                    <td class="text-right">${{ number_format($salary->salary_amount, 2) }}</td>
+                    <td>{{ $employeeLabel }}</td>
+                    <td><strong>{{ $isDeduction ? 'Deduction' : 'Addition' }}</strong></td>
+                    <td>{{ ucwords(str_replace('_', ' ', $adjustment->category)) }}</td>
+                    <td>{{ $adjustment->description ?: '-' }}</td>
+                    <td class="text-right"><strong>{{ $isDeduction ? '-' : '+' }}${{ number_format((float) $adjustment->amount, 2) }}</strong></td>
                 </tr>
-                @endforeach
-                @php
-                    $baseSubtotal = (float) $invoice->salaries->sum('salary_amount');
-                @endphp
-                <tr>
-                    <td colspan="7" class="text-right"><strong>Attendance / Salary Subtotal</strong></td>
-                    <td class="text-right">${{ number_format($baseSubtotal, 2) }}</td>
-                </tr>
-                <tr class="blue-total">
-                    <td colspan="7" class="text-right"><strong>TOTAL COST</strong></td>
-                    <td class="text-right"><strong>${{ number_format((float) $invoice->total_amount, 2) }}</strong></td>
+            @endforeach
+                <tr class="subtotal-row">
+                    <td colspan="4" class="text-right">Net adjustments</td>
+                    <td class="text-right">{{ $adjustmentNet < 0 ? '-' : '+' }}${{ number_format(abs($adjustmentNet), 2) }}</td>
                 </tr>
             </tbody>
         </table>
+    @endif
+</div>
 
-        @if($invoice->adjustments->isNotEmpty())
-            <div class="section-title" style="margin-top:18px;">INVOICE ADJUSTMENTS</div>
+<div class="page-break"></div>
+
+<div class="invoice-box">
+    <h2 style="color:#083589;">Attendance Records</h2>
+    <p><strong>Period:</strong> {{ \Carbon\Carbon::parse($invoice->period_start)->format('d F Y') }} - {{ \Carbon\Carbon::parse($invoice->period_end)->format('d F Y') }}</p>
+    <p><strong>Timezone:</strong> {{ $clientTimezone }} (Doctor / Client timezone)</p>
+
+    @foreach($invoice->salaries as $salary)
+        <div class="attendance-section">
+            <h4 style="background:#f2f2f2;padding:8px;margin-top:20px;">
+                {{ $salary->employee->first_name }} {{ $salary->employee->last_name }}
+                (Total Worked: {{ (int) round(((float) $salary->total_hours) * 60) }} min)
+            </h4>
             <table>
                 <thead>
                     <tr>
-                        <th>VA / Applies To</th>
-                        <th>Type</th>
-                        <th>Category</th>
-                        <th>Description</th>
-                        <th class="text-right">Amount</th>
+                        <th>Date</th><th>Clock In</th><th>Clock Out</th><th>Worked Time</th><th>Break Time</th><th>Work + Break</th><th>Late (mins)</th><th>Overtime (mins)</th>
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach($invoice->adjustments as $adjustment)
-                        @php
-                            $isDeduction = $adjustment->direction === 'deduction';
-                            $employeeLabel = $adjustment->employee
-                                ? trim($adjustment->employee->first_name . ' ' . $adjustment->employee->last_name)
-                                : 'Whole invoice';
-                        @endphp
-                        <tr>
-                            <td>{{ $employeeLabel }}</td>
-                            <td><strong>{{ $isDeduction ? 'Deduction' : 'Addition' }}</strong></td>
-                            <td>{{ ucwords(str_replace('_', ' ', $adjustment->category)) }}</td>
-                            <td>{{ $adjustment->description ?: '-' }}</td>
-                            <td class="text-right" style="font-weight:700;">{{ $isDeduction ? '-' : '+' }}${{ number_format((float) $adjustment->amount, 2) }}</td>
-                        </tr>
-                    @endforeach
+                @forelse($salary->employee->attendances as $attendance)
                     @php
-                        $adjustmentNet = $invoice->adjustments->sum(function ($item) {
-                            return $item->direction === 'deduction' ? -((float) $item->amount) : (float) $item->amount;
-                        });
+                        $timezone = $clientTimezone;
+                        $clockInLocal = $attendance->clock_in ? \Carbon\Carbon::parse($attendance->clock_in)->setTimezone($timezone) : null;
+                        $clockOutLocal = $attendance->clock_out ? \Carbon\Carbon::parse($attendance->clock_out)->setTimezone($timezone) : null;
+                        $attendanceDate = $clockInLocal ? $clockInLocal->format('d-M-Y') : \Carbon\Carbon::parse($attendance->date)->format('d-M-Y');
+                        $clockIn = $clockInLocal ? $clockInLocal->format('h:i A') : '-';
+                        $clockOut = $clockOutLocal ? $clockOutLocal->format('h:i A') : '-';
+                        $workedHours = '-';
+                        if ($attendance->total_minutes !== null) {
+                            $workedHours = max(0, (int) round($attendance->total_minutes)) . ' min';
+                        } elseif ($attendance->clock_in && $attendance->clock_out) {
+                            $minutes = max(0, (int) $clockInLocal->copy()->startOfMinute()->diffInMinutes($clockOutLocal->copy()->startOfMinute()));
+                            $workedHours = $minutes . ' min';
+                        }
+                        $workedMinutesValue = max(0, (int) ($attendance->total_minutes ?? 0));
+                        $breakMinutesValue = max(0, (int) round(((int) ($attendance->break_taken ?? 0)) / 60));
+                        $workPlusBreakMinutes = $workedMinutesValue + $breakMinutesValue;
+                        $formatAttendanceMinutes = function (int $minutes): string {
+                            $minutes = max(0, $minutes);
+                            $hours = intdiv($minutes, 60);
+                            $mins = $minutes % 60;
+                            return $hours > 0 ? sprintf('%dh %02dm', $hours, $mins) : sprintf('%dm', $mins);
+                        };
+                        $lateMinutes = (int) ($attendance->late_minutes ?? 0);
+                        $overtimeMinutes = (int) ($attendance->approved_overtime_minutes ?? $attendance->overtime ?? 0);
                     @endphp
                     <tr>
-                        <td colspan="4" class="text-right"><strong>Net adjustments</strong></td>
-                        <td class="text-right"><strong>{{ $adjustmentNet < 0 ? '-' : '+' }}${{ number_format(abs($adjustmentNet), 2) }}</strong></td>
+                        <td>{{ $attendanceDate }}</td>
+                        <td>{{ $clockIn }}</td>
+                        <td>{{ $clockOut }}</td>
+                        <td>{{ $workedHours }}</td>
+                        <td>{{ $formatAttendanceMinutes($breakMinutesValue) }}</td>
+                        <td><strong>{{ $formatAttendanceMinutes($workPlusBreakMinutes) }}</strong></td>
+                        <td>{{ $lateMinutes > 0 ? $lateMinutes : '-' }}</td>
+                        <td>{{ $overtimeMinutes > 0 ? $overtimeMinutes : '-' }}</td>
                     </tr>
+                @empty
+                    <tr><td colspan="8" class="text-center">No attendance records found for this period</td></tr>
+                @endforelse
                 </tbody>
             </table>
-        @endif
+        </div>
+    @endforeach
+    <div class="grand-total" style="margin-top:22px;">
+        <table>
+            <tr><td><strong>GRAND TOTAL DUE</strong></td><td class="text-right"><strong>${{ number_format((float) $invoice->total_amount, 2) }}</strong></td></tr>
+        </table>
+    </div>
+</div>
 
-        {{-- Payment Info --}}
-        <p style="margin-top:20px;">Please pay via Payoneer or to the account given below.</p>
-        <div class="section-title">ACCOUNT DETAILS</div>
+<div class="payment-page">
+    <div class="payment-card">
+        <h2 style="margin:0 0 12px;color:#083589;">Payment & Bank Details</h2>
+        <p>Please pay via Payoneer or to the account given below.</p>
+        <div class="section-title" style="margin-top:14px;">ACCOUNT DETAILS</div>
         <div class="account-details">
             <p><strong>Bank Name:</strong> Citibank</p>
             <p><strong>Bank Address:</strong> 111 Wall Street New York, NY 10043 USA</p>
@@ -179,110 +244,13 @@
             <p><strong>Account type:</strong> CHECKING</p>
             <p><strong>Beneficiary name:</strong> Carevma Health</p>
         </div>
-
         <p class="note">
             Note: THIS ACCOUNT ONLY ACCEPTS PAYMENTS FROM BUSINESS ACCOUNTS.
             PAYMENTS MADE FROM PERSONAL ACCOUNTS WILL BE RETURNED AUTOMATICALLY.
             FOR PAYING FROM PERSONAL ACCOUNTS PLEASE USE ALTERNATE METHODS.
         </p>
-
         <div class="footer">THANK YOU FOR YOUR BUSINESS!</div>
     </div>
-
-    {{-- Page Break --}}
-    <div class="page-break"></div>
-
-    {{-- Attendance Page --}}
-    <div class="invoice-box">
-        <h2 style="color:#0b5b50;">Attendance Records</h2>
-        <p><strong>Period:</strong> {{ \Carbon\Carbon::parse($invoice->period_start)->format('d F Y') }} - {{ \Carbon\Carbon::parse($invoice->period_end)->format('d F Y') }}</p>
-        <p><strong>Timezone:</strong> {{ $clientTimezone }} (Doctor / Client timezone)</p>
-
-        @foreach($invoice->salaries as $salary)
-            <div class="attendance-section">
-                <h4 style="background: #f2f2f2; padding: 8px; margin-top: 20px;">
-                    {{ $salary->employee->first_name }} {{ $salary->employee->last_name }}
-                    (Total Worked: {{ (int) round(((float) $salary->total_hours) * 60) }} min)
-                </h4>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Clock In</th>
-                            <th>Clock Out</th>
-                            <th>Worked Time</th>
-                            <th>Break Time</th>
-                            <th>Work + Break</th>
-                            <th>Late (mins)</th>
-                            <th>Overtime (mins)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @forelse($salary->employee->attendances as $attendance)
-                            @php
-                                // Invoice attendance is always rendered in the Doctor / Client timezone.
-                                // The VA timezone is intentionally not used here.
-                                $timezone = $clientTimezone;
-
-                                $clockInLocal = $attendance->clock_in
-                                    ? \Carbon\Carbon::parse($attendance->clock_in)->setTimezone($timezone)
-                                    : null;
-                                $clockOutLocal = $attendance->clock_out
-                                    ? \Carbon\Carbon::parse($attendance->clock_out)->setTimezone($timezone)
-                                    : null;
-
-                                $attendanceDate = $clockInLocal
-                                    ? $clockInLocal->format('d-M-Y')
-                                    : \Carbon\Carbon::parse($attendance->date)->format('d-M-Y');
-                                $clockIn = $clockInLocal ? $clockInLocal->format('h:i A') : '-';
-                                $clockOut = $clockOutLocal ? $clockOutLocal->format('h:i A') : '-';
-                                
-                                // Use stored payable/regular minutes when available so breaks are
-                                // reflected in the invoice. Fall back to displayed minute precision.
-                                $workedHours = '-';
-                                if ($attendance->total_minutes !== null) {
-                                    $workedHours = max(0, (int) round($attendance->total_minutes)) . ' min';
-                                } elseif ($attendance->clock_in && $attendance->clock_out) {
-                                    $start = $clockInLocal->copy()->startOfMinute();
-                                    $end = $clockOutLocal->copy()->startOfMinute();
-
-                                    $minutes = max(0, (int) $start->diffInMinutes($end));
-                                    $workedHours = $minutes . ' min';
-                                }
-
-                                $workedMinutesValue = max(0, (int) ($attendance->total_minutes ?? 0));
-                                $breakMinutesValue = max(0, (int) round(((int) ($attendance->break_taken ?? 0)) / 60));
-                                $workPlusBreakMinutes = $workedMinutesValue + $breakMinutesValue;
-
-                                $formatAttendanceMinutes = function (int $minutes): string {
-                                    $minutes = max(0, $minutes);
-                                    $hours = intdiv($minutes, 60);
-                                    $mins = $minutes % 60;
-                                    return $hours > 0 ? sprintf('%dh %02dm', $hours, $mins) : sprintf('%dm', $mins);
-                                };
-
-                                $lateMinutes = (int) ($attendance->late_minutes ?? 0);
-                                $overtimeMinutes = (int) ($attendance->approved_overtime_minutes ?? $attendance->overtime ?? 0);
-                            @endphp
-                            <tr>
-                                <td>{{ $attendanceDate }}</td>
-                                <td>{{ $clockIn }}</td>
-                                <td>{{ $clockOut }}</td>
-                                <td>{{ $workedHours }}</td>
-                                <td>{{ $formatAttendanceMinutes($breakMinutesValue) }}</td>
-                                <td><strong>{{ $formatAttendanceMinutes($workPlusBreakMinutes) }}</strong></td>
-                                <td>{{ $lateMinutes > 0 ? $lateMinutes : '-' }}</td>
-                                <td>{{ $overtimeMinutes > 0 ? $overtimeMinutes : '-' }}</td>
-                            </tr>
-                        @empty
-                            <tr>
-                                <td colspan="8" class="text-center">No attendance records found for this period</td>
-                            </tr>
-                        @endforelse
-                    </tbody>
-                </table>
-            </div>
-        @endforeach
-    </div>
+</div>
 </body>
 </html>

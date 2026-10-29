@@ -28,9 +28,13 @@ use App\Services\InvoiceGenerator;
 use App\Services\FxRateService;
 use App\Services\TrustedTimeService;
 use App\Services\ClientTimezoneService;
+use App\Services\AttendanceBillingService;
+use App\Services\InvoicePdfService;
 use DateTimeZone;
 use App\Mail\EmployeeInvitationMail;
 use App\Mail\ClientSetPasswordMail;
+use App\Mail\HrInvitationMail;
+use App\Mail\InvoiceNotificationMail;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -50,6 +54,7 @@ class AdminApiController extends Controller
     public function __construct(
         private TrustedTimeService $clock,
         private ClientTimezoneService $timezones,
+        private AttendanceBillingService $attendanceBilling,
     ) {
     }
 
@@ -167,14 +172,14 @@ class AdminApiController extends Controller
             })
             ->values();
 
-        // CareVMA billing cycle: 25th through the 26th of the following month.
-        // Drafts are generated on the 27th so the full 26th can be included.
-        $completedCycleEnd = $appNow->copy()->day(26);
-        if ($appNow->day >= 27) {
-            $completedCycleEnd->addMonthNoOverflow()->day(26);
+        // CareVMA billing cycle: 26th through the 25th of the following month.
+        // Drafts are generated on the 26th at 00:15 in the client/doctor timezone.
+        $completedCycleEnd = $appNow->copy()->day(25);
+        if ($appNow->day >= 26) {
+            $completedCycleEnd->addMonthNoOverflow()->day(25);
         }
-        $cycleStart = $completedCycleEnd->copy()->subMonthNoOverflow()->day(25)->toDateString();
-        $cycleEnd = $completedCycleEnd->copy()->day(26)->toDateString();
+        $cycleStart = $completedCycleEnd->copy()->subMonthNoOverflow()->day(26)->toDateString();
+        $cycleEnd = $completedCycleEnd->copy()->day(25)->toDateString();
         $scheduledClose = $completedCycleEnd->copy()->addDay()->setTime(0, 15, 0);
 
         $cycleInvoices = Invoice::query()
@@ -261,7 +266,7 @@ class AdminApiController extends Controller
                 'employee:id,user_id,first_name,last_name,email,employee_code,profile_picture,timezone',
                 'employee.user:id,name,email,last_seen_at',
                 'client:id,name,business_name,timezone',
-                'schedule:id,weekday,start_time,end_time,timezone',
+                'schedule:id,weekday,start_time,end_time,timezone,break_allowed_hours',
                 'openBreak:id,attendance_id,start_time,end_time',
             ])
             ->whereNull('clock_out')
@@ -403,7 +408,7 @@ class AdminApiController extends Controller
                     ->orWhere('employee_code', 'like', "%{$search}%");
             });
         }
-        return response()->json($query->latest('id')->paginate(min((int) $request->query('per_page', 25), 100)));
+        return response()->json($query->latest('id')->paginate(min((int) $request->query('per_page', 10), 100)));
     }
 
     public function employee(Employee $employee)
@@ -502,7 +507,7 @@ class AdminApiController extends Controller
         if ($search = trim((string) $request->query('search'))) {
             $query->where(fn ($q) => $q->where('name', 'like', "%{$search}%")->orWhere('email', 'like', "%{$search}%"));
         }
-        return response()->json($query->latest('id')->paginate(min((int) $request->query('per_page', 25), 100)));
+        return response()->json($query->latest('id')->paginate(min((int) $request->query('per_page', 10), 100)));
     }
 
     public function storeHrUser(Request $request)
@@ -510,10 +515,37 @@ class AdminApiController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
-            'password' => ['required', 'string', 'min:8'],
         ]);
-        $user = User::create(['name' => $data['name'], 'email' => $data['email'], 'password' => Hash::make($data['password']), 'role' => 'hr']);
-        return response()->json(['message' => 'HR account created.', 'user' => $user], 201);
+
+        $user = User::create([
+            'name' => $data['name'],
+            'email' => $data['email'],
+            'password' => Hash::make(Str::random(64)),
+            'role' => 'hr',
+        ]);
+
+        $token = Password::broker()->createToken($user);
+        $setupUrl = route('password.reset', [
+            'token' => $token,
+            'email' => $user->email,
+        ]);
+
+        $sent = true;
+        try {
+            Mail::to($user->email)->send(new HrInvitationMail($user, $setupUrl));
+        } catch (\Throwable $e) {
+            $sent = false;
+            report($e);
+        }
+
+        return response()->json([
+            'message' => $sent
+                ? 'HR account created and password setup email sent.'
+                : 'HR account created, but the password setup email could not be sent. Use the setup link after checking mail settings.',
+            'user' => $user,
+            'invitation_sent' => $sent,
+            'setup_url' => $setupUrl,
+        ], 201);
     }
 
     public function updateHrUser(Request $request, User $user)
@@ -545,7 +577,7 @@ class AdminApiController extends Controller
                 ->orWhere('email', 'like', "%{$search}%")
                 ->orWhere('business_name', 'like', "%{$search}%"));
         }
-        return response()->json($query->latest('id')->paginate(min((int) $request->query('per_page', 25), 100)));
+        return response()->json($query->latest('id')->paginate(min((int) $request->query('per_page', 10), 100)));
     }
 
     public function client(Client $client)
@@ -680,7 +712,7 @@ class AdminApiController extends Controller
         // The global schedules screen can contain thousands of rows; paginate it.
         // Client/employee-scoped callers keep the original array response for compatibility.
         if ($request->boolean('paginate')) {
-            $paginator = $query->paginate(min(max((int) $request->query('per_page', 50), 10), 100));
+            $paginator = $query->paginate(min(max((int) $request->query('per_page', 10), 10), 100));
             $decorate($paginator->getCollection());
             return response()->json($paginator);
         }
@@ -703,6 +735,87 @@ class AdminApiController extends Controller
         $this->decorateScheduleForDisplay($schedule);
         $schedule->setAttribute('per_hour_rate', ClientEmployeeRate::where('client_id', $schedule->client_id)->where('employee_id', $schedule->employee_id)->value('per_hour_rate'));
         return response()->json(['message' => 'Schedule created.', 'schedule' => $schedule], 201);
+    }
+
+    public function storeScheduleBatch(Request $request)
+    {
+        $payload = $request->validate([
+            'employee_id' => ['required', 'exists:employees,id'],
+            'client_id' => ['required', 'exists:clients,id'],
+            'per_hour_rate' => ['nullable', 'numeric', 'min:0'],
+            'break_allowed_hours' => ['required', 'numeric', 'min:0', 'max:12.59'],
+            'schedules' => ['required', 'array', 'min:1', 'max:7'],
+            'schedules.*.id' => ['nullable', 'integer', 'exists:employee_client_schedules,id'],
+            'schedules.*.weekday' => ['required', Rule::in(['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'])],
+            'schedules.*.start_time' => ['required', 'date_format:H:i'],
+            'schedules.*.end_time' => ['required', 'date_format:H:i'],
+            'schedules.*.repeat' => ['nullable', 'boolean'],
+            'schedules.*.enabled' => ['nullable', 'boolean'],
+            'schedules.*.schedule_date' => ['nullable', 'date'],
+        ]);
+
+        $employee = Employee::with('user')->findOrFail($payload['employee_id']);
+        $client = Client::findOrFail($payload['client_id']);
+        $saved = DB::transaction(function () use ($payload, $client) {
+            $rows = collect();
+            foreach ($payload['schedules'] as $item) {
+                $schedulePayload = [
+                    'employee_id' => $payload['employee_id'],
+                    'client_id' => $payload['client_id'],
+                    'weekday' => $item['weekday'],
+                    'schedule_date' => $item['schedule_date'] ?? null,
+                    'start_time' => $item['start_time'],
+                    'end_time' => $item['end_time'],
+                    'timezone' => $client->timezone,
+                    'time_basis' => 'doctor',
+                    'break_allowed_hours' => $payload['break_allowed_hours'],
+                    'enabled' => $item['enabled'] ?? true,
+                    'repeat' => $item['repeat'] ?? true,
+                    'per_hour_rate' => $payload['per_hour_rate'] ?? null,
+                ];
+                $child = Request::create('/api/management/schedules', 'POST', $schedulePayload);
+                $data = $this->normalizeScheduleRecurrence($this->validateSchedule($child));
+                $data['no_of_hours'] = $this->hoursBetween($data['start_time'], $data['end_time']);
+
+                $schedule = null;
+                if (!empty($item['id'])) {
+                    $schedule = EmployeeClientSchedule::query()
+                        ->whereKey($item['id'])
+                        ->where('employee_id', $payload['employee_id'])
+                        ->where('client_id', $payload['client_id'])
+                        ->firstOrFail();
+                    $schedule->update($data);
+                } else {
+                    $schedule = EmployeeClientSchedule::create($data);
+                }
+                $rows->push($schedule);
+            }
+
+            if (array_key_exists('per_hour_rate', $payload) && $payload['per_hour_rate'] !== null) {
+                ClientEmployeeRate::updateOrCreate(
+                    ['client_id' => $payload['client_id'], 'employee_id' => $payload['employee_id']],
+                    ['per_hour_rate' => $payload['per_hour_rate']]
+                );
+            }
+
+            return $rows;
+        });
+
+        if ($employee->user) {
+            app(\App\Services\OperationalNotifier::class)->send(
+                $employee->user,
+                'Client assignment updated',
+                'You were assigned to '.$client->name.' for '.count($payload['schedules']).' scheduled day(s).',
+                'ScheduleAssignment',
+                '/employee/schedule',
+                ['employee_id' => $employee->id, 'client_id' => $client->id, 'schedule_count' => count($payload['schedules'])]
+            );
+        }
+
+        return response()->json([
+            'message' => 'VA assignment saved. One assignment notification was sent to the VA.',
+            'schedule_count' => $saved->count(),
+        ], 201);
     }
 
     public function updateSchedule(Request $request, EmployeeClientSchedule $schedule)
@@ -751,7 +864,7 @@ class AdminApiController extends Controller
                     ->orWhereHas('employee', fn ($e) => $e->where('first_name', 'like', "%{$search}%")->orWhere('last_name', 'like', "%{$search}%"));
             });
         }
-        $attendance = $query->latest('date')->latest('id')->paginate(min((int) $request->query('per_page', 25), 100));
+        $attendance = $query->latest('date')->latest('id')->paginate(min((int) $request->query('per_page', 10), 100));
         $attendance->through(function (Attendance $row) {
             $clientZone = $this->timezones->forAttendance($row, true);
             $employeeZone = $this->timezones->valid($row->employee?->timezone, 'UTC');
@@ -805,7 +918,7 @@ class AdminApiController extends Controller
     {
         $query = AttendanceChangeRequest::with(['employee:id,first_name,last_name,employee_code', 'attendance']);
         if ($request->filled('status')) $query->where('status', $request->input('status'));
-        return response()->json($query->latest('id')->paginate(min((int) $request->query('per_page', 25), 100)));
+        return response()->json($query->latest('id')->paginate(min((int) $request->query('per_page', 10), 100)));
     }
 
     public function reviewChangeRequest(Request $request, AttendanceChangeRequest $changeRequest)
@@ -839,7 +952,7 @@ class AdminApiController extends Controller
     {
         $query = Attendance::with('employee:id,first_name,last_name,employee_code')->where('overtime', '>', 0);
         if (Schema::hasColumn('attendances', 'overtime_status')) $query->whereIn('overtime_status', ['pending', 'approved', 'rejected']);
-        return response()->json($query->latest('date')->paginate(25));
+        return response()->json($query->latest('date')->paginate(10));
     }
 
     public function reviewOvertime(Request $request, Attendance $attendance)
@@ -1024,7 +1137,7 @@ class AdminApiController extends Controller
 
     public function invoices(Request $request)
     {
-        return response()->json(Invoice::with('client:id,name,business_name,timezone')->latest('id')->paginate(min((int) $request->query('per_page', 25), 100)));
+        return response()->json(Invoice::with(['client:id,name,business_name,timezone,service_id,contract_type_id', 'client.service:id,name', 'client.contractType:id,name'])->latest('id')->paginate(min((int) $request->query('per_page', 10), 100)));
     }
 
     public function generateInvoice(Request $request, InvoiceGenerator $generator)
@@ -1058,10 +1171,44 @@ class AdminApiController extends Controller
     public function invoice(Invoice $invoice)
     {
         return response()->json($invoice->load([
-            'client:id,name,business_name,timezone',
+            'client:id,name,business_name,timezone,service_id,contract_type_id',
+            'client.service:id,name',
+            'client.contractType:id,name',
             'salaries.employee:id,first_name,last_name,employee_code',
             'adjustments.employee:id,first_name,last_name,employee_code',
         ]));
+    }
+
+    public function sendInvoicePdf(Invoice $invoice, InvoicePdfService $documents)
+    {
+        $invoice->loadMissing('client');
+        if (!$invoice->client?->email) {
+            return response()->json(['message' => 'The selected Doctor / Client does not have an email address.'], 422);
+        }
+
+        try {
+            $pdfContent = $documents->make($invoice)->output();
+            Mail::to($invoice->client->email)->send(new InvoiceNotificationMail($invoice, $pdfContent));
+        } catch (\Throwable $e) {
+            report($e);
+            return response()->json(['message' => 'Invoice email could not be sent. Check SMTP/mail configuration and try again.'], 422);
+        }
+
+        return response()->json([
+            'message' => 'Invoice PDF sent to '.$invoice->client->email.'.',
+            'recipient' => $invoice->client->email,
+        ]);
+    }
+
+    public function destroyInvoice(Invoice $invoice)
+    {
+        DB::transaction(function () use ($invoice) {
+            $invoice->adjustments()->delete();
+            $invoice->salaries()->delete();
+            $invoice->delete();
+        });
+
+        return response()->json(['message' => 'Invoice deleted successfully.']);
     }
 
     public function updateInvoice(Request $request, Invoice $invoice)
@@ -1233,7 +1380,7 @@ class AdminApiController extends Controller
 
     public function notifications()
     {
-        return response()->json(Notification::latest('id')->paginate(30));
+        return response()->json(Notification::latest('id')->paginate(10));
     }
 
     public function markNotificationsRead()
@@ -1444,10 +1591,8 @@ class AdminApiController extends Controller
         $employeeTimezone = $this->validTimezoneValue($employee->timezone, 'UTC');
         $clientTimezone = $this->validTimezoneValue($client->timezone, 'UTC');
 
-        // Client Profile assignment forms are entered in the VA's local timezone.
-        // Convert that VA-local wall clock to the exact Client / Doctor local wall clock
-        // before saving. The stored schedule then remains Doctor-local/canonical for
-        // check-in windows, lateness, overtime and billing calculations.
+        // New schedule forms are Doctor-local/canonical. Keep the employee-basis
+        // conversion branch only for backward compatibility with older clients.
         if (($data['time_basis'] ?? 'doctor') === 'employee') {
             $weekday = $this->normalizeScheduleWeekday($data['weekday'] ?? null);
             if ($weekday) {
@@ -1576,36 +1721,7 @@ class AdminApiController extends Controller
 
     private function recalculateAttendance(Attendance $attendance): void
     {
-        if (!$attendance->clock_in || !$attendance->clock_out) return;
-        $schedule = Schema::hasColumn('attendances', 'schedule_id') && $attendance->schedule_id ? EmployeeClientSchedule::find($attendance->schedule_id) : null;
-        $tz = $attendance->timezone_snapshot ?? $schedule?->timezone ?? $attendance->employee?->timezone ?? 'UTC';
-        $in = $attendance->clock_in->copy()->setTimezone($tz)->startOfMinute(); $out = $attendance->clock_out->copy()->setTimezone($tz)->startOfMinute();
-        $regularStart = $in->copy(); $regularEnd = $out->copy(); $overtime = 0; $late = 0;
-        if ($attendance->shift_start_snapshot && $attendance->shift_end_snapshot) {
-            $shiftStart = $attendance->shift_start_snapshot->copy()->setTimezone($tz)->startOfMinute();
-            $shiftEnd = $attendance->shift_end_snapshot->copy()->setTimezone($tz)->startOfMinute();
-            if ($regularStart->lt($shiftStart)) $regularStart = $shiftStart->copy();
-            if ($regularEnd->gt($shiftEnd)) { $overtime = (int) $shiftEnd->diffInMinutes($regularEnd); $regularEnd = $shiftEnd->copy(); }
-            if ($in->gt($shiftStart)) $late = (int) $shiftStart->diffInMinutes($in);
-        } elseif ($schedule) {
-            $shiftStart = Carbon::parse($attendance->date->format('Y-m-d').' '.$schedule->start_time, $tz)->startOfMinute();
-            $shiftEnd = Carbon::parse($attendance->date->format('Y-m-d').' '.$schedule->end_time, $tz)->startOfMinute(); if ($shiftEnd->lte($shiftStart)) $shiftEnd->addDay();
-            if ($regularStart->lt($shiftStart)) $regularStart = $shiftStart->copy();
-            if ($regularEnd->gt($shiftEnd)) { $overtime = (int) $shiftEnd->diffInMinutes($regularEnd); $regularEnd = $shiftEnd->copy(); }
-            if ($in->gt($shiftStart)) $late = (int) $shiftStart->diffInMinutes($in);
-        }
-        $breakMinutes = (int) floor(($attendance->break_taken ?? 0) / 60);
-        $attendance->total_minutes = max(0, (int) $regularStart->diffInMinutes($regularEnd) - $breakMinutes);
-        $attendance->is_late = $late > 0;
-        $attendance->late_minutes = $late;
-        $attendance->overtime = $overtime;
-        if (Schema::hasColumn('attendances', 'overtime_status')) {
-            $attendance->overtime_status = $overtime > 0 ? 'pending' : 'none';
-            $attendance->approved_overtime_minutes = 0;
-            $attendance->overtime_amount = null;
-            $attendance->overtime_approved_by = null;
-            $attendance->overtime_approved_at = null;
-        }
-        $attendance->save();
+        $this->attendanceBilling->recalculate($attendance);
     }
+
 }

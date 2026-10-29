@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, UserRoundCog, CalendarDays, Clock3, FileCheck2, TimerReset,
   ReceiptText, SlidersHorizontal, Bell, UserCircle2, Settings, LogOut, Menu, X, BriefcaseBusiness,
-  Stethoscope, ClipboardList, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, Activity, CircleDollarSign
+  Stethoscope, ClipboardList, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, Activity, CircleDollarSign, BookOpenText
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api';
@@ -11,6 +11,7 @@ import { subscribeToCareVmaNotifications } from '../pusher';
 import BrandLogo from './BrandLogo';
 import LiveNavbarClock from './LiveNavbarClock';
 import BirthdayPopup from './BirthdayPopup';
+import BirthdayBanner from './BirthdayBanner';
 import { AvatarMedia } from './ui';
 import { formatDate } from '../timezone';
 import { emitToast } from '../feedback';
@@ -45,6 +46,7 @@ function navFor(user) {
       { label: 'Overtime Review', to: '/admin/overtime', icon: TimerReset },
       { label: 'Invoices', to: '/admin/invoices', icon: ReceiptText },
       { label: 'Company Finance', to: '/admin/company-finance', icon: CircleDollarSign },
+      { label: 'Notebook', to: '/admin/notebook', icon: BookOpenText },
       {
         label: 'Configuration', icon: SlidersHorizontal, children: [
           ['Departments','departments'], ['Roles','roles'], ['Employment Types','employment-types'],
@@ -65,6 +67,7 @@ function navFor(user) {
       { label: 'Attendance', to: '/hr/attendance', icon: Clock3 },
       { label: 'Change Requests', to: '/hr/change-requests', icon: FileCheck2 },
       { label: 'Overtime Review', to: '/hr/overtime', icon: TimerReset },
+      { label: 'Notebook', to: '/hr/notebook', icon: BookOpenText },
       {
         label: 'HR Configuration', icon: SlidersHorizontal, children: [
           ['Departments','departments'], ['Roles','roles'], ['Employment Types','employment-types'],
@@ -88,6 +91,7 @@ function navFor(user) {
       { label: 'My Schedule', to: '/employee/schedule', icon: CalendarDays },
       { label: 'My Attendance', to: '/employee/attendance', icon: Clock3 },
       { label: 'My Profile', to: '/employee/profile', icon: UserCircle2 },
+      { label: 'Notebook', to: '/employee/notebook', icon: BookOpenText },
       { label: 'Notifications', to: '/employee/notifications', icon: Bell },
       { label: 'Settings', to: '/employee/settings', icon: Settings },
     ];
@@ -95,6 +99,7 @@ function navFor(user) {
   if (user.role === 'client') {
     return [
       { label: 'Assigned Team', to: '/doctor/dashboard', icon: Users },
+      { label: 'Notebook', to: '/doctor/notebook', icon: BookOpenText },
       { label: 'Notifications', to: '/doctor/notifications', icon: Bell },
       { label: 'My Profile', to: '/doctor/profile', icon: UserCircle2 },
     ];
@@ -433,7 +438,6 @@ export default function AppShell() {
               <button type="button" className="notification-dropdown-footer" onClick={() => { setNotificationOpen(false); beginPageLoad(); navigate(notificationPath); }}>View all notifications <ChevronRight size={15}/></button>
             </div>}
           </div>}
-          <div className="status-pill"><span/>Secure session</div>
           <div className="profile-menu-wrap" ref={profileMenuRef}>
             <button type="button" className={`profile-menu-trigger ${profileMenuOpen ? 'active' : ''}`} onClick={() => setProfileMenuOpen(open => !open)} aria-expanded={profileMenuOpen} aria-haspopup="menu">
               <span className="avatar small"><AvatarMedia src={user?.profile_picture || user?.employee?.profile_picture || user?.client?.profile_picture} alt={user?.name||'User'} fallback={user?.name?.[0]?.toUpperCase()}/></span>
@@ -452,6 +456,7 @@ export default function AppShell() {
       </header>
       <main className="content">
         <BirthdayPopup user={user}/>
+        {location.pathname.endsWith('/dashboard') && <BirthdayBanner user={user}/>}
         {employeeProfileIncomplete && <div className="profile-lock-banner" role="status">
           <FileCheck2 size={20}/>
           <div><strong>Complete your profile to unlock CareVMA</strong><span>Finish the required personal fields below. Dashboard, schedules, attendance, notifications and settings will unlock automatically after you save a complete profile.</span></div>

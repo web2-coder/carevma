@@ -8,9 +8,11 @@ use App\Models\AttendanceChangeRequest;
 use App\Models\Client;
 use App\Models\Employee;
 use App\Models\EmployeeClientSchedule;
+use App\Models\BirthdayWish;
 use App\Support\MediaUrl;
 use App\Services\TrustedTimeService;
 use App\Services\ClientTimezoneService;
+use App\Services\AttendanceBillingService;
 use DateTimeZone;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -24,6 +26,7 @@ class EmployeeApiController extends Controller
     public function __construct(
         private TrustedTimeService $clock,
         private ClientTimezoneService $timezones,
+        private AttendanceBillingService $attendanceBilling,
     ) {
     }
 
@@ -83,7 +86,7 @@ class EmployeeApiController extends Controller
             ->filter(fn (EmployeeClientSchedule $schedule) => $this->scheduleIsEnabled($schedule->enabled))
             ->map(function (EmployeeClientSchedule $schedule) use ($employeeTimezone, $employee) {
                 // The Client / Doctor timezone is the scheduling source of truth.
-                // The VA timezone is display-only and represents the same instant converted locally.
+                // Employee/VMA screens display the Client / Doctor timezone as the canonical workday clock.
                 $context = $this->scheduleContext($schedule, $employeeTimezone);
                 if (!$context || $context['status'] !== 'open') return null;
 
@@ -188,7 +191,7 @@ class EmployeeApiController extends Controller
         if ($search = trim((string) $request->query('search'))) {
             $query->where(fn ($q) => $q->where('date', 'like', "%{$search}%")->orWhere('clock_in', 'like', "%{$search}%")->orWhere('clock_out', 'like', "%{$search}%"));
         }
-        $attendance = $query->latest('date')->latest('id')->paginate(min((int) $request->query('per_page', 25), 100));
+        $attendance = $query->latest('date')->latest('id')->paginate(min((int) $request->query('per_page', 10), 100));
         $attendance->through(function (Attendance $row) use ($employee) {
             $clientZone = $this->timezones->forAttendance($row, true);
             $employeeZone = $this->timezones->valid($employee->timezone, 'UTC');
@@ -286,19 +289,16 @@ class EmployeeApiController extends Controller
         [$start, $end] = $window;
         $date = $start->toDateString();
         if ($now->lt($start->copy()->subMinutes(15))) {
-            $employeeZone = $this->timezones->valid($employee->timezone, 'UTC');
             $opens = $start->copy()->subMinutes(15);
             return response()->json([
-                'message' => 'Check-in is not open yet. It opens at '.$opens->format('D, M j, g:i A').' ('.$tz.') / '.$opens->copy()->setTimezone($employeeZone)->format('D, M j, g:i A').' ('.$employeeZone.').',
+                'message' => 'Check-in is not open yet. It opens at '.$opens->format('D, M j, g:i A').' ('.$tz.').',
                 'code' => 'CHECK_IN_NOT_OPEN',
                 'check_in_opens_at_client' => $opens->toIso8601String(),
-                'check_in_opens_at_employee' => $opens->copy()->setTimezone($employeeZone)->toIso8601String(),
             ], 422);
         }
         if ($now->gte($end)) {
-            $employeeZone = $this->timezones->valid($employee->timezone, 'UTC');
             return response()->json([
-                'message' => 'This shift ended at '.$end->format('D, M j, g:i A').' ('.$tz.') / '.$end->copy()->setTimezone($employeeZone)->format('D, M j, g:i A').' ('.$employeeZone.'). Use the next scheduled shift to check in.',
+                'message' => 'This shift ended at '.$end->format('D, M j, g:i A').' ('.$tz.'). Use the next scheduled shift to check in.',
                 'code' => 'SHIFT_ENDED',
             ], 422);
         }
@@ -368,38 +368,41 @@ class EmployeeApiController extends Controller
         $employee = $this->employee($request);
         $attendance = Attendance::where('employee_id', $employee->id)->whereNull('clock_out')->latest('id')->first();
         if (!$attendance) return response()->json(['message' => 'No active attendance session.'], 422);
-        $attendance->loadMissing(['client', 'schedule']);
-        $tz = $this->timezones->forAttendance($attendance, false);
-        $now = $this->clock->now($tz);
-        $openBreak = $attendance->breaks()->whereNull('end_time')->latest('id')->first();
-        if ($openBreak) {
-            $endUtc = $now->copy()->utc();
-            $breakStartUtc = $openBreak->start_time instanceof Carbon ? $openBreak->start_time->copy()->utc() : Carbon::parse($openBreak->start_time, 'UTC')->utc();
-            $seconds = max(0, $endUtc->timestamp - $breakStartUtc->timestamp);
-            $openBreak->update(['end_time' => $endUtc]); $attendance->break_taken = ($attendance->break_taken ?? 0) + $seconds;
+
+        $attendance = $this->attendanceBilling->finalize($attendance, $this->clock->now('UTC'));
+        $message = (int) ($attendance->overtime ?? 0) > 0
+            ? 'Clocked out. Extra time is waiting for your overtime review request and is not billable yet.'
+            : 'Clocked out successfully.';
+
+        return response()->json(['message' => $message, 'attendance' => $attendance]);
+    }
+
+    public function requestOvertimeReview(Request $request, Attendance $attendance)
+    {
+        $employee = $this->employee($request);
+        abort_unless((int) $attendance->employee_id === (int) $employee->id, 404);
+        if ((int) ($attendance->overtime ?? 0) <= 0) {
+            return response()->json(['message' => 'This attendance record has no overtime to review.'], 422);
         }
-        $attendance->clock_out = $now->copy()->utc();
-        $schedule = $attendance->schedule_id ? EmployeeClientSchedule::find($attendance->schedule_id) : null;
-        $clockIn = $attendance->clock_in->copy()->setTimezone($tz); $regularStart = $clockIn->copy()->startOfMinute(); $regularEnd = $now->copy()->startOfMinute(); $overtime = 0; $late = 0;
-        if ($attendance->shift_start_snapshot && $attendance->shift_end_snapshot) {
-            $shiftStart = $attendance->shift_start_snapshot->copy()->setTimezone($tz)->startOfMinute();
-            $shiftEnd = $attendance->shift_end_snapshot->copy()->setTimezone($tz)->startOfMinute();
-            if ($regularStart->lt($shiftStart)) $regularStart = $shiftStart->copy();
-            if ($regularStart->gt($shiftStart)) $late = (int) $shiftStart->diffInMinutes($regularStart);
-            if ($regularEnd->gt($shiftEnd)) { $overtime = (int) $shiftEnd->diffInMinutes($regularEnd); $regularEnd = $shiftEnd->copy(); }
-        } elseif ($schedule) {
-            $shiftStart = Carbon::parse($attendance->date->format('Y-m-d').' '.$schedule->start_time, $tz)->startOfMinute();
-            $shiftEnd = Carbon::parse($attendance->date->format('Y-m-d').' '.$schedule->end_time, $tz)->startOfMinute(); if ($shiftEnd->lte($shiftStart)) $shiftEnd->addDay();
-            if ($regularStart->lt($shiftStart)) $regularStart = $shiftStart->copy();
-            if ($regularStart->gt($shiftStart)) $late = (int) $shiftStart->diffInMinutes($regularStart);
-            if ($regularEnd->gt($shiftEnd)) { $overtime = (int) $shiftEnd->diffInMinutes($regularEnd); $regularEnd = $shiftEnd->copy(); }
+        if (!Schema::hasColumn('attendances', 'overtime_status')) {
+            return response()->json(['message' => 'Run the CareVMA attendance upgrade migration first.'], 422);
         }
-        $breakMinutes = (int) floor(($attendance->break_taken ?? 0) / 60);
-        $attendance->total_minutes = max(0, (int) $regularStart->diffInMinutes($regularEnd) - $breakMinutes);
-        $attendance->is_late = $late > 0; $attendance->late_minutes = $late; $attendance->overtime = $overtime;
-        if (Schema::hasColumn('attendances', 'overtime_status')) $attendance->overtime_status = $overtime > 0 ? 'pending' : 'none';
-        $attendance->save();
-        return response()->json(['message' => 'Clocked out successfully.', 'attendance' => $attendance->fresh(['client', 'breaks'])]);
+        if ($attendance->overtime_status === 'approved') {
+            return response()->json(['message' => 'This overtime is already approved.'], 422);
+        }
+        if ($attendance->overtime_status === 'pending') {
+            return response()->json(['message' => 'Overtime review has already been requested.']);
+        }
+
+        $attendance->update([
+            'overtime_status' => 'pending',
+            'approved_overtime_minutes' => 0,
+            'overtime_amount' => null,
+            'overtime_approved_by' => null,
+            'overtime_approved_at' => null,
+        ]);
+
+        return response()->json(['message' => 'Overtime review requested. It will be added to billing only after approval.']);
     }
 
     public function profile(Request $request)
@@ -410,6 +413,7 @@ class EmployeeApiController extends Controller
         $total = count(Employee::REQUIRED_SELF_SERVICE_FIELDS);
         $employee->setAttribute('profile_missing_fields', $missing);
         $employee->setAttribute('profile_completion_percent', $total ? (int) round((($total - count($missing)) / $total) * 100) : 100);
+        $employee->setAttribute('assigned_doctor_timezone', $this->currentDoctorTimezoneForEmployee($employee));
         return response()->json($employee);
     }
 
@@ -458,6 +462,45 @@ class EmployeeApiController extends Controller
         return response()->json(['message' => 'Document removed.']);
     }
 
+    public function sendBirthdayWish(Request $request, Employee $employee)
+    {
+        $sender = $this->employee($request);
+        if ($sender->id === $employee->id) {
+            return response()->json(['message' => 'You cannot send a cake sticker to yourself.'], 422);
+        }
+
+        $senderZone = $this->currentDoctorTimezoneForEmployee($sender);
+        $today = $this->clock->now($senderZone);
+        $birthDate = $employee->date_of_birth;
+        if (!$birthDate
+            || (int) $birthDate->format('m') !== (int) $today->format('m')
+            || (int) $birthDate->format('d') !== (int) $today->format('d')) {
+            return response()->json(['message' => 'Cake stickers can only be sent to teammates whose birthday is today.'], 422);
+        }
+
+        $wish = BirthdayWish::firstOrCreate([
+            'sender_user_id' => $request->user()->id,
+            'recipient_employee_id' => $employee->id,
+            'birthday_date' => $today->toDateString(),
+        ]);
+
+        if ($wish->wasRecentlyCreated && $employee->user) {
+            app(\App\Services\OperationalNotifier::class)->send(
+                $employee->user,
+                'Birthday cake sticker 🎂',
+                trim($sender->first_name.' '.$sender->last_name).' sent you a birthday cake sticker.',
+                'BirthdayCakeSticker',
+                '/employee/dashboard',
+                ['sender_employee_id' => $sender->id, 'birthday_date' => $today->toDateString()]
+            );
+        }
+
+        return response()->json([
+            'message' => $wish->wasRecentlyCreated ? 'Cake sticker sent.' : 'You already sent a cake sticker today.',
+            'sent' => true,
+        ]);
+    }
+
     public function changePassword(Request $request)
     {
         $data = $request->validate(['current_password' => ['required'], 'password' => ['required', 'string', 'min:8', 'confirmed']]);
@@ -467,6 +510,32 @@ class EmployeeApiController extends Controller
         return response()->json(['message' => 'Password changed successfully.']);
     }
 
+
+    private function currentDoctorTimezoneForEmployee(Employee $employee): string
+    {
+        $active = Attendance::with('client:id,timezone')
+            ->where('employee_id', $employee->id)
+            ->whereNull('clock_out')
+            ->latest('id')
+            ->first();
+        if ($active?->client?->timezone) {
+            return $this->timezones->valid($active->client->timezone, $this->timezones->businessTimezone());
+        }
+
+        $next = EmployeeClientSchedule::with('client:id,timezone')
+            ->where('employee_id', $employee->id)
+            ->where(function ($query) {
+                $query->where('enabled', true)->orWhereNull('enabled');
+            })
+            ->orderBy('id')
+            ->get()
+            ->first(fn (EmployeeClientSchedule $schedule) => !empty($schedule->client?->timezone));
+
+        return $this->timezones->valid(
+            $next?->client?->timezone ?: $employee->timezone,
+            $this->timezones->businessTimezone()
+        );
+    }
 
     private function scheduleWindow(EmployeeClientSchedule $schedule, Carbon $now): ?array
     {

@@ -19,17 +19,32 @@ import {
 const api = axios.create({
   baseURL: '/api',
   withCredentials: true,
+  withXSRFToken: true,
   headers: {
     Accept: 'application/json',
     'X-Requested-With': 'XMLHttpRequest',
   },
 });
 
-// These routes use Laravel's web/session middleware. The SPA shell renders
-// the session CSRF token, so send that exact token with state-changing API calls.
-const csrf = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-if (csrf) {
-  api.defaults.headers.common['X-CSRF-TOKEN'] = csrf;
+// Keep CSRF dynamic. Laravel regenerates the session token on logout and some
+// security-sensitive session changes, so a token captured only once at boot can
+// become stale and cause 419 / TokenMismatchException errors.
+let runtimeCsrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+
+function cookieValue(name) {
+  if (typeof document === 'undefined') return '';
+  const prefix = `${name}=`;
+  const part = document.cookie.split('; ').find(item => item.startsWith(prefix));
+  return part ? decodeURIComponent(part.slice(prefix.length)) : '';
+}
+
+async function refreshCsrfToken() {
+  const response = await axios.get('/api/csrf-token', {
+    withCredentials: true,
+    headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+  });
+  runtimeCsrfToken = String(response?.data?.token || runtimeCsrfToken || '');
+  return runtimeCsrfToken;
 }
 
 /*
@@ -99,6 +114,16 @@ api.interceptors.request.use(
     const method = String(
       config?.method || 'get',
     ).toLowerCase();
+
+    if (!['get', 'head', 'options'].includes(method)) {
+      const xsrfCookie = cookieValue('XSRF-TOKEN');
+      if (xsrfCookie) {
+        config.headers['X-XSRF-TOKEN'] = xsrfCookie;
+        delete config.headers['X-CSRF-TOKEN'];
+      } else if (runtimeCsrfToken) {
+        config.headers['X-CSRF-TOKEN'] = runtimeCsrfToken;
+      }
+    }
 
     const navigationActive =
       typeof window !== 'undefined' &&
@@ -188,6 +213,27 @@ api.interceptors.response.use(
       axios.isCancel(error)
     ) {
       return Promise.reject(error);
+    }
+
+    /*
+     * CSRF token/session rotation recovery. Retry the original request once
+     * after asking Laravel for the current session token. This fixes the common
+     * login -> logout -> login TokenMismatchException without a hard refresh.
+     */
+    if (
+      error?.response?.status === 419 &&
+      error?.config &&
+      !error.config.__carevmaCsrfRetried
+    ) {
+      return refreshCsrfToken()
+        .then(token => {
+          const retry = { ...error.config, __carevmaCsrfRetried: true };
+          retry.headers = { ...(retry.headers || {}) };
+          delete retry.headers['X-XSRF-TOKEN'];
+          if (token) retry.headers['X-CSRF-TOKEN'] = token;
+          return api(retry);
+        })
+        .catch(() => Promise.reject(error));
     }
 
     /*

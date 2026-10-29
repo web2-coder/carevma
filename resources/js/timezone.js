@@ -35,6 +35,21 @@ export function formatDateTime(value, timeZone = 'UTC', options = {}) {
 }
 
 export function formatDate(value, timeZone = 'UTC', options = {}) {
+  const raw = String(value ?? '').trim();
+
+  // A database DATE is a calendar date, not a UTC instant. Parsing YYYY-MM-DD
+  // with new Date() can move it to the previous/next day in another timezone.
+  // Render date-only values in UTC so the stored calendar day is preserved.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const [year, month, day] = raw.split('-').map(Number);
+    const calendarDate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: 'UTC',
+      year: 'numeric', month: 'short', day: '2-digit',
+      ...options,
+    }).format(calendarDate);
+  }
+
   const date = instant(value);
   if (!date) return '—';
   return new Intl.DateTimeFormat('en-US', {

@@ -39,15 +39,12 @@ import '../../css/dual-timezone-tables.css';
 
 function tzDate(value,timeZone){return formatDate(value,timeZone||'UTC')}
 
-function DualTime({value,doctorTz,vaTz,live=false}){
+function DualTime({value,doctorTz,live=false}){
   if(!value) return live?<Badge tone="warning">Live</Badge>:<span>—</span>;
-  return <div className="dual-time-cell">
-    <div className="dual-time-row doctor-time"><strong>Doctor</strong><span>{dateTime(value,doctorTz||'UTC')}</span><small>{doctorTz||'UTC'}</small></div>
-    <div className="dual-time-row va-time"><strong>VA</strong><span>{dateTime(value,vaTz||'UTC')}</span><small>{vaTz||'UTC'}</small></div>
-  </div>;
+  return <div className="dual-time-cell"><div className="dual-time-row doctor-time"><strong>Doctor</strong><span>{dateTime(value,doctorTz||'UTC')}</span><small>{doctorTz||'UTC'}</small></div></div>;
 }
-function DualDate({value,doctorTz,vaTz}){
-  return <div className="dual-date-cell"><span><strong>Doctor</strong> {tzDate(value,doctorTz||'UTC')}</span><span><strong>VA</strong> {tzDate(value,vaTz||'UTC')}</span></div>;
+function DualDate({value,doctorTz}){
+  return <div className="dual-date-cell"><span><strong>Doctor</strong> {tzDate(value,doctorTz||'UTC')}</span></div>;
 }
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -218,7 +215,7 @@ export default function ClientProfilePage() {
           ...filters,
           client_id: clientId,
           page,
-          per_page: 25,
+          per_page: 10,
         },
       });
       setReportRows(response.data?.data || []);
@@ -272,7 +269,6 @@ export default function ClientProfilePage() {
           employeeEmail,
           employeeCode,
           schedule.weekday,
-          schedule.employee_timezone,
           schedule.timezone,
           schedule.start_time,
           schedule.end_time,
@@ -388,27 +384,25 @@ export default function ClientProfilePage() {
     const existingForEmployee = schedules.filter(schedule => String(schedule.employee_id) === String(weeklyAssign.employee_id));
     setBusy(true);
     try {
-      await Promise.all(selectedAssignDays.map(day => {
-        const row = weeklyAssign.days[day];
-        const payload = {
-          employee_id: weeklyAssign.employee_id,
-          client_id: clientId,
-          weekday: day,
-          start_time: row.start_time,
-          end_time: row.end_time,
-          timezone: employee?.timezone || 'Asia/Karachi',
-          time_basis: 'employee',
-          per_hour_rate: weeklyAssign.per_hour_rate,
-          break_allowed_hours: weeklyAssign.break_allowed_hours || '0.00',
-          enabled: true,
-          repeat: !!row.repeat,
-          schedule_date: null,
-        };
-        const existing = existingForEmployee.find(schedule => String(schedule.employee_weekday || schedule.weekday).toLowerCase() === day.toLowerCase());
-        return existing
-          ? api.put(`/management/schedules/${existing.id}`, payload)
-          : api.post('/management/schedules', payload);
-      }));
+      await api.post('/management/schedules/batch', {
+        employee_id: weeklyAssign.employee_id,
+        client_id: clientId,
+        per_hour_rate: weeklyAssign.per_hour_rate,
+        break_allowed_hours: weeklyAssign.break_allowed_hours || '0.00',
+        schedules: selectedAssignDays.map(day => {
+          const row = weeklyAssign.days[day];
+          const existing = existingForEmployee.find(schedule => String(schedule.employee_weekday || schedule.weekday).toLowerCase() === day.toLowerCase());
+          return {
+            id: existing?.id || null,
+            weekday: day,
+            start_time: row.start_time,
+            end_time: row.end_time,
+            enabled: true,
+            repeat: !!row.repeat,
+            schedule_date: null,
+          };
+        }),
+      });
       notify('success', `${selectedAssignEmployee?.first_name || 'VA'} assigned. ${selectedAssignDays.length} weekly shift(s) saved at ${money(weeklyAssign.per_hour_rate)}/hr.`);
       await loadCore(true);
       navigate(`/admin/client/${clientId}/schedule`);
@@ -440,7 +434,7 @@ export default function ClientProfilePage() {
       employee_id: employeeId || '',
       per_hour_rate: client?.per_hour_charges || '',
       break_allowed_hours: '0.30',
-      timezone: employee?.timezone || 'Asia/Karachi',
+      timezone: client?.timezone || 'UTC',
     });
     setScheduleOpen(true);
   };
@@ -450,14 +444,14 @@ export default function ClientProfilePage() {
     setScheduleForm({
       employee_id: String(schedule.employee_id || schedule.employee?.id || ''),
       date: schedule.schedule_date ? String(schedule.schedule_date).slice(0, 10) : '',
-      weekday: weekdayInZone(schedule.shift_starts_at, schedule.employee_timezone || schedule.employee?.timezone) || schedule.employee_weekday || schedule.weekday || 'Monday',
-      start_time: timeInZone(schedule.shift_starts_at, schedule.employee_timezone || schedule.employee?.timezone) || String(schedule.start_time || '09:00').slice(0, 5),
-      end_time: timeInZone(schedule.shift_ends_at, schedule.employee_timezone || schedule.employee?.timezone) || String(schedule.end_time || '17:00').slice(0, 5),
+      weekday: schedule.weekday || 'Monday',
+      start_time: String(schedule.start_time || '09:00').slice(0, 5),
+      end_time: String(schedule.end_time || '17:00').slice(0, 5),
       per_hour_rate: schedule.per_hour_rate ?? client?.per_hour_charges ?? '',
       break_allowed_hours: schedule.break_allowed_hours ?? '0.30',
       enabled: !!schedule.enabled,
       repeat: schedule.repeat === undefined ? true : !!schedule.repeat,
-      timezone: schedule.employee_timezone || schedule.timezone || schedule.employee?.timezone || 'Asia/Karachi',
+      timezone: schedule.client_timezone || client?.timezone || schedule.timezone || 'UTC',
     });
     setScheduleOpen(true);
   };
@@ -471,8 +465,8 @@ export default function ClientProfilePage() {
       schedule_date: scheduleForm.repeat ? null : (scheduleForm.date || null),
       start_time: scheduleForm.start_time,
       end_time: scheduleForm.end_time,
-      timezone: employee?.timezone || scheduleForm.timezone || 'Asia/Karachi',
-      time_basis: 'employee',
+      timezone: client?.timezone || scheduleForm.timezone || 'UTC',
+      time_basis: 'doctor',
       per_hour_rate: scheduleForm.per_hour_rate === '' ? null : scheduleForm.per_hour_rate,
       break_allowed_hours: scheduleForm.break_allowed_hours || '0.00',
       enabled: !!scheduleForm.enabled,
@@ -575,7 +569,7 @@ export default function ClientProfilePage() {
         <div className="client-schedule-hero-copy">
           <span className="client-section-kicker">Schedule operations</span>
           <h2>VA schedules for {client.name}</h2>
-          <p>Manage weekly coverage, hourly rates, VA timezones and assignment status from one place.</p>
+          <p>Manage weekly coverage, hourly rates, Doctor-time schedules and assignment status from one place.</p>
         </div>
         <div className="client-schedule-hero-actions">
           <Button variant="secondary" icon={UsersRound} onClick={() => goTab('assign')}>Assign VA</Button>
@@ -658,18 +652,18 @@ export default function ClientProfilePage() {
                 </div>
               </div>
               <div className="client-va-header-right">
-                <div className="client-va-timezone"><Clock3 size={15} /><span>{group.employee?.timezone || group.schedules[0]?.employee_timezone || group.schedules[0]?.timezone || 'Timezone not set'}</span></div>
+                <div className="client-va-timezone"><Clock3 size={15} /><span>{client?.timezone || group.schedules[0]?.client_timezone || group.schedules[0]?.timezone || 'Doctor timezone not set'}</span></div>
                 <div className="client-va-rate">{group.rate !== null && group.rate !== '' ? `${money(group.rate)}/hr` : 'Rate not set'}</div>
                 <Button variant="secondary" icon={Plus} onClick={() => openAddSchedule(group.employee?.id)}>Add shift</Button>
               </div>
             </div>
 
             <div className="client-schedule-columns" aria-hidden="true">
-              <span>VA day</span>
-              <span>VA local time</span>
+              <span>Doctor day</span>
               <span>Doctor local time</span>
+              <span>Doctor timezone</span>
               <span>Duration</span>
-              <span>Allowed break</span>
+              <span>Doctor break</span>
               <span>Status</span>
               <span>Actions</span>
             </div>
@@ -677,11 +671,11 @@ export default function ClientProfilePage() {
             <div className="client-schedule-list">
               {group.schedules.map(schedule => (
                 <div className="client-schedule-row" key={schedule.id}>
-                  <div className="client-schedule-cell" data-label="VA day"><strong className="schedule-day">{schedule.employee_weekday || weekdayInZone(schedule.shift_starts_at, schedule.employee_timezone || group.employee?.timezone) || schedule.weekday}</strong></div>
-                  <div className="client-schedule-cell schedule-time" data-label="VA local time"><Clock3 size={15} /><span>{formatTime12(timeInZone(schedule.shift_starts_at, schedule.employee_timezone || group.employee?.timezone))} – {formatTime12(timeInZone(schedule.shift_ends_at, schedule.employee_timezone || group.employee?.timezone))}</span><small>{schedule.employee_timezone || group.employee?.timezone || 'VA timezone'}</small></div>
-                  <div className="client-schedule-cell schedule-time" data-label="Doctor local time"><span>{formatTime12(schedule.start_time)} – {formatTime12(schedule.end_time)}</span><small>{schedule.client_timezone || client?.timezone || schedule.timezone || 'Doctor timezone'}</small></div>
+                  <div className="client-schedule-cell" data-label="Doctor day"><strong className="schedule-day">{schedule.weekday}</strong></div>
+                  <div className="client-schedule-cell schedule-time" data-label="Doctor local time"><Clock3 size={15} /><span>{formatTime12(schedule.start_time)} – {formatTime12(schedule.end_time)}</span><small>{schedule.client_timezone || client?.timezone || schedule.timezone || 'Doctor timezone'}</small></div>
+                  <div className="client-schedule-cell schedule-time" data-label="Doctor timezone"><span>{schedule.client_timezone || client?.timezone || schedule.timezone || 'Not set'}</span><small>Canonical schedule timezone</small></div>
                   <div className="client-schedule-cell" data-label="Duration"><span className="schedule-hours">{hoursText(schedule.no_of_hours)}</span></div>
-                  <div className="client-schedule-cell" data-label="Allowed break"><span className="schedule-break-chip">{Number(schedule.break_allowed_hours || 0).toFixed(2)} H.MM</span></div>
+                  <div className="client-schedule-cell" data-label="Doctor break"><span className="schedule-break-chip">{Number(schedule.break_allowed_hours || 0).toFixed(2)} H.MM</span></div>
                   <div className="client-schedule-cell" data-label="Status"><Badge tone={schedule.enabled ? 'success' : 'danger'}>{schedule.enabled ? 'Enabled' : 'Disabled'}</Badge></div>
                   <div className="client-row-menu" data-label="Actions">
                     <button type="button" title="Edit schedule" onClick={() => openEditSchedule(schedule)}><Pencil size={16} /></button>
@@ -704,7 +698,7 @@ export default function ClientProfilePage() {
           <div>
             <span className="client-section-kicker">Workforce assignment</span>
             <h2>Employee Schedule</h2>
-            <p>Select a VA and enter the shift in that VA's local timezone. CareVMA converts the same instant to the Client / Doctor timezone for check-in, attendance and billing.</p>
+            <p>Select a VA and enter every shift directly in the Client / Doctor timezone. This timezone is used for display, check-in, attendance and billing.</p>
           </div>
           <div className="assign-va-rate-summary">
             <span>Estimated weekly cost</span>
@@ -724,9 +718,9 @@ export default function ClientProfilePage() {
               ))}
             </Select>
             <div className="assign-va-selected-meta">
-              <span>VA timezone</span>
-              <strong>{selectedAssignEmployee?.timezone || 'Select an employee'}</strong>
-              <small>Enter times in this VA timezone. Doctor time is calculated automatically.</small>
+              <span>Doctor timezone</span>
+              <strong>{client?.timezone || 'Set client timezone first'}</strong>
+              <small>Enter schedule times directly in the Doctor timezone.</small>
             </div>
           </div>
 
@@ -762,7 +756,7 @@ export default function ClientProfilePage() {
                   </label>
                   <Input type="time" value={row.start_time} onChange={event => setAssignDay(day, { start_time: event.target.value })} disabled={!row.selected} />
                   <Input type="time" value={row.end_time} onChange={event => setAssignDay(day, { end_time: event.target.value })} disabled={!row.selected} />
-                  <div className="assign-va-timezone-field">{selectedAssignEmployee?.timezone || 'Select timezone'}</div>
+                  <div className="assign-va-timezone-field">{client?.timezone || 'Set doctor timezone'}</div>
                   <div className="assign-va-hours-field">{row.selected ? `${durationHM(hours)} H.MM` : '—'}</div>
                   <label className="assign-va-repeat">
                     <input type="checkbox" checked={!!row.repeat} onChange={event => setAssignDay(day, { repeat: event.target.checked })} disabled={!row.selected} />
@@ -819,9 +813,9 @@ export default function ClientProfilePage() {
 
   const reportColumns = [
     { key: 'employee', label: 'VA', render: row => `${row.employee?.first_name || ''} ${row.employee?.last_name || ''}`.trim() || '—' },
-    { key: 'date', label: 'Date', render: row => <DualDate value={row.clock_in || row.date} doctorTz={row.client_timezone || client?.timezone || row.client?.timezone || 'UTC'} vaTz={row.employee_timezone || row.employee?.timezone || 'UTC'} /> },
-    { key: 'clock_in', label: 'Clock in', render: row => <DualTime value={row.clock_in} doctorTz={row.client_timezone || client?.timezone || row.client?.timezone || 'UTC'} vaTz={row.employee_timezone || row.employee?.timezone || 'UTC'} /> },
-    { key: 'clock_out', label: 'Clock out', render: row => <DualTime value={row.clock_out} doctorTz={row.client_timezone || client?.timezone || row.client?.timezone || 'UTC'} vaTz={row.employee_timezone || row.employee?.timezone || 'UTC'} live={!row.clock_out} /> },
+    { key: 'date', label: 'Date', render: row => <DualDate value={row.clock_in || row.date} doctorTz={row.client_timezone || client?.timezone || row.client?.timezone || 'UTC'} /> },
+    { key: 'clock_in', label: 'Clock in', render: row => <DualTime value={row.clock_in} doctorTz={row.client_timezone || client?.timezone || row.client?.timezone || 'UTC'} /> },
+    { key: 'clock_out', label: 'Clock out', render: row => <DualTime value={row.clock_out} doctorTz={row.client_timezone || client?.timezone || row.client?.timezone || 'UTC'} live={!row.clock_out} /> },
     { key: 'worked', label: 'Worked', render: row => mins(row.total_minutes) },
     { key: 'break', label: 'Break', render: row => `${Math.floor(Number(row.break_taken || 0) / 60)} min` },
     { key: 'late', label: 'Late', render: row => `${Math.round(Number(row.late_minutes || 0))} min` },
@@ -829,7 +823,7 @@ export default function ClientProfilePage() {
   ];
 
   const renderReport = () => (
-    <Card className="client-workspace-panel" title="Daily Work Report" subtitle="Doctor time is the billing/calculation source; VA time is the same instant converted to the employee timezone.">
+    <Card className="client-workspace-panel" title="Daily Work Report" subtitle="All report dates and times are shown in the Doctor / Client timezone used for billing and calculation.">
       <div className="client-report-filters">
         <Select label="VA" value={reportFilters.employee_id} onChange={event => setReportFilters(current => ({ ...current, employee_id: event.target.value }))}>
           <option value="">All assigned VAs</option>
@@ -893,13 +887,13 @@ export default function ClientProfilePage() {
                 <option value="">Select VA</option>
                 {(options.employees || []).map(employee => <option key={employee.id} value={employee.id}>{employee.employee_code} · {employee.first_name} {employee.last_name}</option>)}
               </Select>
-              <Input label={scheduleForm.repeat ? 'Date (optional while weekly)' : 'Date *'} type="date" value={scheduleForm.date || ''} disabled={!!scheduleForm.repeat} onChange={event => { const date = event.target.value; const weekday = weekdayFromDate(date); setScheduleForm(current => ({ ...current, date, weekday: weekday || current.weekday, repeat: date ? false : current.repeat })); }} hint="For a one-time shift, select the exact VA-local date; weekday is set automatically." />
+              <Input label={scheduleForm.repeat ? 'Date (optional while weekly)' : 'Date *'} type="date" value={scheduleForm.date || ''} disabled={!!scheduleForm.repeat} onChange={event => { const date = event.target.value; const weekday = weekdayFromDate(date); setScheduleForm(current => ({ ...current, date, weekday: weekday || current.weekday, repeat: date ? false : current.repeat })); }} hint="For a one-time shift, select the exact Doctor-local date; weekday is set automatically." />
               <Select label="Day *" value={scheduleForm.weekday} onChange={event => setScheduleField('weekday', event.target.value)}>{WEEKDAYS.map(day => <option key={day} value={day}>{day}</option>)}</Select>
               <Input label="Start time *" type="time" value={scheduleForm.start_time} onChange={event => setScheduleField('start_time', event.target.value)} />
               <Input label="End time *" type="time" value={scheduleForm.end_time} onChange={event => setScheduleField('end_time', event.target.value)} />
               <Input label="Rate / hour" type="number" min="0" step="0.01" value={scheduleForm.per_hour_rate} onChange={event => setScheduleField('per_hour_rate', event.target.value)} />
               <Input label="Allowed Break (H.MM) *" type="number" min="0" max="12.59" step="0.01" value={scheduleForm.break_allowed_hours || '0.00'} onChange={event => setScheduleField('break_allowed_hours', event.target.value)} hint="0.30 = 30 min · 0.50 = 50 min" />
-              <Input label="VA timezone" value={(options.employees || []).find(item => String(item.id) === String(scheduleForm.employee_id))?.timezone || scheduleForm.timezone || 'Select a VA'} disabled />
+              <Input label="Doctor timezone" value={client?.timezone || scheduleForm.timezone || 'Set client timezone'} disabled />
               <label className="client-ring-toggle"><input type="checkbox" checked={!!scheduleForm.repeat} onChange={event => setScheduleForm(current => ({ ...current, repeat: event.target.checked, date: event.target.checked ? '' : current.date }))} /><span>Repeat weekly</span></label>
             </div>
             <label className="client-ring-toggle"><input type="checkbox" checked={!!scheduleForm.enabled} onChange={event => setScheduleField('enabled', event.target.checked)} /><span>Schedule enabled</span></label>

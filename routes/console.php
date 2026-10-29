@@ -5,10 +5,13 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\Facades\Log;
 use App\Models\Employee;
+use App\Models\Attendance;
 use App\Models\Notification;
 use App\Models\User;
 use App\Services\OperationalNotifier;
 use App\Services\TrustedTimeService;
+use App\Services\AttendanceBillingService;
+use App\Services\ClientTimezoneService;
 use Carbon\Carbon;
 
 Artisan::command('inspire', function () {
@@ -49,6 +52,52 @@ Schedule::command('invoices:generate-monthly')
     ->everyMinute()
     ->name('carevma-monthly-invoice-generation')
     ->withoutOverlapping(120);
+
+/* Auto-checkout: if a VA forgets to check out, close the session exactly two hours after the Doctor-local scheduled shift end. */
+Schedule::call(function () {
+    $clock = app(TrustedTimeService::class);
+    $timezones = app(ClientTimezoneService::class);
+    $billing = app(AttendanceBillingService::class);
+    $notifier = app(OperationalNotifier::class);
+    $nowUtc = $clock->now('UTC');
+
+    Attendance::query()
+        ->with(['employee.user', 'client:id,timezone', 'schedule', 'breaks'])
+        ->whereNull('clock_out')
+        ->chunkById(100, function ($rows) use ($nowUtc, $timezones, $billing, $notifier) {
+            foreach ($rows as $attendance) {
+                $deadlineUtc = null;
+                if ($attendance->shift_end_snapshot) {
+                    $deadlineUtc = $attendance->shift_end_snapshot->copy()->utc()->addHours(2);
+                } elseif ($attendance->schedule) {
+                    $zone = $timezones->forAttendance($attendance, false);
+                    $date = $attendance->date?->toDateString() ?: $attendance->clock_in?->copy()->setTimezone($zone)->toDateString();
+                    if ($date) {
+                        $start = Carbon::parse($date.' '.$attendance->schedule->start_time, $zone);
+                        $end = Carbon::parse($date.' '.$attendance->schedule->end_time, $zone);
+                        if ($end->lte($start)) $end->addDay();
+                        $deadlineUtc = $end->utc()->addHours(2);
+                    }
+                }
+
+                if (!$deadlineUtc || $nowUtc->lt($deadlineUtc)) {
+                    continue;
+                }
+
+                $closed = $billing->finalize($attendance, $deadlineUtc);
+                if ($closed->employee?->user) {
+                    $notifier->send(
+                        $closed->employee->user,
+                        'Attendance auto checked out',
+                        'Your active session was automatically checked out two hours after the scheduled Doctor-local shift end. Any extra time must be submitted for overtime review before it can be billed.',
+                        'AttendanceAutoCheckout',
+                        '/employee/attendance',
+                        ['attendance_id' => $closed->id]
+                    );
+                }
+            }
+        });
+})->everyMinute()->name('carevma-auto-checkout')->withoutOverlapping(60);
 
 /* One-day-before birthday reminder for Admins. */
 Schedule::call(function () {

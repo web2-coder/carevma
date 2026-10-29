@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   Users, Stethoscope, Clock3, TimerReset, ReceiptText, Plus, Pencil, Trash2, RefreshCw,
   CalendarDays, UserCheck, CircleDollarSign, Check, X, Bell, Save, KeyRound, Building2, ShieldCheck, Send, Coffee, Activity
@@ -24,15 +24,20 @@ function useNotice(){const [notice,setNotice]=useState(null);return {notice,succ
 function NoticeBar({notice,clear}){return notice?<Notice type={notice.type} onClose={clear}>{notice.text}</Notice>:null}
 
 function tzDate(value,timeZone){return formatDate(value,timeZone||'UTC')}
-function DualTime({value,doctorTz,vaTz,live=false}){
+function DualTime({value,doctorTz,live=false}){
   if(!value) return live?<Badge tone="warning">Live</Badge>:<span>—</span>;
-  return <div className="dual-time-cell">
-    <div className="dual-time-row doctor-time"><strong>Doctor</strong><span>{dateTime(value,doctorTz||'UTC')}</span><small>{doctorTz||'UTC'}</small></div>
-    <div className="dual-time-row va-time"><strong>VA</strong><span>{dateTime(value,vaTz||'UTC')}</span><small>{vaTz||'UTC'}</small></div>
-  </div>;
+  return <div className="dual-time-cell"><div className="dual-time-row doctor-time"><strong>Doctor</strong><span>{dateTime(value,doctorTz||'UTC')}</span><small>{doctorTz||'UTC'}</small></div></div>;
 }
-function DualDate({value,doctorTz,vaTz}){
-  return <div className="dual-date-cell"><span><strong>Doctor</strong> {tzDate(value,doctorTz||'UTC')}</span><span><strong>VA</strong> {tzDate(value,vaTz||'UTC')}</span></div>;
+function DualDate({value,doctorTz}){
+  return <div className="dual-date-cell"><span><strong>Doctor</strong> {tzDate(value,doctorTz||'UTC')}</span></div>;
+}
+function breakCodeText(value){
+  const raw=Number(value||0).toFixed(2);
+  const [hoursPart='0',minutesPart='00']=raw.split('.');
+  const hours=Math.max(0,Number(hoursPart)||0);
+  const minutes=Math.min(59,Math.max(0,Number(minutesPart)||0));
+  if(!hours&&!minutes)return 'No break';
+  return `${hours?`${hours} hr${hours===1?'':'s'} `:''}${minutes?`${minutes} min`:''}`.trim();
 }
 
 export function ManagementDashboard(){
@@ -75,13 +80,13 @@ export function ManagementDashboard(){
     </div>
 
     <div className="dashboard-notice-grid">
-      <Card className={`billing-cycle-card ${billingGenerated?'is-generated':''}`} title="Automatic monthly invoices" subtitle="25th → next month 26th · drafts generate after the cycle closes">
+      <Card className={`billing-cycle-card ${billingGenerated?'is-generated':''}`} title="Automatic monthly invoices" subtitle="26th → next month 25th · drafts generate after the cycle closes">
         <div className="billing-cycle-status-row">
           <div className="billing-cycle-icon"><ReceiptText size={21}/></div>
           <div className="billing-cycle-copy">
             <span>Current cycle</span>
             <strong>{billingDate(billing.period_start)} → {billingDate(billing.period_end)}</strong>
-            <small>Processing: 27th at 12:15 AM · {user?.assigned_timezone||'CareVMA business timezone'}</small>
+            <small>Processing: 26th at 12:15 AM · {user?.assigned_timezone||'CareVMA business timezone'}</small>
           </div>
           <Badge tone={billingGenerated?'success':billing.status==='scheduled'?'info':'neutral'}>{billingStatus}</Badge>
         </div>
@@ -183,83 +188,73 @@ function ZoneTimeLine({label,time,timezone,tone=''}){
 }
 
 export function LiveUsersPage(){
+  const {user}=useAuth();
   const [data,setData]=useState({server_now:null,total:0,working:0,on_break:0,sessions:[]});
   const [loading,setLoading]=useState(true);
   const n=useNotice();
-  const load=async(silent=false)=>{
-    if(!silent)setLoading(true);
-    try{setData((await api.get('/management/live-users')).data)}
-    catch(e){n.error(messageFrom(e))}
-    finally{if(!silent)setLoading(false)}
-  };
-  useEffect(()=>{
-    load();
-    const poll=setInterval(()=>load(true),15000);
-    const realtime=()=>load(true);
-    const focus=()=>load(true);
-    window.addEventListener('carevma:notification',realtime);
-    window.addEventListener('focus',focus);
-    return()=>{
-      clearInterval(poll);
-      window.removeEventListener('carevma:notification',realtime);
-      window.removeEventListener('focus',focus);
-    };
-  },[]);
+  const load=async(silent=false)=>{if(!silent)setLoading(true);try{setData((await api.get('/management/live-users')).data)}catch(e){n.error(messageFrom(e))}finally{if(!silent)setLoading(false)}};
+  useEffect(()=>{load();const poll=setInterval(()=>load(true),15000);const realtime=()=>load(true);window.addEventListener('carevma:notification',realtime);window.addEventListener('focus',realtime);return()=>{clearInterval(poll);window.removeEventListener('carevma:notification',realtime);window.removeEventListener('focus',realtime)}},[]);
   if(loading&&!data.sessions.length)return <Loading/>;
+  const base=roleBase(user?.role);
 
-  const columns=[
-    {
-      key:'employee',label:'Employee / VA',render:r=><div className="person-cell live-person-cell">
-        <div className="avatar">{r.employee?.first_name?.[0]}{r.employee?.last_name?.[0]}</div>
-        <div><strong>{r.employee?`${r.employee.first_name} ${r.employee.last_name}`:'Unknown employee'}</strong><span>{r.employee?.email||r.employee?.employee_code||'—'}</span></div>
-      </div>
-    },
-    {
-      key:'client',label:'Working for client',render:r=><div className="live-client-cell">
-        <strong>{r.client?.name||'Unallocated'}</strong>
-        <span>{r.client?.business_name||'No practice name'}</span>
-        <span className="live-doctor-zone">Doctor timezone · {r.doctor_timezone||'Not assigned'}</span>
-      </div>
-    },
-    {
-      key:'shift',label:'Scheduled shift',render:r=>r.schedule?<div className="live-shift-cell">
-        <strong>{r.schedule_doctor_label||`${formatClockTime(r.schedule.start_time)} – ${formatClockTime(r.schedule.end_time)}`}</strong>
-        <span>Doctor source · {r.doctor_timezone||r.calculation_timezone||'—'}</span>
-        {r.schedule_va_label&&<span>VA local · {r.schedule_va_label} · {r.va_timezone}</span>}
-      </div>:<div className="live-shift-cell"><strong>Legacy session</strong><span>VA timezone · {r.va_timezone||'Timezone unavailable'}</span>{r.doctor_timezone&&<span>Doctor timezone · {r.doctor_timezone}</span>}</div>
-    },
-    {
-      key:'clock_in',label:'Clocked in',render:r=><div className="live-clockin-cell dual-zone-clockin">
-        <ZoneTimeLine label="VA" time={r.clock_in_va_label} timezone={r.va_timezone}/>
-        <ZoneTimeLine label="Doctor" time={r.clock_in_doctor_label} timezone={r.doctor_timezone} tone="doctor"/>
-      </div>
-    },
-    {
-      key:'live',label:'Live time',render:r=><LiveDuration baseSeconds={r.elapsed_seconds}/>
-    },
-    {
-      key:'break',label:'Break',render:r=><LiveBreakDuration row={r}/>
-    },
-    {
-      key:'status',label:'Status',render:r=><div className="live-status-cell"><span className={`live-status-dot ${r.is_on_break?'break':'working'}`}/><Badge tone={r.is_on_break?'warning':'success'}>{r.is_on_break?'On break':'Working'}</Badge></div>
-    },
-  ];
-
-  return <><PageHeader eyebrow="Real-time workforce" title="Live workforce" description="See who is clocked in right now, which client they are serving, both assigned timezones, actual elapsed session time and break state." actions={<Button variant="secondary" icon={RefreshCw} onClick={()=>load()}>Refresh</Button>}/><NoticeBar notice={n.notice} clear={n.clear}/>
+  return <><PageHeader eyebrow="Real-time workforce" title="Live workforce" description="Currently active VAs are displayed as profile cards. All shift and clock information uses the assigned Doctor timezone." actions={<Button variant="secondary" icon={RefreshCw} onClick={()=>load()}>Refresh</Button>}/><NoticeBar notice={n.notice} clear={n.clear}/>
     <div className="metrics-grid live-workforce-metrics"><MetricCard label="Live employees" value={data.total} icon={Activity} hint="Open attendance sessions" live/><MetricCard label="Working" value={data.working} icon={UserCheck} hint="Actively working"/><MetricCard label="On break" value={data.on_break} icon={Coffee} hint="Currently on break"/></div>
-    <Card title="Currently active" subtitle="Elapsed time comes from the UTC attendance instant; VA and Doctor clock-in times are shown in their assigned timezones.">
-      {data.sessions.length?<div className="live-workforce-table"><Table columns={columns} rows={data.sessions}/></div>:<EmptyState title="No one is live right now" description="Employees will appear here as soon as they clock in."/>}
+    <Card title="Currently active" subtitle="Open a card to view the VA profile. Admins can jump directly to edit from the card.">
+      {data.sessions.length?<div className="live-user-card-grid">{data.sessions.map(r=>{
+        const employee=r.employee||{};
+        const name=`${employee.first_name||''} ${employee.last_name||''}`.trim()||'Unknown employee';
+        return <article className="live-user-card" key={r.id}>
+          <div className="live-user-card-head"><div className="avatar">{employee.first_name?.[0]}{employee.last_name?.[0]}</div><div><strong>{name}</strong><span>{employee.employee_code||employee.email||'—'}</span></div><Badge tone={r.is_on_break?'warning':'success'}>{r.is_on_break?'On break':'Working'}</Badge></div>
+          <div className="live-user-card-body">
+            <div><span>Doctor / Client</span><strong>{r.client?.name||'Unallocated'}</strong><small>{r.doctor_timezone||'Timezone not assigned'}</small></div>
+            <div><span>Doctor shift</span><strong>{r.schedule_doctor_label||'Legacy session'}</strong><small>{r.schedule?`Break: ${breakCodeText(r.schedule.break_allowed_hours)}`:'No schedule snapshot'}</small></div>
+            <div><span>Clocked in</span><strong>{r.clock_in_doctor_label||'—'}</strong><small>Doctor local time</small></div>
+            <div><span>Live duration</span><LiveDuration baseSeconds={r.elapsed_seconds}/><small>{r.is_on_break?'Break currently active':'Working session'}</small></div>
+          </div>
+          <div className="live-user-card-actions"><Link className="btn btn-secondary btn-link" to={`${base}/employees/${employee.id}`}>View full profile</Link>{user?.role==='admin'&&<Link className="btn btn-primary btn-link" to={`/admin/employees?edit=${employee.id}`}>Edit user</Link>}</div>
+        </article>;
+      })}</div>:<EmptyState title="No one is live right now" description="Employees will appear here as soon as they clock in."/>}
     </Card>
   </>;
 }
 
+export function EmployeeProfileViewPage(){
+  const {employeeId}=useParams();
+  const {user}=useAuth();
+  const navigate=useNavigate();
+  const [employee,setEmployee]=useState(null);const [busy,setBusy]=useState(true);const n=useNotice();
+  useEffect(()=>{setBusy(true);api.get(`/management/employees/${employeeId}`).then(r=>setEmployee(r.data)).catch(e=>n.error(messageFrom(e))).finally(()=>setBusy(false))},[employeeId]);
+  if(busy&&!employee)return <Loading/>;
+  if(!employee)return <><NoticeBar notice={n.notice} clear={n.clear}/><EmptyState title="Employee not found"/></>;
+  const name=`${employee.first_name||''} ${employee.last_name||''}`.trim();
+  const base=roleBase(user?.role);
+  const detailRows=[['Employee #',employee.employee_code],['Email',employee.email],['Phone',employee.phone],['Department',employee.department?.name],['Designation',employee.designation?.name],['Status',employee.employee_status?.name],['Timezone',employee.timezone],['Location',employee.location],['Joining date',String(employee.date_of_joining||'').slice(0,10)],['Date of birth',String(employee.date_of_birth||'').slice(0,10)]];
+  return <><PageHeader eyebrow="VA profile" title={name||'Employee profile'} description="Full employee record linked from the Currently Active cards." actions={<><Button variant="secondary" onClick={()=>navigate(`${base}/live-users`)}>Back to live users</Button>{user?.role==='admin'&&<Button icon={Pencil} onClick={()=>navigate(`/admin/employees?edit=${employee.id}`)}>Edit employee</Button>}</>}/><NoticeBar notice={n.notice} clear={n.clear}/><div className="two-col"><Card title="Identity"><div className="profile-summary"><div className="profile-photo"><AvatarMedia src={employee.profile_picture} alt={name} fallback={`${employee.first_name?.[0]||''}${employee.last_name?.[0]||''}`}/></div><div><h2>{name}</h2><p>{employee.employee_code||'—'}</p></div></div></Card><Card title="Employee details"><div className="detail-list">{detailRows.map(([label,value])=><div key={label}><span>{label}</span><strong>{value||'—'}</strong></div>)}</div></Card></div></>;
+}
+
 const emptyEmployee={first_name:'',last_name:'',email:'',password:'',phone:'',timezone:'Asia/Karachi',location:'',department_id:'',role_id:'',employment_type_id:'',shift_type_id:'',designation_id:'',employee_status_id:'',expertise_id:'',reporting_manager_id:'',salary_pkr:'',salary_usd:'',source_of_hire:'',date_of_joining:'',date_of_regularisation:'',gender:'',marital_status:'',date_of_birth:'',age:'',about_me_notes:''};
 export function EmployeesPage(){
-  const {user}=useAuth(); const navigate=useNavigate();
+  const {user}=useAuth(); const navigate=useNavigate(); const location=useLocation();
   const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[search,setSearch]=useState(''),[page,setPage]=useState(1),[busy,setBusy]=useState(false),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[form,setForm]=useState(emptyEmployee),[options,setOptions]=useState({}); const n=useNotice();
-  const load=async()=>{setBusy(true);try{const [r,o]=await Promise.all([api.get('/management/employees',{params:{search,page,per_page:25}}),api.get('/management/options')]);setRows(r.data.data);setMeta(r.data);setOptions(o.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+  const load=async()=>{setBusy(true);try{const [r,o]=await Promise.all([api.get('/management/employees',{params:{search,page,per_page:10}}),api.get('/management/options')]);setRows(r.data.data);setMeta(r.data);setOptions(o.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
   useEffect(()=>{const t=setTimeout(load,220);return()=>clearTimeout(t)},[search,page]);
   const openNew=()=>navigate(`${roleBase(user.role)}/employees/new`); const openEdit=row=>{setEdit(row);setForm({...emptyEmployee,...row,password:'',department_id:row.department_id||'',role_id:row.role_id||'',employment_type_id:row.employment_type_id||'',shift_type_id:row.shift_type_id||'',designation_id:row.designation_id||'',employee_status_id:row.employee_status_id||'',expertise_id:row.expertise_id||'',reporting_manager_id:row.reporting_manager_id||''});setModal(true)};
+  useEffect(()=>{
+    const editId=new URLSearchParams(location.search).get('edit');
+    if(!editId)return;
+    let cancelled=false;
+    const openRequestedEmployee=async()=>{
+      let row=rows.find(item=>String(item.id)===String(editId));
+      if(!row){
+        try{row=(await api.get(`/management/employees/${editId}`)).data}catch(e){if(!cancelled)n.error(messageFrom(e));return}
+      }
+      if(cancelled||!row)return;
+      openEdit(row);
+      navigate(location.pathname,{replace:true});
+    };
+    openRequestedEmployee();
+    return()=>{cancelled=true};
+  },[location.search,rows]);
   const save=async()=>{setBusy(true);try{edit?await api.put(`/management/employees/${edit.id}`,form):await api.post('/management/employees',form);n.success(edit?'Employee updated.':'Employee created.');setModal(false);await load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
   const remove=async row=>{try{await api.delete(`/management/employees/${row.id}`);n.success('Employee deleted.');load()}catch(e){n.error(messageFrom(e))}};
   const resendInvite=async row=>{setBusy(true);try{const {data}=await api.post(`/management/employees/${row.id}/resend-invite`);if(data.activation_url&&navigator.clipboard){await navigator.clipboard.writeText(data.activation_url);n.success(`${data.message} Activation link copied.`)}else n.success(data.message)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
@@ -338,7 +333,7 @@ function Time12Field({label,value,onChange}){
 }
 
 export function SchedulesPage(){
- const emptySchedule={employee_id:'',client_id:'',schedule_date:'',weekday:'Monday',start_time:'09:00',end_time:'17:00',timezone:'',enabled:true,repeat:true,per_hour_rate:''};
+ const emptySchedule={employee_id:'',client_id:'',schedule_date:'',weekday:'Monday',start_time:'09:00',end_time:'17:00',break_allowed_hours:'0.30',timezone:'',enabled:true,repeat:true,per_hour_rate:''};
  const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[page,setPage]=useState(1),[options,setOptions]=useState({}),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[busy,setBusy]=useState(false),[form,setForm]=useState(emptySchedule);const n=useNotice();
 
  const dayFromDate=value=>weekdayFromDateOnly(value);
@@ -348,7 +343,7 @@ export function SchedulesPage(){
  const formatTime=(value,timeZone)=>formatTimeInZone(value,timeZone||'UTC');
  const doctorRange=row=>{const tz=row.client_timezone||row.client?.timezone;if(!row.client_shift_starts_at||!row.client_shift_ends_at||!tz)return 'Saved after timezone sync';return `${formatMoment(row.client_shift_starts_at,tz)} – ${formatTime(row.client_shift_ends_at,tz)}`};
 
- const load=async(nextPage=page)=>{setBusy(true);try{const [r,o]=await Promise.all([api.get('/management/schedules',{params:{paginate:1,page:nextPage,per_page:50}}),api.get('/management/options')]);setRows(r.data?.data||[]);setMeta(r.data||null);setOptions(o.data||{})}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+ const load=async(nextPage=page)=>{setBusy(true);try{const [r,o]=await Promise.all([api.get('/management/schedules',{params:{paginate:1,page:nextPage,per_page:10}}),api.get('/management/options')]);setRows(r.data?.data||[]);setMeta(r.data||null);setOptions(o.data||{})}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
  useEffect(()=>{load(page)},[page]);
 
  const open=r=>{
@@ -375,7 +370,7 @@ export function SchedulesPage(){
      const payload={...form,schedule_date:form.repeat?null:(form.schedule_date||null)};
      payload.timezone=client.timezone;
      edit?await api.put(`/management/schedules/${edit.id}`,payload):await api.post('/management/schedules',payload);
-     n.success('Schedule saved. Doctor / Client local time controls check-in; VA local time is the converted same instant.');
+     n.success('Schedule saved in the Doctor / Client timezone.');
      setModal(false);await load();
    }catch(e){n.error(messageFrom(e))}finally{setBusy(false)}
  };
@@ -390,15 +385,14 @@ export function SchedulesPage(){
    {key:'schedule_type',label:'Type',render:r=>r.repeat?<Badge tone="info">Weekly</Badge>:<Badge tone="neutral">{r.schedule_date?`Once · ${String(r.schedule_date).slice(0,10)}`:'Legacy weekly'}</Badge>},
    {key:'doctor_shift',label:'Doctor local shift',render:r=>`${formatStoredTime12(r.start_time)} – ${formatStoredTime12(r.end_time)}`},
    {key:'doctor_timezone',label:'Doctor timezone',render:r=>r.client_timezone||r.client?.timezone||r.timezone||'Not specified'},
-   {key:'va_shift',label:'VA local time',render:r=>{const tz=r.employee_timezone||r.employee?.timezone;return r.shift_starts_at&&r.shift_ends_at&&tz?`${formatMoment(r.shift_starts_at,tz)} – ${formatTime(r.shift_ends_at,tz)}`:'—'}},
-   {key:'va_timezone',label:'VA timezone',render:r=>r.employee_timezone||r.employee?.timezone||'Not specified'},
+   {key:'doctor_break',label:'Doctor break',render:r=><Badge tone="info">{breakCodeText(r.break_allowed_hours)}</Badge>},
    {key:'hours',label:'Duration (H.MM)',render:r=><strong>{formatDurationHM(r.no_of_hours)}</strong>},
    {key:'status',label:'Status',render:r=><Badge tone={r.enabled?'success':'danger'}>{r.enabled?'Enabled':'Disabled'}</Badge>},
    {key:'actions',label:'Actions',render:r=><div className="row-actions"><button onClick={()=>open(r)}><Pencil size={16}/></button><button className="danger" onClick={()=>remove(r)}><Trash2 size={16}/></button></div>}
  ];
 
  return <>
-   <PageHeader eyebrow="Assignment planning" title="Schedules" description="Enter the shift in the Client / Doctor local timezone. CareVMA uses that timezone for check-in, lateness and overtime, then converts the same instant for the VA." actions={<Button icon={Plus} onClick={()=>open()}>Add schedule</Button>}/>
+   <PageHeader eyebrow="Assignment planning" title="Schedules" description="Enter and display the shift in the Client / Doctor timezone. CareVMA uses that timezone consistently for check-in, lateness, overtime and VMA views." actions={<Button icon={Plus} onClick={()=>open()}>Add schedule</Button>}/>
    <NoticeBar notice={n.notice} clear={n.clear}/>
    <Card>{busy&&!rows.length?<Loading/>:<><Table columns={columns} rows={rows} emptyTitle="No schedules configured"/><Pagination meta={meta} onPage={setPage}/></>}</Card>
    <Modal open={modal} onClose={()=>setModal(false)} title={edit?'Edit schedule':'New schedule'} footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={save}>Save schedule</Button></>}>
@@ -410,13 +404,13 @@ export function SchedulesPage(){
        <Time12Field label="Doctor start time *" value={form.start_time} onChange={value=>set('start_time',value)}/>
        <Time12Field label="Doctor end time *" value={form.end_time} onChange={value=>set('end_time',value)}/>
        <Input label="Doctor timezone · calculation source" value={currentClient?.timezone||form.timezone||'Select a client first'} disabled/>
-       <Input label="VA timezone · display only" value={currentEmployee?.timezone||'Select an employee first'} disabled/>
+       <Input label="Doctor break allowance (H.MM)" type="number" min="0" max="12.59" step="0.01" value={form.break_allowed_hours||'0.30'} onChange={e=>set('break_allowed_hours',e.target.value)} hint="0.30 = 30 min · 1.00 = 1 hour"/>
        <Input label="Per-hour rate" type="number" step="0.01" value={form.per_hour_rate||''} onChange={e=>set('per_hour_rate',e.target.value)}/>
        <label className="check field-check"><input type="checkbox" checked={!!form.repeat} onChange={e=>setForm(current=>({...current,repeat:e.target.checked,schedule_date:e.target.checked?'':current.schedule_date}))}/><span>Repeat weekly</span></label>
        <label className="check field-check"><input type="checkbox" checked={!!form.enabled} onChange={e=>set('enabled',e.target.checked)}/><span>Schedule enabled</span></label>
      </div>
      <div className="notice notice-info" style={{marginTop:12}}>
-       <strong>How time works:</strong> Enter the Doctor / Client local time explicitly with AM/PM. Example: 2:50 AM is stored as 02:50, while 2:50 PM is 14:50. Doctor timezone ({currentClient?.timezone||'select a client'}) controls check-in, late minutes and overtime. VA timezone ({currentEmployee?.timezone||'select a VA'}) is display-only conversion. Check-in opens 15 minutes before the Doctor-local start time.
+       <strong>How time works:</strong> Enter the Doctor / Client local time explicitly with AM/PM. Example: 2:50 AM is stored as 02:50, while 2:50 PM is 14:50. Doctor timezone ({currentClient?.timezone||'select a client'}) controls all displayed dates/times, check-in, late minutes and overtime. The Doctor break allowance is shown in the schedule to relevant users. Check-in opens 15 minutes before the Doctor-local start time.
      </div>
    </Modal>
  </>;
@@ -425,27 +419,34 @@ export function SchedulesPage(){
 export function AttendancePage(){
  const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[options,setOptions]=useState({}),[filters,setFilters]=useState({employee_id:'',from:'',to:'',search:''}),[page,setPage]=useState(1),[busy,setBusy]=useState(false);const n=useNotice();
  const load=async(nextFilters=filters,nextPage=page)=>{setBusy(true);try{const [r,o]=await Promise.all([api.get('/management/attendance',{params:{...nextFilters,page:nextPage}}),api.get('/management/options')]);setRows(r.data.data);setMeta(r.data);setOptions(o.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};useEffect(()=>{load(filters,page)},[page]);const apply=()=>{setPage(1);load(filters,1)};const reset=()=>{const clean={employee_id:'',from:'',to:'',search:''};setFilters(clean);setPage(1);load(clean,1)};
- const columns=[{key:'employee',label:'Employee',render:r=>`${r.employee?.first_name||''} ${r.employee?.last_name||''}`},{key:'client',label:'Client',render:r=>r.client?.name||'Legacy / unallocated'},{key:'date',label:'Date',render:r=><DualDate value={r.clock_in||r.date} doctorTz={r.client_timezone||r.client?.timezone||'UTC'} vaTz={r.employee_timezone||r.employee?.timezone||'UTC'}/>},{key:'clock_in',label:'Clock in',render:r=><DualTime value={r.clock_in} doctorTz={r.client_timezone||r.client?.timezone||'UTC'} vaTz={r.employee_timezone||r.employee?.timezone||'UTC'}/>},{key:'clock_out',label:'Clock out',render:r=><DualTime value={r.clock_out} doctorTz={r.client_timezone||r.client?.timezone||'UTC'} vaTz={r.employee_timezone||r.employee?.timezone||'UTC'} live={!r.clock_out}/>},{key:'breaks',label:'Break',render:r=>`${Math.floor(Number(r.break_taken||0)/60)} min`},{key:'worked',label:'Regular',render:r=>mins(r.total_minutes)},{key:'late',label:'Late',render:r=>`${r.late_minutes||0} min`},{key:'overtime',label:'Overtime',render:r=><Badge tone={(r.overtime||0)>0?'warning':'neutral'}>{r.overtime||0} min</Badge>}];
- return <><PageHeader eyebrow="Time operations" title="Attendance" description="Doctor time is the calculation source. VA time is the same attendance instant converted to the employee timezone."/><NoticeBar notice={n.notice} clear={n.clear}/><Card><div className="filter-grid"><Select label="Employee" value={filters.employee_id} onChange={e=>setFilters({...filters,employee_id:e.target.value})}><option value="">All employees</option>{(options.employees||[]).map(x=><option key={x.id} value={x.id}>{x.first_name} {x.last_name}</option>)}</Select><Input label="From date" type="date" value={filters.from} onChange={e=>setFilters({...filters,from:e.target.value})}/><Input label="To date" type="date" value={filters.to} onChange={e=>setFilters({...filters,to:e.target.value})}/><Input label="Search" value={filters.search} onChange={e=>setFilters({...filters,search:e.target.value})} placeholder="Date, time or employee"/><div className="filter-actions"><Button onClick={apply}>Filter</Button><Button variant="ghost" onClick={reset}>Reset</Button></div></div><Table columns={columns} rows={rows} emptyTitle="No attendance records" emptyDescription="No attendance matches these filters."/><Pagination meta={meta} onPage={setPage}/></Card></>;
+ const columns=[{key:'employee',label:'Employee',render:r=>`${r.employee?.first_name||''} ${r.employee?.last_name||''}`},{key:'client',label:'Client',render:r=>r.client?.name||'Legacy / unallocated'},{key:'date',label:'Date',render:r=><DualDate value={r.clock_in||r.date} doctorTz={r.client_timezone||r.client?.timezone||'UTC'}/>},{key:'clock_in',label:'Clock in',render:r=><DualTime value={r.clock_in} doctorTz={r.client_timezone||r.client?.timezone||'UTC'}/>},{key:'clock_out',label:'Clock out',render:r=><DualTime value={r.clock_out} doctorTz={r.client_timezone||r.client?.timezone||'UTC'} live={!r.clock_out}/>},{key:'breaks',label:'Break',render:r=>`${Math.floor(Number(r.break_taken||0)/60)} min`},{key:'worked',label:'Regular',render:r=>mins(r.total_minutes)},{key:'late',label:'Late',render:r=>`${r.late_minutes||0} min`},{key:'overtime',label:'Overtime',render:r=><Badge tone={(r.overtime||0)>0?'warning':'neutral'}>{r.overtime||0} min</Badge>}];
+ return <><PageHeader eyebrow="Time operations" title="Attendance" description="Attendance dates and times are displayed in the Doctor / Client timezone used for calculation."/><NoticeBar notice={n.notice} clear={n.clear}/><Card><div className="filter-grid"><Select label="Employee" value={filters.employee_id} onChange={e=>setFilters({...filters,employee_id:e.target.value})}><option value="">All employees</option>{(options.employees||[]).map(x=><option key={x.id} value={x.id}>{x.first_name} {x.last_name}</option>)}</Select><Input label="From date" type="date" value={filters.from} onChange={e=>setFilters({...filters,from:e.target.value})}/><Input label="To date" type="date" value={filters.to} onChange={e=>setFilters({...filters,to:e.target.value})}/><Input label="Search" value={filters.search} onChange={e=>setFilters({...filters,search:e.target.value})} placeholder="Date, time or employee"/><div className="filter-actions"><Button onClick={apply}>Filter</Button><Button variant="ghost" onClick={reset}>Reset</Button></div></div><Table columns={columns} rows={rows} emptyTitle="No attendance records" emptyDescription="No attendance matches these filters."/><Pagination meta={meta} onPage={setPage}/></Card></>;
 }
 
 export function ChangeRequestsPage(){
- const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[busy,setBusy]=useState(false);const n=useNotice();const load=async()=>{setBusy(true);try{const r=await api.get('/management/change-requests');setRows(r.data.data);setMeta(r.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};useEffect(()=>{load()},[]);const review=async(r,decision)=>{const note=decision==='rejected'?prompt('Optional rejection note:','')||'':'';try{await api.post(`/management/change-requests/${r.id}/review`,{decision,note});n.success(`Request ${decision}.`);load()}catch(e){n.error(messageFrom(e))}};
+ const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[page,setPage]=useState(1),[busy,setBusy]=useState(false);const n=useNotice();
+ const load=async(nextPage=page)=>{setBusy(true);try{const r=await api.get('/management/change-requests',{params:{page:nextPage}});setRows(r.data.data||[]);setMeta(r.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+ useEffect(()=>{load(page)},[page]);
+ const review=async(r,decision)=>{const note=decision==='rejected'?prompt('Optional rejection note:','')||'':'';try{await api.post(`/management/change-requests/${r.id}/review`,{decision,note});n.success(`Request ${decision}.`);load(page)}catch(e){n.error(messageFrom(e))}};
  const columns=[{key:'employee',label:'Employee',render:r=>`${r.employee?.first_name||''} ${r.employee?.last_name||''}`},{key:'date',label:'Date',render:r=>String(r.date||'').slice(0,10)},{key:'old',label:'Recorded',render:r=>`${r.old_clock_in||'—'} → ${r.old_clock_out||'—'}`},{key:'requested',label:'Requested',render:r=>`${r.requested_clock_in} → ${r.requested_clock_out}`},{key:'reason',label:'Reason'},{key:'status',label:'Status',render:r=><Badge tone={statusTone(r.status)}>{r.status}</Badge>},{key:'actions',label:'Review',render:r=>r.status==='pending'?<div className="row-actions"><button className="approve" onClick={()=>review(r,'approved')}><Check size={16}/></button><button className="danger" onClick={()=>review(r,'rejected')}><X size={16}/></button></div>:<span className="muted">Reviewed</span>}];
- return <><PageHeader eyebrow="Attendance governance" title="Change requests" description="Review requested clock corrections with visible reasons and decision history."/><NoticeBar notice={n.notice} clear={n.clear}/><Card>{busy&&!rows.length?<Loading/>:<Table columns={columns} rows={rows} emptyTitle="No change requests"/>}</Card></>;
+ return <><PageHeader eyebrow="Attendance governance" title="Change requests" description="Review requested clock corrections with visible reasons and decision history."/><NoticeBar notice={n.notice} clear={n.clear}/><Card>{busy&&!rows.length?<Loading/>:<><Table columns={columns} rows={rows} emptyTitle="No change requests"/><Pagination meta={meta} onPage={setPage}/></>}</Card></>;
 }
 
 export function OvertimePage(){
- const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[busy,setBusy]=useState(false),[modal,setModal]=useState(false),[selected,setSelected]=useState(null),[form,setForm]=useState({decision:'approved',approved_minutes:'',overtime_amount:''});const n=useNotice();const load=async()=>{setBusy(true);try{const r=await api.get('/management/overtime');setRows(r.data.data);setMeta(r.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};useEffect(()=>{load()},[]);const open=r=>{setSelected(r);setForm({decision:'approved',approved_minutes:r.approved_overtime_minutes||r.overtime,overtime_amount:r.overtime_amount||''});setModal(true)};const save=async()=>{setBusy(true);try{await api.post(`/management/overtime/${selected.id}/review`,form);n.success('Overtime review saved.');setModal(false);load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+ const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[page,setPage]=useState(1),[busy,setBusy]=useState(false),[modal,setModal]=useState(false),[selected,setSelected]=useState(null),[form,setForm]=useState({decision:'approved',approved_minutes:'',overtime_amount:''});const n=useNotice();
+ const load=async(nextPage=page)=>{setBusy(true);try{const r=await api.get('/management/overtime',{params:{page:nextPage}});setRows(r.data.data||[]);setMeta(r.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+ useEffect(()=>{load(page)},[page]);
+ const open=r=>{setSelected(r);setForm({decision:'approved',approved_minutes:r.approved_overtime_minutes||r.overtime,overtime_amount:r.overtime_amount||''});setModal(true)};
+ const save=async()=>{setBusy(true);try{await api.post(`/management/overtime/${selected.id}/review`,form);n.success('Overtime review saved.');setModal(false);load(page)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
  const columns=[{key:'employee',label:'Employee',render:r=>`${r.employee?.first_name||''} ${r.employee?.last_name||''}`},{key:'date',label:'Date',render:r=>String(r.date||'').slice(0,10)},{key:'overtime',label:'Calculated',render:r=>`${r.overtime} min`},{key:'approved',label:'Approved',render:r=>`${r.approved_overtime_minutes||0} min`},{key:'status',label:'Status',render:r=><Badge tone={statusTone(r.overtime_status||'pending')}>{r.overtime_status||'Pending'}</Badge>},{key:'amount',label:'Custom payment',render:r=>r.overtime_amount?money(r.overtime_amount):'—'},{key:'actions',label:'Action',render:r=><Button variant="secondary" onClick={()=>open(r)}>Review</Button>}];
- return <><PageHeader eyebrow="Compensation review" title="Overtime" description="Approve full or partial overtime, reject it, or set a custom approved payment."/><NoticeBar notice={n.notice} clear={n.clear}/><Card><Table columns={columns} rows={rows} emptyTitle="No overtime records"/></Card><Modal open={modal} onClose={()=>setModal(false)} title="Review overtime" footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={save}>Save decision</Button></>}><div className="form-grid one-col"><Select label="Decision" value={form.decision} onChange={e=>setForm({...form,decision:e.target.value})}><option value="approved">Approve</option><option value="rejected">Reject</option></Select>{form.decision==='approved'&&<><Input label="Approved minutes" type="number" min="0" max={selected?.overtime} value={form.approved_minutes} onChange={e=>setForm({...form,approved_minutes:e.target.value})}/><Input label="Custom overtime payment (optional)" type="number" step="0.01" value={form.overtime_amount} onChange={e=>setForm({...form,overtime_amount:e.target.value})}/></>}</div></Modal></>;
+ return <><PageHeader eyebrow="Compensation review" title="Overtime" description="Approve full or partial overtime, reject it, or set a custom approved payment."/><NoticeBar notice={n.notice} clear={n.clear}/><Card><Table columns={columns} rows={rows} emptyTitle="No overtime records"/><Pagination meta={meta} onPage={setPage}/></Card><Modal open={modal} onClose={()=>setModal(false)} title="Review overtime" footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={save}>Save decision</Button></>}><div className="form-grid one-col"><Select label="Decision" value={form.decision} onChange={e=>setForm({...form,decision:e.target.value})}><option value="approved">Approve</option><option value="rejected">Reject</option></Select>{form.decision==='approved'&&<><Input label="Approved minutes" type="number" min="0" max={selected?.overtime} value={form.approved_minutes} onChange={e=>setForm({...form,approved_minutes:e.target.value})}/><Input label="Custom overtime payment (optional)" type="number" step="0.01" value={form.overtime_amount} onChange={e=>setForm({...form,overtime_amount:e.target.value})}/></>}</div></Modal></>;
 }
 
 function billingEndForStart(startValue){
   if(!/^\d{4}-\d{2}-\d{2}$/.test(String(startValue||'')))return '';
   const [year,month]=String(startValue).split('-').map(Number);
   if(!year||!month)return '';
-  const end=new Date(Date.UTC(year,month,26));
+  const end=new Date(Date.UTC(year,month,25));
   return end.toISOString().slice(0,10);
 }
 
@@ -453,8 +454,8 @@ function latestCompletedBillingCycle(timeZone=DEFAULT_TIMEZONE){
   const today=todayInZone(timeZone);
   const [year,month,day]=today.split('-').map(Number);
   const endMonthIndex=(month-1)+(day>=26?0:-1);
-  const end=new Date(Date.UTC(year,endMonthIndex,26));
-  const start=new Date(Date.UTC(end.getUTCFullYear(),end.getUTCMonth()-1,25));
+  const end=new Date(Date.UTC(year,endMonthIndex,25));
+  const start=new Date(Date.UTC(end.getUTCFullYear(),end.getUTCMonth()-1,26));
   const iso=d=>`${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
   return {period_start:iso(start),period_end:iso(end)};
 }
@@ -462,6 +463,8 @@ function latestCompletedBillingCycle(timeZone=DEFAULT_TIMEZONE){
 export function InvoicesPage(){
   const [rows,setRows]=useState([]);
   const [options,setOptions]=useState({});
+  const [meta,setMeta]=useState(null);
+  const [page,setPage]=useState(1);
   const [createOpen,setCreateOpen]=useState(false);
   const [editOpen,setEditOpen]=useState(false);
   const [busy,setBusy]=useState(false);
@@ -469,15 +472,16 @@ export function InvoicesPage(){
   const [editForm,setEditForm]=useState(null);
   const n=useNotice();
 
-  const load=async()=>{
+  const load=async(nextPage=page)=>{
     setBusy(true);
     try{
-      const [r,o]=await Promise.all([api.get('/admin/invoices'),api.get('/management/options')]);
-      setRows(r.data.data);
+      const [r,o]=await Promise.all([api.get('/admin/invoices',{params:{page:nextPage}}),api.get('/management/options')]);
+      setRows(r.data.data||[]);
+      setMeta(r.data);
       setOptions(o.data);
     }catch(e){n.error(messageFrom(e))}finally{setBusy(false)}
   };
-  useEffect(()=>{load()},[]);
+  useEffect(()=>{load(page)},[page]);
 
   const generate=async()=>{
     setBusy(true);
@@ -486,7 +490,8 @@ export function InvoicesPage(){
       n.success('Invoice generated as an editable draft.');
       setCreateOpen(false);
       setCreateForm({client_id:'',...latestCompletedBillingCycle()});
-      await load();
+      setPage(1);
+      await load(1);
     }catch(e){n.error(messageFrom(e))}finally{setBusy(false)}
   };
 
@@ -557,7 +562,23 @@ export function InvoicesPage(){
       });
       n.success('Invoice saved. Salary lines and bonus/deduction adjustments were recalculated.');
       setEditOpen(false);
-      await load();
+      await load(page);
+    }catch(e){n.error(messageFrom(e))}finally{setBusy(false)}
+  };
+
+  const sendInvoice=async invoice=>{
+    setBusy(true);
+    try{const {data}=await api.post(`/admin/invoices/${invoice.id}/send`);n.success(data?.message||'Invoice PDF sent to Doctor.')}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}
+  };
+
+  const removeInvoice=async invoice=>{
+    if(!window.confirm(`Delete ${invoice.invoice_number}? This will remove its salary lines and adjustments.`))return;
+    setBusy(true);
+    try{
+      await api.delete(`/admin/invoices/${invoice.id}`);
+      n.success('Invoice deleted.');
+      const targetPage=rows.length===1&&page>1?page-1:page;
+      if(targetPage!==page)setPage(targetPage);else await load(targetPage);
     }catch(e){n.error(messageFrom(e))}finally{setBusy(false)}
   };
 
@@ -565,22 +586,23 @@ export function InvoicesPage(){
     {key:'invoice_number',label:'Invoice #'},
     {key:'client',label:'Client',render:r=>r.client?.name||'—'},
     {key:'period',label:'Period',render:r=>`${String(r.period_start||'').slice(0,10)} → ${String(r.period_end||'').slice(0,10)}`},
-    {key:'source',label:'Source',render:r=><Badge tone={r.auto_generated?'info':'neutral'}>{r.auto_generated?'Auto 27th':'Manual'}</Badge>},
+    {key:'billing_month',label:'Invoice month',render:r=>r.billing_cycle_month?String(r.billing_cycle_month).slice(0,7):'—'},
+    {key:'source',label:'Source',render:r=><Badge tone={r.auto_generated?'info':'neutral'}>{r.auto_generated?'Auto 26th':'Manual'}</Badge>},
     {key:'status',label:'Status',render:r=><Badge tone={r.status==='paid'?'success':r.status==='void'?'danger':r.status==='issued'?'info':'warning'}>{r.status||'draft'}</Badge>},
     {key:'hours',label:'Hours',render:r=>Number(r.total_hours||0).toFixed(2)},
     {key:'amount',label:'Amount',render:r=>money(r.total_amount)},
-    {key:'action',label:'Actions',render:r=><div className="row-actions"><button onClick={()=>openEdit(r)} title="Edit invoice"><Pencil size={16}/></button><a className="btn btn-secondary btn-link" href={`/invoices/${r.id}/pdf?v=${encodeURIComponent(r.updated_at||Date.now())}`} target="_blank" rel="noreferrer">View PDF</a></div>}
+    {key:'action',label:'Actions',render:r=><div className="row-actions"><button onClick={()=>openEdit(r)} title="Edit invoice"><Pencil size={16}/></button><a className="btn btn-secondary btn-link" href={`/invoices/${r.id}/pdf?v=${encodeURIComponent(r.updated_at||Date.now())}`} target="_blank" rel="noreferrer">View PDF</a><Button variant="secondary" icon={Send} onClick={()=>sendInvoice(r)}>Send PDF</Button><button className="danger" onClick={()=>removeInvoice(r)} title="Delete invoice"><Trash2 size={16}/></button></div>}
   ];
 
   return <>
     <PageHeader
       eyebrow="Client billing"
       title="Invoices"
-      description="Billing periods run from the 25th through the 26th of the following month. Drafts auto-generate on the 27th after the full cycle closes."
+      description="Billing periods run from the 26th through the 25th of the following month. Drafts auto-generate on the 26th after the cycle closes; invoices generated after the 20th are assigned to the next invoice month."
       actions={<Button icon={Plus} onClick={()=>{setCreateForm({client_id:'',...latestCompletedBillingCycle()});setCreateOpen(true)}}>Generate invoice</Button>}
     />
     <NoticeBar notice={n.notice} clear={n.clear}/>
-    <Card><Table columns={columns} rows={rows} emptyTitle="No invoices yet"/></Card>
+    <Card><Table columns={columns} rows={rows} emptyTitle="No invoices yet"/><Pagination meta={meta} onPage={setPage}/></Card>
 
     <Modal open={createOpen} onClose={()=>setCreateOpen(false)} title="Generate invoice" footer={<><Button variant="ghost" onClick={()=>setCreateOpen(false)}>Cancel</Button><Button loading={busy} onClick={generate}>Generate draft</Button></>}>
       <div className="form-grid one-col">
@@ -589,7 +611,7 @@ export function InvoicesPage(){
         </Select>
         <Input label="Start date *" type="date" value={createForm.period_start} onChange={e=>setCreateForm({...createForm,period_start:e.target.value})}/>
         <Input label="End date *" type="date" min={createForm.period_start||undefined} value={createForm.period_end} onChange={e=>setCreateForm({...createForm,period_end:e.target.value})}/>
-        <div className="invoice-cycle-hint">Manual invoices can use any custom date range. Automatic billing still runs on the 25th → next month 26th cycle and generates after the cycle closes.</div>
+        <div className="invoice-cycle-hint">Manual invoices can use any custom date range. Automatic billing runs on the 26th → next month 25th cycle. Any invoice generated after the 20th is assigned to the next invoice month.</div>
       </div>
     </Modal>
 
@@ -755,10 +777,12 @@ export function AccountPage(){
 }
 
 export function HrTeamPage(){
- const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[search,setSearch]=useState(''),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[form,setForm]=useState({name:'',email:'',password:''}),[busy,setBusy]=useState(false);const n=useNotice();
- const load=async()=>{setBusy(true);try{const r=await api.get('/admin/hr-users',{params:{search}});setRows(r.data.data);setMeta(r.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};useEffect(()=>{const t=setTimeout(load,180);return()=>clearTimeout(t)},[search]);
+ const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[page,setPage]=useState(1),[search,setSearch]=useState(''),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[form,setForm]=useState({name:'',email:'',password:''}),[busy,setBusy]=useState(false);const n=useNotice();
+ const load=async(nextPage=page)=>{setBusy(true);try{const r=await api.get('/admin/hr-users',{params:{search,page:nextPage}});setRows(r.data.data||[]);setMeta(r.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+ useEffect(()=>{const t=setTimeout(()=>{setPage(1);load(1)},180);return()=>clearTimeout(t)},[search]);
+ useEffect(()=>{if(page>1)load(page)},[page]);
  const open=r=>{setEdit(r||null);setForm(r?{name:r.name,email:r.email,password:''}:{name:'',email:'',password:''});setModal(true)};
- const save=async()=>{setBusy(true);try{edit?await api.put(`/admin/hr-users/${edit.id}`,form):await api.post('/admin/hr-users',form);n.success(edit?'HR account updated.':'HR account created.');setModal(false);load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
- const remove=async r=>{try{await api.delete(`/admin/hr-users/${r.id}`);n.success('HR account deleted.');load()}catch(e){n.error(messageFrom(e))}};
- return <><PageHeader eyebrow="Access management" title="HR team" description="Create dedicated HR logins with workforce, attendance, schedule and review access—without billing/client administration." actions={<Button icon={Plus} onClick={()=>open()}>Add HR user</Button>}/><NoticeBar notice={n.notice} clear={n.clear}/><Card><div className="toolbar"><SearchBox value={search} onChange={setSearch} placeholder="Search HR team"/><span className="record-count">{meta?.total??rows.length} HR users</span></div><Table columns={[{key:'name',label:'Name'},{key:'email',label:'Email'},{key:'last_seen_at',label:'Last active',render:r=>dateTime(r.last_seen_at)},{key:'actions',label:'Actions',render:r=><div className="row-actions"><button onClick={()=>open(r)}><Pencil size={16}/></button><button className="danger" onClick={()=>remove(r)}><Trash2 size={16}/></button></div>}]} rows={rows} emptyTitle="No HR accounts" emptyDescription="Add an HR user to give the HR portal its first login."/></Card><Modal open={modal} onClose={()=>setModal(false)} title={edit?'Edit HR account':'Add HR account'} footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={save}>Save HR account</Button></>}><div className="form-grid one-col"><Input label="Name *" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/><Input label="Email *" type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/><Input label={edit?'New password (optional)':'Password *'} type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})}/></div></Modal></>;
+ const save=async()=>{setBusy(true);try{if(edit){await api.put(`/admin/hr-users/${edit.id}`,form);n.success('HR account updated.')}else{const {data}=await api.post('/admin/hr-users',{name:form.name,email:form.email});n.success(data?.invitation_sent===false?'HR account created, but invitation email could not be sent. Check SMTP/mail configuration.':'HR account created and password setup email sent.')}setModal(false);setPage(1);load(1)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+ const remove=async r=>{try{await api.delete(`/admin/hr-users/${r.id}`);n.success('HR account deleted.');const target=rows.length===1&&page>1?page-1:page;if(target!==page)setPage(target);else load(target)}catch(e){n.error(messageFrom(e))}};
+ return <><PageHeader eyebrow="Access management" title="HR team" description="Create dedicated HR logins. New HR users receive a secure email link to set their own password before signing in." actions={<Button icon={Plus} onClick={()=>open()}>Add HR user</Button>}/><NoticeBar notice={n.notice} clear={n.clear}/><Card><div className="toolbar"><SearchBox value={search} onChange={setSearch} placeholder="Search HR team"/><span className="record-count">{meta?.total??rows.length} HR users</span></div><Table columns={[{key:'name',label:'Name'},{key:'email',label:'Email'},{key:'last_seen_at',label:'Last active',render:r=>dateTime(r.last_seen_at)},{key:'actions',label:'Actions',render:r=><div className="row-actions"><button onClick={()=>open(r)}><Pencil size={16}/></button><button className="danger" onClick={()=>remove(r)}><Trash2 size={16}/></button></div>}]} rows={rows} emptyTitle="No HR accounts" emptyDescription="Add an HR user to send their password setup invitation."/><Pagination meta={meta} onPage={setPage}/></Card><Modal open={modal} onClose={()=>setModal(false)} title={edit?'Edit HR account':'Add HR account'} footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={save}>Save HR account</Button></>}><div className="form-grid one-col"><Input label="Name *" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/><Input label="Email *" type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/>{edit&&<Input label="New password (optional)" type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})}/>} {!edit&&<div className="notice notice-info">A secure set-password email will be sent automatically after this HR account is created.</div>}</div></Modal></>;
 }

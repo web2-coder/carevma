@@ -43,10 +43,21 @@ class DoctorApiController extends Controller
             ->orderBy('first_name')
             ->orderBy('last_name')
             ->get();
+
+        $schedules = $client->employeeSchedules()
+            ->with('employee:id,first_name,last_name,email')
+            ->where(function ($query) {
+                $query->where('enabled', true)->orWhereNull('enabled');
+            })
+            ->orderByRaw("FIELD(weekday,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')")
+            ->orderBy('start_time')
+            ->get();
+
         return response()->json([
             'client' => $client,
             'client_local_now' => $this->timezones->now($client)->toIso8601String(),
             'employees' => $employees,
+            'schedules' => $schedules,
             'metrics' => [
                 'assigned_employees' => $employees->count(),
                 'attendance_sessions' => Schema::hasColumn('attendances', 'client_id') ? Attendance::where('client_id', $client->id)->count() : Attendance::whereIn('employee_id', $employees->pluck('id'))->count(),
@@ -67,7 +78,7 @@ class DoctorApiController extends Controller
         if ($filterStartUtc) $query->where('clock_in', '>=', $filterStartUtc);
         if ($filterEndUtc) $query->where('clock_in', '<=', $filterEndUtc);
         if ($search = trim((string) $request->query('search'))) $query->where(fn ($q) => $q->where('date', 'like', "%{$search}%")->orWhere('clock_in', 'like', "%{$search}%")->orWhere('clock_out', 'like', "%{$search}%"));
-        $attendance = $query->latest('date')->latest('id')->paginate(min(max((int) $request->query('per_page', 25), 1), 100));
+        $attendance = $query->latest('date')->latest('id')->paginate(min(max((int) $request->query('per_page', 10), 1), 100));
         $attendance->through(function (Attendance $row) use ($client, $employee) {
             $zone = $this->timezones->forClient($client);
             $row->setAttribute('client_timezone', $zone);

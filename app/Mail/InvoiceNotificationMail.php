@@ -11,7 +11,7 @@ class InvoiceNotificationMail extends Mailable
 {
     use Queueable, SerializesModels;
 
-    public function __construct(public Invoice $invoice) {}
+    public function __construct(public Invoice $invoice, public string $pdfContent) {}
 
     public function build(): self
     {
@@ -19,9 +19,10 @@ class InvoiceNotificationMail extends Mailable
 
         return $this->subject('[CareVMA] Invoice '.$this->invoice->invoice_number)
             ->view('emails.invoice_notification')
-            ->with([
-                'invoiceUrl' => url('/admin/invoices/'.$this->invoice->id),
-                'invoicePdfUrl' => route('invoices.pdf', $this->invoice),
-            ]);
+            ->attachData(
+                $this->pdfContent,
+                'CareVMA-Invoice-'.$this->invoice->invoice_number.'.pdf',
+                ['mime' => 'application/pdf']
+            );
     }
 }

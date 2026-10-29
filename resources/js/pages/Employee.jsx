@@ -13,15 +13,22 @@ function NB({n}){return n.notice?<Notice type={n.notice.type} onClose={n.clear}>
 
 function tzDate(value,timeZone){return formatDate(value,timeZone||'UTC')}
 
-function DualTime({value,doctorTz,vaTz,live=false}){
+function DualTime({value,doctorTz,live=false}){
   if(!value) return live?<Badge tone="warning">Live</Badge>:<span>—</span>;
   return <div className="dual-time-cell">
     <div className="dual-time-row doctor-time"><strong>Doctor</strong><span>{dateTime(value,doctorTz||'UTC')}</span><small>{doctorTz||'UTC'}</small></div>
-    <div className="dual-time-row va-time"><strong>VA</strong><span>{dateTime(value,vaTz||'UTC')}</span><small>{vaTz||'UTC'}</small></div>
   </div>;
 }
-function DualDate({value,doctorTz,vaTz}){
-  return <div className="dual-date-cell"><span><strong>Doctor</strong> {tzDate(value,doctorTz||'UTC')}</span><span><strong>VA</strong> {tzDate(value,vaTz||'UTC')}</span></div>;
+function DualDate({value,doctorTz}){
+  return <div className="dual-date-cell"><span><strong>Doctor</strong> {tzDate(value,doctorTz||'UTC')}</span></div>;
+}
+function breakCodeText(value){
+  const raw=Number(value||0).toFixed(2);
+  const [hoursPart='0',minutesPart='00']=raw.split('.');
+  const hours=Math.max(0,Number(hoursPart)||0);
+  const minutes=Math.min(59,Math.max(0,Number(minutesPart)||0));
+  if(!hours&&!minutes)return 'No break';
+  return `${hours?`${hours} hr${hours===1?'':'s'} `:''}${minutes?`${minutes} min`:''}`.trim();
 }
 
 function enabledValue(value){
@@ -169,7 +176,7 @@ function formatZoneTime(value,timeZone){
   if(!value||!timeZone)return '—';
   try{return new Intl.DateTimeFormat('en-US',{timeZone,hour:'numeric',minute:'2-digit',hour12:true}).format(new Date(value))}catch{return '—'}
 }
-function DualTimezoneClock({serverNow,employeeTimezone,clientTimezone}){
+function DualTimezoneClock({serverNow,clientTimezone}){
   const [nowMs,setNowMs]=useState(()=>Date.parse(serverNow||'')||Date.now());
   useEffect(()=>{
     const parsed=Date.parse(serverNow||'');
@@ -180,8 +187,7 @@ function DualTimezoneClock({serverNow,employeeTimezone,clientTimezone}){
   },[serverNow]);
   const iso=new Date(nowMs).toISOString();
   return <div className="dual-timezone-clock">
-    <div><span>Your live time</span><strong>{formatZone(iso,employeeTimezone,{seconds:true})}</strong><small>{employeeTimezone}</small></div>
-    <div><span>Doctor live time</span><strong>{clientTimezone?formatZone(iso,clientTimezone,{seconds:true}):'—'}</strong><small>{clientTimezone||'No client timezone'}</small></div>
+    <div><span>Doctor live time</span><strong>{clientTimezone?formatZone(iso,clientTimezone,{seconds:true}):'—'}</strong><small>{clientTimezone||'No doctor timezone'}</small></div>
   </div>;
 }
 function scheduleRange(start,end,timeZone){
@@ -197,7 +203,7 @@ export function EmployeeDashboard(){
   if(!data)return <Loading/>;
   const active=data.active_attendance;const activeBreak=active?.breaks?.find(b=>!b.end_time);const activeClientTimezone=active?.client?.timezone||null;
   return <>
-    <PageHeader eyebrow="My workday" title={`Welcome, ${data.employee.first_name}`} description="Your shift is calculated from the Client / Doctor timezone. CareVMA converts the same instant to your VA-local timezone."/>
+    <PageHeader eyebrow="My workday" title={`Welcome, ${data.employee.first_name}`} description="All workday dates and times are shown in the assigned Client / Doctor timezone."/>
     <NB n={n}/>
     <div className="employee-dashboard-pro">
       <Card className="shift-control-card" title="Shift control" subtitle={active?'Your attendance session is active':'Check-in appears 15 minutes before the Doctor-local shift start'}>
@@ -210,9 +216,9 @@ export function EmployeeDashboard(){
               <div className="session-stats"><div><span>Break records</span><strong>{active.breaks?.length||0}</strong></div><div><span>Late</span><strong>{Math.max(0,Math.floor(Number(active.late_minutes||0)))} min</strong></div><div><span>Client</span><strong>{active.client?.name||'—'}</strong></div></div>
             </div>:<div className="schedule-picker">
               {data.today_schedules.length?data.today_schedules.map(s=>{
-                const doctorTz=s.client_timezone||s.client?.timezone;const vaTz=s.employee_timezone||data.timezone;
+                const doctorTz=s.client_timezone||s.client?.timezone;
                 return <div className="schedule-choice-card" key={s.id}>
-                  <div className="schedule-choice-copy"><span>{s.client?.name||'Client'}</span><strong>{scheduleRange(s.client_shift_starts_at,s.client_shift_ends_at,doctorTz)}</strong><small>Doctor time · {doctorTz||'Not set'}</small><small>Your local: {scheduleRange(s.shift_starts_at,s.shift_ends_at,vaTz)} · {vaTz}</small><small>Check-in opens: {formatZone(s.doctor_check_in_opens_at||s.client_shift_starts_at,doctorTz)} · Doctor</small><small>Your local opening: {formatZone(s.check_in_opens_at,vaTz)}</small></div>
+                  <div className="schedule-choice-copy"><span>{s.client?.name||'Client'}</span><strong>{scheduleRange(s.client_shift_starts_at,s.client_shift_ends_at,doctorTz)}</strong><small>Doctor time · {doctorTz||'Not set'}</small><small>Doctor break: {breakCodeText(s.break_allowed_hours)}</small><small>Check-in opens: {formatZone(s.doctor_check_in_opens_at||s.client_shift_starts_at,doctorTz)}</small></div>
                   <Button loading={busy} icon={LogIn} onClick={()=>action('/employee/clock-in',{schedule_id:s.id})}>Check in</Button>
                 </div>
               }):<div className="empty-compact"><strong>No shift open right now</strong><span>Your next check-in option appears 15 minutes before the Doctor-local start time.</span></div>}
@@ -220,12 +226,12 @@ export function EmployeeDashboard(){
           </div>
           <aside className="shift-control-side" aria-label="Workday status">
             {active&&<div className="shift-live-summary-card">
-              <div className="shift-live-summary-head"><span className="pulse-dot"/><div><span>Live work session</span><strong>{active.client?.name||'Assigned client'}</strong><small>Started {dateTime(active.clock_in_utc||active.clock_in,data.timezone)}</small></div></div>
-              <DualTimezoneClock serverNow={data.now_utc||data.now} employeeTimezone={data.timezone} clientTimezone={activeClientTimezone}/>
+              <div className="shift-live-summary-head"><span className="pulse-dot"/><div><span>Live work session</span><strong>{active.client?.name||'Assigned client'}</strong><small>Started {dateTime(active.clock_in_utc||active.clock_in,activeClientTimezone||'UTC')}</small></div></div>
+              <DualTimezoneClock serverNow={data.now_utc||data.now} clientTimezone={activeClientTimezone}/>
             </div>}
             <div className="shift-side-card">
               <span className="shift-side-icon"><Clock3 size={19}/></span>
-              <div><span>VA timezone</span><strong>{data.timezone}</strong><small>Your converted local display</small></div>
+              <div><span>Doctor timezone</span><strong>{activeClientTimezone||data.today_schedules?.[0]?.client_timezone||data.next_schedules?.[0]?.client_timezone||'Not assigned'}</strong><small>Canonical display and calculation timezone</small></div>
             </div>
             <div className={`shift-side-card ${data.today_schedules.length?'is-ready':''}`}>
               <span className="shift-side-icon"><CalendarDays size={19}/></span>
@@ -238,11 +244,11 @@ export function EmployeeDashboard(){
           </aside>
         </div>
       </Card>
-      {!active&&data.today_schedules.length===0&&Array.isArray(data.next_schedules)&&data.next_schedules.length>0&&<Card className="available-now-card" title="Next shift" subtitle="Check-in eligibility is calculated from the Doctor / Client timezone; your local opening time is the same instant converted to your VA timezone.">
-        <div className="agenda">{data.next_schedules.slice(0,1).map(s=>{const doctorTz=s.client_timezone||s.client?.timezone;const vaTz=s.employee_timezone||data.timezone;return <div className="agenda-row" key={`next-${s.id}`}><div className="agenda-time">{formatZoneTime(s.shift_starts_at,vaTz)}</div><div><strong>{s.client?.name||'Client'}</strong><span>Doctor shift: {scheduleRange(s.client_shift_starts_at,s.client_shift_ends_at,doctorTz)} · {doctorTz}</span><span>Your VA time: {scheduleRange(s.shift_starts_at,s.shift_ends_at,vaTz)} · {vaTz}</span><span>Check-in opens (Doctor): {formatZone(s.doctor_check_in_opens_at||s.client_shift_starts_at,doctorTz)}</span><span>Check-in opens (Your time): {formatZone(s.check_in_opens_at,vaTz)}</span></div><Badge tone="warning">Upcoming</Badge></div>})}</div>
+      {!active&&data.today_schedules.length===0&&Array.isArray(data.next_schedules)&&data.next_schedules.length>0&&<Card className="available-now-card" title="Next shift" subtitle="Check-in eligibility and displayed times use the Doctor / Client timezone.">
+        <div className="agenda">{data.next_schedules.slice(0,1).map(s=>{const doctorTz=s.client_timezone||s.client?.timezone;return <div className="agenda-row" key={`next-${s.id}`}><div className="agenda-time">{formatZoneTime(s.client_shift_starts_at,doctorTz)}</div><div><strong>{s.client?.name||'Client'}</strong><span>Doctor shift: {scheduleRange(s.client_shift_starts_at,s.client_shift_ends_at,doctorTz)} · {doctorTz}</span><span>Doctor break: {breakCodeText(s.break_allowed_hours)}</span><span>Check-in opens: {formatZone(s.doctor_check_in_opens_at||s.client_shift_starts_at,doctorTz)}</span></div><Badge tone="warning">Upcoming</Badge></div>})}</div>
       </Card>}
-      {!active&&data.today_schedules.length>0&&<Card className="available-now-card" title="Available now" subtitle="Doctor time controls the shift; your VA-local converted time is shown underneath">
-        <div className="agenda">{data.today_schedules.map(s=>{const doctorTz=s.client_timezone||s.client?.timezone;const vaTz=s.employee_timezone||data.timezone;return <div className="agenda-row" key={s.id}><div className="agenda-time">{formatZoneTime(s.client_shift_starts_at,doctorTz)}</div><div><strong>{s.client?.name}</strong><span>Doctor: {scheduleRange(s.client_shift_starts_at,s.client_shift_ends_at,doctorTz)} · {doctorTz}</span><span>Your local: {scheduleRange(s.shift_starts_at,s.shift_ends_at,vaTz)} · {vaTz}</span></div><Badge tone="success">Ready</Badge></div>})}{!data.today_schedules.length&&<div className="empty-compact">No shift is inside its check-in window right now.</div>}</div>
+      {!active&&data.today_schedules.length>0&&<Card className="available-now-card" title="Available now" subtitle="Doctor time controls the shift, attendance and displayed schedule.">
+        <div className="agenda">{data.today_schedules.map(s=>{const doctorTz=s.client_timezone||s.client?.timezone;return <div className="agenda-row" key={s.id}><div className="agenda-time">{formatZoneTime(s.client_shift_starts_at,doctorTz)}</div><div><strong>{s.client?.name}</strong><span>Doctor: {scheduleRange(s.client_shift_starts_at,s.client_shift_ends_at,doctorTz)} · {doctorTz}</span><span>Doctor break: {breakCodeText(s.break_allowed_hours)}</span></div><Badge tone="success">Ready</Badge></div>})}{!data.today_schedules.length&&<div className="empty-compact">No shift is inside its check-in window right now.</div>}</div>
       </Card>}
     </div>
   </>;
@@ -253,25 +259,25 @@ export function EmployeeSchedule(){
   useEffect(()=>{api.get('/employee/schedules').then(r=>setRows(Array.isArray(r.data)?r.data:[])).catch(e=>{n.error(messageFrom(e));setRows([])})},[]);
   if(!rows)return <Loading/>;
   const timezoneOptions=[...new Set(rows.map(r=>r.client_timezone||r.client?.timezone).filter(Boolean))].sort();const search=filters.search.trim().toLowerCase();
-  const filteredRows=rows.filter(row=>{const enabled=enabledValue(row.enabled);const matchesSearch=!search||[row.weekday,row.client?.name,row.client?.business_name,row.client_timezone,row.employee_timezone,row.start_time,row.end_time].some(value=>String(value||'').toLowerCase().includes(search));const matchesDay=!filters.day||String(row.weekday||'')===filters.day;const matchesStatus=!filters.status||(filters.status==='enabled'?enabled:!enabled);const matchesTimezone=!filters.timezone||String(row.client_timezone||row.client?.timezone||'')===filters.timezone;return matchesSearch&&matchesDay&&matchesStatus&&matchesTimezone});
+  const filteredRows=rows.filter(row=>{const enabled=enabledValue(row.enabled);const matchesSearch=!search||[row.weekday,row.client?.name,row.client?.business_name,row.client_timezone,row.start_time,row.end_time].some(value=>String(value||'').toLowerCase().includes(search));const matchesDay=!filters.day||String(row.weekday||'')===filters.day;const matchesStatus=!filters.status||(filters.status==='enabled'?enabled:!enabled);const matchesTimezone=!filters.timezone||String(row.client_timezone||row.client?.timezone||'')===filters.timezone;return matchesSearch&&matchesDay&&matchesStatus&&matchesTimezone});
   const reset=()=>setFilters({search:'',day:'',status:'',timezone:''});
   const columns=[
     {key:'weekday',label:'Doctor day'},
     {key:'client',label:'Client / Doctor',render:r=>r.client?.name||'—'},
     {key:'doctor_time',label:'Doctor local time',render:r=>scheduleRange(r.client_shift_starts_at,r.client_shift_ends_at,r.client_timezone||r.client?.timezone)},
-    {key:'va_time',label:'Your local time',render:r=>scheduleRange(r.shift_starts_at,r.shift_ends_at,r.employee_timezone||r.timezone)},
-    {key:'va_timezone',label:'VA timezone',render:r=>r.employee_timezone||r.timezone||'Not specified'},
     {key:'doctor_timezone',label:'Doctor timezone',render:r=>r.client_timezone||r.client?.timezone||'Not specified'},
+    {key:'doctor_break',label:'Doctor break',render:r=><Badge tone="info">{breakCodeText(r.break_allowed_hours)}</Badge>},
     {key:'status',label:'Status',render:r=>{const enabled=enabledValue(r.enabled);return <Badge tone={enabled?'success':'danger'}>{enabled?'Enabled':'Disabled'}</Badge>}},
   ];
-  return <><PageHeader eyebrow="Read-only schedule" title="My schedule" description="Doctor / Client local time controls check-in, late and overtime. Your VA-local time is the converted view of the same shift."/><NB n={n}/><Card><div className="filter-grid"><Input label="Search" value={filters.search} onChange={e=>setFilters({...filters,search:e.target.value})} placeholder="Client, day, time or timezone"/><Select label="Doctor day" value={filters.day} onChange={e=>setFilters({...filters,day:e.target.value})}><option value="">All days</option>{['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(day=><option key={day} value={day}>{day}</option>)}</Select><Select label="Status" value={filters.status} onChange={e=>setFilters({...filters,status:e.target.value})}><option value="">All statuses</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option></Select><Select label="Doctor timezone" value={filters.timezone} onChange={e=>setFilters({...filters,timezone:e.target.value})}><option value="">All timezones</option>{timezoneOptions.map(zone=><option key={zone} value={zone}>{zone}</option>)}</Select><div className="filter-actions"><Button variant="ghost" onClick={reset}>Reset</Button></div></div><Table columns={columns} rows={filteredRows} emptyTitle="No schedule matches these filters"/></Card></>;
+  return <><PageHeader eyebrow="Read-only schedule" title="My schedule" description="All schedule dates and times are displayed in the assigned Doctor / Client timezone."/><NB n={n}/><Card><div className="filter-grid"><Input label="Search" value={filters.search} onChange={e=>setFilters({...filters,search:e.target.value})} placeholder="Client, day, time or timezone"/><Select label="Doctor day" value={filters.day} onChange={e=>setFilters({...filters,day:e.target.value})}><option value="">All days</option>{['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(day=><option key={day} value={day}>{day}</option>)}</Select><Select label="Status" value={filters.status} onChange={e=>setFilters({...filters,status:e.target.value})}><option value="">All statuses</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option></Select><Select label="Doctor timezone" value={filters.timezone} onChange={e=>setFilters({...filters,timezone:e.target.value})}><option value="">All timezones</option>{timezoneOptions.map(zone=><option key={zone} value={zone}>{zone}</option>)}</Select><div className="filter-actions"><Button variant="ghost" onClick={reset}>Reset</Button></div></div><Table columns={columns} rows={filteredRows} emptyTitle="No schedule matches these filters"/></Card></>;
 }
 
 export function EmployeeAttendance(){
  const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[filters,setFilters]=useState({from:'',to:'',search:''}),[page,setPage]=useState(1),[busy,setBusy]=useState(false),[modal,setModal]=useState(false),[selected,setSelected]=useState(null),[form,setForm]=useState({clock_in:'',clock_out:'',reason:''}),[requests,setRequests]=useState([]);const n=useNotice();
  const load=async(nextFilters=filters,nextPage=page)=>{setBusy(true);try{const [r,c]=await Promise.all([api.get('/employee/attendance',{params:{...nextFilters,page:nextPage}}),api.get('/employee/change-requests')]);setRows(r.data.data);setMeta(r.data);setRequests(c.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};useEffect(()=>{load(filters,page)},[page]);const apply=()=>{setPage(1);load(filters,1)};const reset=()=>{const clean={from:'',to:'',search:''};setFilters(clean);setPage(1);load(clean,1)};const open=r=>{setSelected(r);const sourceTz=r.client_timezone||r.client?.timezone||r.timezone_snapshot||'UTC';const inTime=timeValue(r.clock_in,sourceTz);const outTime=timeValue(r.clock_out,sourceTz);setForm({clock_in:inTime,clock_out:outTime,reason:''});setModal(true)};const submit=async()=>{setBusy(true);try{await api.post('/employee/change-requests',{attendance_id:selected.id,...form});n.success('Correction request submitted.');setModal(false);load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
- const columns=[{key:'date',label:'Date',render:r=><DualDate value={r.clock_in||r.date} doctorTz={r.client_timezone||r.client?.timezone||'UTC'} vaTz={r.employee_timezone||'UTC'}/>},{key:'client',label:'Client',render:r=>r.client?.name||'Legacy / unallocated'},{key:'clock_in',label:'Clock in',render:r=><DualTime value={r.clock_in} doctorTz={r.client_timezone||r.client?.timezone||'UTC'} vaTz={r.employee_timezone||'UTC'}/>},{key:'clock_out',label:'Clock out',render:r=><DualTime value={r.clock_out} doctorTz={r.client_timezone||r.client?.timezone||'UTC'} vaTz={r.employee_timezone||'UTC'} live={!r.clock_out}/>},{key:'break',label:'Break',render:r=>`${Math.floor(Number(r.break_taken||0)/60)} min`},{key:'worked',label:'Worked',render:r=>mins(r.total_minutes)},{key:'overtime',label:'Overtime',render:r=>`${r.overtime||0} min`},{key:'action',label:'Action',render:r=>r.clock_out?<Button variant="ghost" onClick={()=>open(r)}>Request change</Button>:'—'}];
- return <><PageHeader eyebrow="My time records" title="Attendance" description="Doctor time is the calculation source; your VA time is shown separately as the local conversion of the same attendance instant."/><NB n={n}/><Card><div className="filter-grid"><Input label="From date" type="date" value={filters.from} onChange={e=>setFilters({...filters,from:e.target.value})}/><Input label="To date" type="date" value={filters.to} onChange={e=>setFilters({...filters,to:e.target.value})}/><Input label="Search" value={filters.search} onChange={e=>setFilters({...filters,search:e.target.value})} placeholder="Date or clock time"/><div className="filter-actions"><Button onClick={apply}>Filter</Button><Button variant="ghost" onClick={reset}>Reset</Button></div></div><Table columns={columns} rows={rows} emptyTitle="No attendance found"/><Pagination meta={meta} onPage={setPage}/></Card><Card title="My change requests" subtitle="Only your own correction requests are shown."><Table columns={[{key:'date',label:'Date',render:r=>String(r.date||'').slice(0,10)},{key:'requested',label:'Requested',render:r=>`${r.requested_clock_in} → ${r.requested_clock_out}`},{key:'reason',label:'Reason'},{key:'status',label:'Status',render:r=><Badge tone={statusTone(r.status)}>{r.status}</Badge>},{key:'created',label:'Submitted',render:r=>dateTime(r.created_at)}]} rows={requests} emptyTitle="No correction requests"/></Card><Modal open={modal} onClose={()=>setModal(false)} title="Request attendance correction" footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={submit}>Submit request</Button></>}><div className="form-grid one-col"><Input label="Date" value={String(selected?.date||'').slice(0,10)} disabled/><Input label="Clock in *" type="time" value={form.clock_in} onChange={e=>setForm({...form,clock_in:e.target.value})}/><Input label="Clock out *" type="time" value={form.clock_out} onChange={e=>setForm({...form,clock_out:e.target.value})}/><Textarea label="Reason *" value={form.reason} onChange={e=>setForm({...form,reason:e.target.value})} placeholder="Explain why the recorded time needs correction"/></div></Modal></>;
+ const requestOvertime=async r=>{setBusy(true);try{const {data}=await api.post(`/employee/overtime/${r.id}/request`);n.success(data?.message||'Overtime review requested.');await load(filters,page)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+ const columns=[{key:'date',label:'Date',render:r=><DualDate value={r.clock_in||r.date} doctorTz={r.client_timezone||r.client?.timezone||'UTC'}/>},{key:'client',label:'Client',render:r=>r.client?.name||'Legacy / unallocated'},{key:'clock_in',label:'Clock in',render:r=><DualTime value={r.clock_in} doctorTz={r.client_timezone||r.client?.timezone||'UTC'}/>},{key:'clock_out',label:'Clock out',render:r=><DualTime value={r.clock_out} doctorTz={r.client_timezone||r.client?.timezone||'UTC'} live={!r.clock_out}/>},{key:'break',label:'Break',render:r=>`${Math.floor(Number(r.break_taken||0)/60)} min`},{key:'worked',label:'Regular billed',render:r=>mins(r.total_minutes)},{key:'overtime',label:'Overtime',render:r=><div><strong>{r.overtime||0} min</strong>{Number(r.overtime||0)>0&&<span className="table-subtext">{r.overtime_status==='review_required'?'Review not requested':r.overtime_status==='pending'?'Review pending':r.overtime_status==='approved'?'Approved':'Not approved'}</span>}</div>},{key:'action',label:'Action',render:r=>r.clock_out?<div className="row-actions">{Number(r.overtime||0)>0&&r.overtime_status==='review_required'&&<Button variant="secondary" onClick={()=>requestOvertime(r)}>Request OT review</Button>}<Button variant="ghost" onClick={()=>open(r)}>Request change</Button></div>:'—'}];
+ return <><PageHeader eyebrow="My time records" title="Attendance" description="Attendance dates and times are shown in the assigned Doctor / Client timezone."/><NB n={n}/><Card><div className="filter-grid"><Input label="From date" type="date" value={filters.from} onChange={e=>setFilters({...filters,from:e.target.value})}/><Input label="To date" type="date" value={filters.to} onChange={e=>setFilters({...filters,to:e.target.value})}/><Input label="Search" value={filters.search} onChange={e=>setFilters({...filters,search:e.target.value})} placeholder="Date or clock time"/><div className="filter-actions"><Button onClick={apply}>Filter</Button><Button variant="ghost" onClick={reset}>Reset</Button></div></div><Table columns={columns} rows={rows} emptyTitle="No attendance found"/><Pagination meta={meta} onPage={setPage}/></Card><Card title="My change requests" subtitle="Only your own correction requests are shown."><Table columns={[{key:'date',label:'Date',render:r=>String(r.date||'').slice(0,10)},{key:'requested',label:'Requested',render:r=>`${r.requested_clock_in} → ${r.requested_clock_out}`},{key:'reason',label:'Reason'},{key:'status',label:'Status',render:r=><Badge tone={statusTone(r.status)}>{r.status}</Badge>},{key:'created',label:'Submitted',render:r=>dateTime(r.created_at)}]} rows={requests} emptyTitle="No correction requests"/></Card><Modal open={modal} onClose={()=>setModal(false)} title="Request attendance correction" footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={submit}>Submit request</Button></>}><div className="form-grid one-col"><Input label="Date" value={String(selected?.date||'').slice(0,10)} disabled/><Input label="Clock in *" type="time" value={form.clock_in} onChange={e=>setForm({...form,clock_in:e.target.value})}/><Input label="Clock out *" type="time" value={form.clock_out} onChange={e=>setForm({...form,clock_out:e.target.value})}/><Textarea label="Reason *" value={form.reason} onChange={e=>setForm({...form,reason:e.target.value})} placeholder="Explain why the recorded time needs correction"/></div></Modal></>;
 }
 
 export function EmployeeProfile(){
@@ -309,7 +315,7 @@ export function EmployeeProfile(){
     </div>
    </Card>
    <div className="stack">
-    <Card title="Work profile" subtitle="Administrative fields are read-only in self service."><div className="detail-list"><div><span>Employee #</span><strong>{employee.employee_code}</strong></div><div><span>Department</span><strong>{employee.department?.name||'—'}</strong></div><div><span>Designation</span><strong>{employee.designation?.name||'—'}</strong></div><div><span>Status</span><strong>{employee.employee_status?.name||'—'}</strong></div><div><span>Timezone</span><strong>{employee.timezone||'Not specified'}</strong></div></div></Card>
+    <Card title="Work profile" subtitle="Administrative fields are read-only in self service."><div className="detail-list"><div><span>Employee #</span><strong>{employee.employee_code}</strong></div><div><span>Department</span><strong>{employee.department?.name||'—'}</strong></div><div><span>Designation</span><strong>{employee.designation?.name||'—'}</strong></div><div><span>Status</span><strong>{employee.employee_status?.name||'—'}</strong></div><div><span>Doctor timezone</span><strong>{employee.assigned_doctor_timezone||'Not assigned'}</strong></div></div></Card>
     <Card title="Documents" subtitle="Optional: PDF/DOC/DOCX/JPG/PNG files up to 5 MB."><label className="drop-upload"><Upload/><strong>Add documents</strong><span>{documents.length?`${documents.length} file(s) selected`:'Choose one or more files'}</span><input type="file" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onChange={e=>setDocuments(Array.from(e.target.files||[]))}/></label><div className="document-list">{docs.map((d,i)=><div key={d}><a href={d} target="_blank" rel="noreferrer">Document {i+1}</a><button onClick={()=>removeDoc(d)}><Trash2 size={15}/></button></div>)}{!docs.length&&<span className="muted">No documents uploaded.</span>}</div></Card>
    </div>
   </div>

@@ -11,6 +11,7 @@ class Invoice extends Model
         'invoice_number',
         'period_start',
         'period_end',
+        'billing_cycle_month',
         'total_hours',
         'total_amount',
         'status',
@@ -23,6 +24,7 @@ class Invoice extends Model
     protected $casts = [
         'period_start' => 'date',
         'period_end' => 'date',
+        'billing_cycle_month' => 'date',
         'auto_generated' => 'boolean',
         'generated_at' => 'datetime',
         'edited_at' => 'datetime',
