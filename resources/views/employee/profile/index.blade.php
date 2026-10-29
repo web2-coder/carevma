@@ -93,11 +93,7 @@
                         </button>
                     </li>
                     <li class="nav-item">
-                        <button type="button" class="nav-link" role="tab" data-bs-toggle="tab"
-                            data-bs-target="#navs-pills-left-documents" aria-controls="navs-pills-left-documents"
-                            aria-selected="false">
-                            Documents
-                        </button>
+                        <a class="nav-link" href="/employee/documents">Shared Documents</a>
                     </li>
                     <li class="nav-item">
                         <button type="button" class="nav-link" role="tab" data-bs-toggle="tab"
@@ -201,85 +197,6 @@
                             <label class='form-label' for="">About Me Notes</label>
                             <textarea class="form-control" id="collapsible-notes" rows="2" name='about_me_notes'
                                 placeholder="write additional notes">{{ $employee->about_me_notes }}</textarea>
-                        </div>
-                    </div>
-                    <div class="tab-pane fade" id="navs-pills-left-documents" role="tabpanel">
-                        <form action="{{ route('employee.profile.update') }}" method="POST" class="dropzone"
-                            id="dropzone-multi" enctype="multipart/form-data">
-                            @csrf
-                            <input type="hidden" name="field" value="upload_documents">
-
-                            <div class="dz-message needsclick">
-                                Drop files here or click to upload
-                                <span class="note needsclick">You can add multiple documents here.</span>
-                            </div>
-
-                            <div class="fallback">
-                                <input name="value" type="file" multiple />
-                            </div>
-                        </form>
-                        <div id="uploaded-documents">
-                            @php
-                                // Normalize upload_documents into an array
-                                $docs = $employee->upload_documents;
-
-                                if (is_string($docs)) {
-                                    // remove extra wrapping quotes if present: ""[...]"" or "[...]"
-                                    $docs = trim($docs);
-                                    $docs = trim($docs, '"');
-
-                                    // decode JSON => array
-                                    $docs = json_decode($docs, true);
-                                }
-
-                                // Ensure it's an array
-                                $docs = is_array($docs) ? $docs : [];
-                            @endphp
-
-                            @if (!empty($docs))
-                                @foreach ($docs as $index => $doc)
-                             @php
-    // Remove leading slash if present
-    $doc = ltrim($doc, '/');
-
-    // Build correct public URL
-    // If it already starts with "public/storage/", use as-is
-    // Otherwise, prefix with "public/storage/"
-    $url = str_starts_with($doc, 'public/')
-        ? asset($doc)
-        : asset('public/' . $doc);
-
-    // Get the file extension
-    $ext = strtolower(pathinfo($doc, PATHINFO_EXTENSION));
-@endphp
-
-                                    <div class="doc-item d-inline-block text-center m-2 position-relative"
-                                        data-index="{{ $index }}">
-                                        <button type="button" class="remove-doc" data-index="{{ $index }}"
-                                            data-path="{{ $doc }}">&times;</button>
-
-                                        @if (in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp']))
-                                            <a class="w-100 d-block" href="{{ $url }}" target="_blank">
-                                                <img src="{{ $url }}" alt="doc"
-                                                    style="max-width:100px; max-height:100px; border-radius:6px;">
-                                            </a>
-                                        @elseif($ext === 'pdf')
-                                            <a class="w-100 d-block" href="{{ $url }}" target="_blank">
-                                                <i class="fa fa-file-pdf fa-3x text-danger"></i>
-                                            </a>
-                                        @elseif(in_array($ext, ['doc', 'docx']))
-                                            <a class="w-100 d-block" href="{{ $url }}" target="_blank">
-                                                <i class="fa fa-file-word fa-3x text-primary"></i>
-                                            </a>
-                                        @else
-                                            <a class="w-100 d-block" href="{{ $url }}" target="_blank">
-                                                <i class="fa fa-file fa-3x text-secondary"></i>
-                                            </a>
-                                        @endif
-                                    </div>
-                                @endforeach
-                            @endif
-
                         </div>
                     </div>
                     <div class="tab-pane fade" id="navs-pills-left-timezone" role="tabpanel">
@@ -420,68 +337,5 @@
     });
 </script>
 
-<!-- <script src="/assets/vendor/libs/dropzone/dropzone.js"></script> -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/dropzone/5.9.3/min/dropzone.min.js"></script>
-<script>
-    Dropzone.options.dropzoneMulti = {
-        paramName: "value", // must match controller input
-        maxFilesize: 25, // MB
-        headers: {
-            "X-CSRF-TOKEN": "{{ csrf_token() }}"
-        },
-        acceptedFiles: ".pdf,.doc,.docx,.jpg,.jpeg,.png",
-        init: function() {
-            this.on("sending", function(file, xhr, formData) {
-                console.log("Sending file:", file.name);
-            });
-
-            this.on("success", function(file, response) {
-                console.log("Upload success:", response);
-
-                if (response.success && response.value) {
-                    $("#uploaded-documents").append(
-                        `<span class="badge bg-info"><a clas='text-white' href="${response.value}" target="_blank">${file.name}</a></span><br>`
-                    );
-                }
-                let msg = response.message || 'Document uploaded.';
-                showMessage(msg);
-            });
-
-            this.on("error", function(file, errorMessage) {
-                console.error("Upload error:", errorMessage);
-                showMessage('Upload failed: ' + errorMessage, 'danger');
-            });
-        }
-    };
-
-    $(document).on("click", ".remove-doc", function() {
-        let button = $(this);
-        let index = button.data("index");
-        let path = button.data("path");
-
-        $.ajax({
-            url: "{{ route('employee.profile.delete.document') }}", // new route
-            method: "POST",
-            data: {
-                _token: "{{ csrf_token() }}",
-                index: index,
-                path: path
-            },
-            success: function(res) {
-                if (res.success) {
-                    button.closest(".doc-item").remove(); // remove from UI
-                    let msg = res.message || 'Document removed.';
-                    showMessage(msg);
-                } else {
-                    showMessage(res.message || 'Error removing document', 'danger');
-                }
-            },
-            error: function(err) {
-                console.error(err.responseJSON);
-                showMessage('Error removing document', 'danger');
-            }
-        });
-    });
-</script>
 
 @endsection

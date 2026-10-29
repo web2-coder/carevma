@@ -392,7 +392,6 @@ export default function AppShell() {
       <div className="workspace-chip">{!collapsed && <><span className="workspace-dot"/><div><strong>Operations</strong><small>{roleLabel}</small></div></>}</div>
       <nav className="sidebar-nav">{nav.map(item => <NavItem key={item.label} item={item} collapsed={collapsed} mobileClose={() => setMobileOpen(false)} liveCount={liveCount} beginPageLoad={beginPageLoad}/>)}</nav>
       <div className="sidebar-foot">
-        {!collapsed && <div className="user-mini"><div className="avatar"><AvatarMedia src={user?.profile_picture || user?.employee?.profile_picture || user?.client?.profile_picture} alt={user?.name||'User'} fallback={user?.name?.split(' ').map(x => x[0]).slice(0,2).join('').toUpperCase()}/></div><div><strong>{user?.name}</strong><span>{user?.email}</span></div></div>}
         <button className="nav-link danger-link" onClick={signOut} title="Sign out"><span className="nav-icon"><LogOut size={19}/></span>{!collapsed && <span>Sign out</span>}</button>
       </div>
     </aside>

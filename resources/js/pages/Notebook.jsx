@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { FileText, Send, Trash2 } from 'lucide-react';
 import api, { messageFrom } from '../api';
 import { useAuth } from '../context/AuthContext';
-import { Button, Card, Input, Notice, PageHeader, Pagination, Select, Table, Textarea, dateTime } from '../components/ui';
+import { Button, Card, Input, Notice, PageHeader, Pagination, SearchableSelect, Table, Textarea, dateTime } from '../components/ui';
 
 function fileSize(bytes) {
   const value = Math.max(0, Number(bytes) || 0);
@@ -18,30 +18,33 @@ export default function NotebookPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [options, setOptions] = useState({ employees: [], clients: [] });
-  const [form, setForm] = useState({ title: '', notes: '', recipient_user_id: '' });
+  const [form, setForm] = useState({ title: '', notes: '', recipient_user_id: '', recipient_type: '' });
   const [document, setDocument] = useState(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
 
-  const recipients = useMemo(() => {
-    const employees = (options.employees || [])
-      .filter(row => row.user_id)
-      .map(row => ({
-        user_id: row.user_id,
-        label: `VA · ${row.employee_code ? `${row.employee_code} · ` : ''}${row.first_name || ''} ${row.last_name || ''}`.trim(),
-        timezone: row.timezone || 'UTC',
-      }));
-    const clients = (options.clients || [])
-      .filter(row => row.user_id)
-      .map(row => ({
-        user_id: row.user_id,
-        label: `Doctor · ${row.name || row.business_name || row.email}`,
-        timezone: row.timezone || 'UTC',
-      }));
-    return [...employees, ...clients].sort((a, b) => a.label.localeCompare(b.label));
-  }, [options]);
+  const vaRecipients = useMemo(() => (options.employees || [])
+    .filter(row => row.user_id)
+    .map(row => ({
+      value: String(row.user_id),
+      label: `${row.employee_code ? `${row.employee_code} · ` : ''}${row.first_name || ''} ${row.last_name || ''}`.trim(),
+      meta: row.timezone || 'UTC',
+      timezone: row.timezone || 'UTC',
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label)), [options]);
 
-  const selectedRecipient = recipients.find(row => String(row.user_id) === String(form.recipient_user_id));
+  const doctorRecipients = useMemo(() => (options.clients || [])
+    .filter(row => row.user_id)
+    .map(row => ({
+      value: String(row.user_id),
+      label: row.name || row.business_name || row.email,
+      meta: row.timezone || 'UTC',
+      timezone: row.timezone || 'UTC',
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label)), [options]);
+
+
+  const selectedRecipient = [...vaRecipients, ...doctorRecipients].find(row => String(row.value) === String(form.recipient_user_id));
 
   const load = async (nextPage = page, nextSearch = search) => {
     setBusy(true);
@@ -71,7 +74,7 @@ export default function NotebookPage() {
 
   const upload = async () => {
     if (!form.recipient_user_id) {
-      setNotice({ type: 'error', text: 'Select the VA or Doctor who should receive this document.' });
+      setNotice({ type: 'error', text: 'Select one VA or one Doctor who should receive this document.' });
       return;
     }
     if (!document) {
@@ -88,7 +91,7 @@ export default function NotebookPage() {
       payload.append('document', document);
       const { data } = await api.post('/notebook', payload, { headers: { 'Content-Type': 'multipart/form-data' } });
       setNotice({ type: 'success', text: data.message });
-      setForm({ title: '', notes: '', recipient_user_id: '' });
+      setForm({ title: '', notes: '', recipient_user_id: '', recipient_type: '' });
       setDocument(null);
       const input = window.document.getElementById('carevma-notebook-upload');
       if (input) input.value = '';
@@ -123,15 +126,27 @@ export default function NotebookPage() {
   ];
 
   return <>
-    <PageHeader eyebrow="Admin / HR documents" title="Notebook" description="Notebook is restricted to Admin and HR. Share each document with one specific VA or Doctor account."/>
+    <PageHeader eyebrow="Admin / HR documents" title="Notebook" description="Notebook is restricted to Admin and HR. Share each document with one specific VA or Doctor account. VA and Doctor selectors are separated and searchable."/>
     {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
     <Card title="Share a document" subtitle="The selected recipient is the only VA/Doctor account that can download it. PDF, Word, Excel, CSV, TXT, JPG or PNG · max 10 MB">
       <div className="form-grid">
-        <Select label="Send to *" value={form.recipient_user_id} onChange={event => setForm(current => ({ ...current, recipient_user_id: event.target.value }))}>
-          <option value="">Select VA or Doctor</option>
-          {recipients.map(recipient => <option key={recipient.user_id} value={recipient.user_id}>{recipient.label}</option>)}
-        </Select>
-        <Input label="Recipient timezone" value={selectedRecipient?.timezone || 'Select a recipient'} disabled/>
+        <SearchableSelect
+          label="Send to VA"
+          value={form.recipient_type === 'va' ? form.recipient_user_id : ''}
+          onChange={value => setForm(current => ({ ...current, recipient_user_id: value, recipient_type: value ? 'va' : '' }))}
+          options={vaRecipients}
+          placeholder="Search and select a VA"
+          searchPlaceholder="Search VA name, code or timezone…"
+        />
+        <SearchableSelect
+          label="Send to Doctor"
+          value={form.recipient_type === 'doctor' ? form.recipient_user_id : ''}
+          onChange={value => setForm(current => ({ ...current, recipient_user_id: value, recipient_type: value ? 'doctor' : '' }))}
+          options={doctorRecipients}
+          placeholder="Search and select a Doctor"
+          searchPlaceholder="Search Doctor name or timezone…"
+        />
+        <Input label="Recipient timezone" value={selectedRecipient?.timezone || 'Select one VA or Doctor'} disabled/>
         <Input label="Title *" value={form.title} onChange={event => setForm(current => ({ ...current, title: event.target.value }))} placeholder="Document title"/>
         <label className="field"><span>Document *</span><input id="carevma-notebook-upload" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.jpg,.jpeg,.png" onChange={event => setDocument(event.target.files?.[0] || null)}/><small>{document?.name || 'Choose a file'}</small></label>
         <div style={{gridColumn:'1 / -1'}}><Textarea label="Notes" value={form.notes} onChange={event => setForm(current => ({ ...current, notes: event.target.value }))} placeholder="Optional message or notes for the recipient"/></div>

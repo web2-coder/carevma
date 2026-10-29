@@ -44,8 +44,8 @@ class OperationalActivityNotifier
         $title = $this->titleFor($request);
         $relatedRecipients = $this->relatedRecipients($request, $payload);
 
-        // Notifications are recipient-scoped: never echo an admin/HR action back to
-        // the actor and never fan it out to unrelated operations users.
+        // Intended-user notifications remain recipient-scoped and never echo back
+        // to the actor. Account creation invitations are handled by their dedicated mail flow.
         if ($request->is('api/management/employees') && $request->isMethod('post')) {
             $relatedRecipients = $relatedRecipients->reject(fn ($user) => $user?->role === 'employee');
         }
@@ -58,7 +58,8 @@ class OperationalActivityNotifier
             ->unique('id')
             ->values();
 
-        // Send per recipient so action links always resolve inside that recipient's own portal.
+        // Send per intended recipient so action links always resolve inside that
+        // recipient's own portal.
         foreach ($recipients as $recipient) {
             $this->notifier->send(
                 $recipient,
@@ -72,6 +73,33 @@ class OperationalActivityNotifier
                     'method' => $request->method(),
                     'path' => '/'.$request->path(),
                 ]
+            );
+        }
+
+        // Admin + HR get an in-app operational audit notification for every successful
+        // business mutation (check-in/out, break actions, profile changes, schedule/data
+        // updates, etc.). The actor and already-notified intended recipients are excluded.
+        // Audit notifications intentionally do not send email to avoid SMTP bursts.
+        $recipientIds = $recipients->pluck('id');
+        $operationsRecipients = $this->notifier->operationsUsers()
+            ->reject(fn ($user) => $user->id === $actor->id || $recipientIds->contains($user->id))
+            ->values();
+
+        foreach ($operationsRecipients as $recipient) {
+            $this->notifier->send(
+                $recipient,
+                'Activity: '.$title,
+                $actor->name.' ('.$actor->email.') — '.$message,
+                'OperationalAudit',
+                $this->actionUrlForRecipient($request, $recipient),
+                [
+                    'actor_id' => $actor->id,
+                    'actor_role' => $actor->role,
+                    'method' => $request->method(),
+                    'path' => '/'.$request->path(),
+                    'audit' => true,
+                ],
+                false
             );
         }
 

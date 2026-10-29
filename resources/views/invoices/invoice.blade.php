@@ -159,6 +159,29 @@
     @endif
 </div>
 
+<div class="payment-page">
+    <div class="payment-card">
+        <h2 style="margin:0 0 12px;color:#083589;">Payment & Bank Details</h2>
+        <p>Please pay via Payoneer or to the account given below.</p>
+        <div class="section-title" style="margin-top:14px;">ACCOUNT DETAILS</div>
+        <div class="account-details">
+            <p><strong>Bank Name:</strong> Citibank</p>
+            <p><strong>Bank Address:</strong> 111 Wall Street New York, NY 10043 USA</p>
+            <p><strong>Routing (ABA):</strong> 031100209</p>
+            <p><strong>SWIFT Code:</strong> CITIUS33</p>
+            <p><strong>Account No:</strong> 7508040001159007</p>
+            <p><strong>Account type:</strong> CHECKING</p>
+            <p><strong>Beneficiary name:</strong> Carevma Health</p>
+        </div>
+        <p class="note">
+            Note: THIS ACCOUNT ONLY ACCEPTS PAYMENTS FROM BUSINESS ACCOUNTS.
+            PAYMENTS MADE FROM PERSONAL ACCOUNTS WILL BE RETURNED AUTOMATICALLY.
+            FOR PAYING FROM PERSONAL ACCOUNTS PLEASE USE ALTERNATE METHODS.
+        </p>
+        <div class="footer">THANK YOU FOR YOUR BUSINESS!</div>
+    </div>
+</div>
+
 <div class="page-break"></div>
 
 <div class="invoice-box">
@@ -230,27 +253,5 @@
     </div>
 </div>
 
-<div class="payment-page">
-    <div class="payment-card">
-        <h2 style="margin:0 0 12px;color:#083589;">Payment & Bank Details</h2>
-        <p>Please pay via Payoneer or to the account given below.</p>
-        <div class="section-title" style="margin-top:14px;">ACCOUNT DETAILS</div>
-        <div class="account-details">
-            <p><strong>Bank Name:</strong> Citibank</p>
-            <p><strong>Bank Address:</strong> 111 Wall Street New York, NY 10043 USA</p>
-            <p><strong>Routing (ABA):</strong> 031100209</p>
-            <p><strong>SWIFT Code:</strong> CITIUS33</p>
-            <p><strong>Account No:</strong> 7508040001159007</p>
-            <p><strong>Account type:</strong> CHECKING</p>
-            <p><strong>Beneficiary name:</strong> Carevma Health</p>
-        </div>
-        <p class="note">
-            Note: THIS ACCOUNT ONLY ACCEPTS PAYMENTS FROM BUSINESS ACCOUNTS.
-            PAYMENTS MADE FROM PERSONAL ACCOUNTS WILL BE RETURNED AUTOMATICALLY.
-            FOR PAYING FROM PERSONAL ACCOUNTS PLEASE USE ALTERNATE METHODS.
-        </p>
-        <div class="footer">THANK YOU FOR YOUR BUSINESS!</div>
-    </div>
-</div>
 </body>
 </html>

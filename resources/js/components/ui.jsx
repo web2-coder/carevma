@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { LoaderCircle, Search, X, CheckCircle2, AlertCircle } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { LoaderCircle, Search, X, CheckCircle2, AlertCircle, ChevronDown, Check } from 'lucide-react';
 import { formatDateTime, formatTime24 } from '../timezone';
 
 
@@ -67,6 +67,56 @@ export function Input({ label, error, hint, ...props }) {
 }
 export function Select({ label, error, children, ...props }) {
   return <label className="field"><span>{label}</span><select {...props}>{children}</select>{error && <em>{error}</em>}</label>;
+}
+
+export function SearchableSelect({
+  label, value, onChange, options = [], placeholder = 'Select', searchPlaceholder = 'Search…',
+  disabled = false, error, emptyText = 'No matching results',
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const rootRef = useRef(null);
+  const normalizedValue = String(value ?? '');
+  const selected = options.find(option => String(option.value ?? '') === normalizedValue);
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter(option => `${option.label || ''} ${option.searchText || ''} ${option.meta || ''}`.toLowerCase().includes(q));
+  }, [options, query]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = event => { if (rootRef.current && !rootRef.current.contains(event.target)) setOpen(false); };
+    const escape = event => { if (event.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', escape);
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', escape); };
+  }, [open]);
+
+  const choose = option => {
+    onChange?.(String(option.value ?? ''));
+    setQuery('');
+    setOpen(false);
+  };
+
+  return <div className={`field searchable-select-field ${disabled ? 'is-disabled' : ''}`} ref={rootRef}>
+    <span>{label}</span>
+    <button type="button" className={`searchable-select-trigger ${open ? 'is-open' : ''}`} disabled={disabled} onClick={() => setOpen(current => !current)} aria-haspopup="listbox" aria-expanded={open}>
+      <span className={selected ? '' : 'is-placeholder'}>{selected?.label || placeholder}</span><ChevronDown size={16}/>
+    </button>
+    {open && <div className="searchable-select-popover">
+      <div className="searchable-select-search"><Search size={15}/><input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder={searchPlaceholder}/>{query && <button type="button" onClick={() => setQuery('')} aria-label="Clear search"><X size={14}/></button>}</div>
+      <div className="searchable-select-options" role="listbox">
+        {filtered.length ? filtered.map(option => {
+          const active = String(option.value ?? '') === normalizedValue;
+          return <button type="button" key={`${option.value}-${option.label}`} className={`searchable-select-option ${active ? 'is-selected' : ''}`} onClick={() => choose(option)} role="option" aria-selected={active}>
+            <span><strong>{option.label}</strong>{option.meta && <small>{option.meta}</small>}</span>{active && <Check size={15}/>}
+          </button>;
+        }) : <div className="searchable-select-empty">{emptyText}</div>}
+      </div>
+    </div>}
+    {error && <em>{error}</em>}
+  </div>;
 }
 export function Textarea({ label, error, ...props }) {
   return <label className="field"><span>{label}</span><textarea {...props}/>{error && <em>{error}</em>}</label>;

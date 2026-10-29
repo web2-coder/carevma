@@ -89,3 +89,25 @@ If diagnostics still show a Mailtrap host, update the **live server's** `.env` t
 ## Safety
 
 The replace ZIP excludes `.env`, `vendor`, `node_modules`, storage logs, cached config, compiled frontend build files, and credentials.
+
+## Latest card / audit / invoice-layout update
+
+- Currently Active now uses 3 cards per desktop row (`col-4` style), 2 on medium screens, 1 on mobile.
+- Every live card shows both the VA and Doctor profile photo at the top, with profile links/actions below.
+- Live cards show a clear Work + Break total and break usage/status.
+- Successful business mutations (check-in, checkout, break start/end, profile updates and other API changes) create in-app audit notifications for Admin + HR, excluding the actor. Audit notifications do not send email.
+- Batch VA assignment still sends only one notification to the VA, plus one Admin/HR audit event per assignment action.
+- Invoice PDF Payment & Bank Details is now a dedicated page immediately before Attendance Records. Grand Total remains at the end of Attendance.
+
+## Latest update: shared documents, searchable VA/Doctor selectors, sidebar cleanup
+
+This replace patch also applies the following portal requirements:
+
+- VA/Employee self-service document upload and document delete have been removed from the React profile and legacy employee profile/onboarding flows.
+- VA and Doctor accounts remain read-only document recipients. They can only open files specifically shared to their own user account by Admin or HR under **Shared Documents**.
+- Notebook remains Admin/HR-only. Recipient selection is now split into two independent searchable controls: **Send to VA** and **Send to Doctor**. Selecting one automatically makes it the single recipient.
+- VA/Doctor lookup is searchable in the main Schedule modal, Client profile Assign VA/Add Schedule flows, Attendance VA filter, invoice Doctor selection, invoice VA adjustment selector, Client daily report VA filter, and Notebook recipient selectors.
+- The bottom-left sidebar identity block (profile image + name + email such as “CareVMA Admin / admin@carevma.com”) has been removed for Admin, HR, VA and Doctor portals. Sign out remains available.
+- Legacy employee document-upload endpoints/routes are disabled so the removed UI cannot be bypassed through the old self-service flow.
+
+No `.env`, passwords, SMTP credentials, `vendor`, or `node_modules` are included in this patch.

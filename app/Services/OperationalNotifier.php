@@ -18,7 +18,7 @@ class OperationalNotifier
     /**
      * @param iterable<User>|User $recipients
      */
-    public function send(iterable|User $recipients, string $title, string $message, string $type = 'OperationalActivity', ?string $actionUrl = null, array $context = []): void
+    public function send(iterable|User $recipients, string $title, string $message, string $type = 'OperationalActivity', ?string $actionUrl = null, array $context = [], bool $sendEmail = true): void
     {
         $users = $recipients instanceof User ? collect([$recipients]) : collect($recipients);
         $users = $users->filter(fn ($user) => $user instanceof User)->unique('id')->values();
@@ -57,7 +57,7 @@ class OperationalNotifier
                 ]);
             }
 
-            if (!$user->email) {
+            if (!$sendEmail || !$user->email) {
                 continue;
             }
 
@@ -85,6 +85,6 @@ class OperationalNotifier
 
     public function operationsUsers(): Collection
     {
-        return User::query()->whereIn('role', ['superadmin', 'admin'])->get();
+        return User::query()->whereIn('role', ['superadmin', 'admin', 'hr'])->get();
     }
 }

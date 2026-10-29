@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import '../../css/live-session-timer.css';
 import '../../css/dual-timezone-shift.css';
 import '../../css/dual-timezone-tables.css';
-import { Coffee, LogIn, LogOut, TimerReset, Upload, Trash2, Save, KeyRound, Link2, CalendarDays, Clock3 } from 'lucide-react';
+import { Coffee, LogIn, LogOut, TimerReset, Upload, Save, KeyRound, Link2, CalendarDays, Clock3 } from 'lucide-react';
 import api, { messageFrom } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { formatDate, formatDateTime, formatTime, formatWeekday, zonedNowParts } from '../timezone';
@@ -282,18 +282,16 @@ export function EmployeeAttendance(){
 
 export function EmployeeProfile(){
  const { refresh: refreshAuth }=useAuth();
- const [employee,setEmployee]=useState(null),[form,setForm]=useState({}),[photo,setPhoto]=useState(null),[documents,setDocuments]=useState([]),[busy,setBusy]=useState(false);const n=useNotice();
+ const [employee,setEmployee]=useState(null),[form,setForm]=useState({}),[photo,setPhoto]=useState(null),[busy,setBusy]=useState(false);const n=useNotice();
  const load=async()=>{try{const r=await api.get('/employee/profile');setEmployee(r.data);setForm(r.data)}catch(e){n.error(messageFrom(e))}};
  useEffect(()=>{load()},[]);
  if(!employee)return <Loading/>;
  const requiredFields=['first_name','last_name','email','phone','date_of_birth','gender','marital_status'];
  const missing=Array.isArray(employee.profile_missing_fields)?employee.profile_missing_fields:requiredFields.filter(key=>!String(employee?.[key]??'').trim());
  const progress=Number.isFinite(Number(employee.profile_completion_percent))?Number(employee.profile_completion_percent):Math.round(((requiredFields.length-missing.length)/requiredFields.length)*100);
- const save=async()=>{setBusy(true);try{const fd=new FormData();['first_name','last_name','email','phone','date_of_birth','gender','marital_status','about_me_notes'].forEach(k=>{if(form[k]!=null)fd.append(k,form[k])});if(photo)fd.append('profile_picture',photo);documents.forEach(f=>fd.append('documents[]',f));const {data}=await api.post('/employee/profile',fd,{headers:{'Content-Type':'multipart/form-data'}});n.success(data.message);setPhoto(null);setDocuments([]);await load();await refreshAuth()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
- const removeDoc=async path=>{try{await api.delete('/employee/profile/document',{data:{path}});n.success('Document removed.');load()}catch(e){n.error(messageFrom(e))}};
- const docs=Array.isArray(employee.upload_documents)?employee.upload_documents:[];
+ const save=async()=>{setBusy(true);try{const fd=new FormData();['first_name','last_name','email','phone','date_of_birth','gender','marital_status','about_me_notes'].forEach(k=>{if(form[k]!=null)fd.append(k,form[k])});if(photo)fd.append('profile_picture',photo);const {data}=await api.post('/employee/profile',fd,{headers:{'Content-Type':'multipart/form-data'}});n.success(data.message);setPhoto(null);await load();await refreshAuth()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
  return <>
-  <PageHeader eyebrow={employee.profile_completed?'Self service':'First login setup'} title="My profile" description={employee.profile_completed?'Update your personal details, profile photo and documents.':'Complete all required fields to unlock Dashboard, Schedule, Attendance, Notifications and Settings.'} actions={<Button loading={busy} icon={Save} onClick={save}>{employee.profile_completed?'Save changes':'Complete profile'}</Button>}/>
+  <PageHeader eyebrow={employee.profile_completed?'Self service':'First login setup'} title="My profile" description={employee.profile_completed?'Update your personal details and profile photo. Documents shared by Admin or HR are available under Shared Documents.':'Complete all required fields to unlock Dashboard, Schedule, Attendance, Notifications and Settings.'} actions={<Button loading={busy} icon={Save} onClick={save}>{employee.profile_completed?'Save changes':'Complete profile'}</Button>}/>
   <NB n={n}/>
   {!employee.profile_completed&&<div className="profile-completion-card">
     <div className="profile-completion-head"><strong>Profile completion</strong><span>{Math.max(0,Math.min(100,progress))}%</span></div>
@@ -316,7 +314,7 @@ export function EmployeeProfile(){
    </Card>
    <div className="stack">
     <Card title="Work profile" subtitle="Administrative fields are read-only in self service."><div className="detail-list"><div><span>Employee #</span><strong>{employee.employee_code}</strong></div><div><span>Department</span><strong>{employee.department?.name||'—'}</strong></div><div><span>Designation</span><strong>{employee.designation?.name||'—'}</strong></div><div><span>Status</span><strong>{employee.employee_status?.name||'—'}</strong></div><div><span>Doctor timezone</span><strong>{employee.assigned_doctor_timezone||'Not assigned'}</strong></div></div></Card>
-    <Card title="Documents" subtitle="Optional: PDF/DOC/DOCX/JPG/PNG files up to 5 MB."><label className="drop-upload"><Upload/><strong>Add documents</strong><span>{documents.length?`${documents.length} file(s) selected`:'Choose one or more files'}</span><input type="file" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onChange={e=>setDocuments(Array.from(e.target.files||[]))}/></label><div className="document-list">{docs.map((d,i)=><div key={d}><a href={d} target="_blank" rel="noreferrer">Document {i+1}</a><button onClick={()=>removeDoc(d)}><Trash2 size={15}/></button></div>)}{!docs.length&&<span className="muted">No documents uploaded.</span>}</div></Card>
+    <Card title="Shared Documents" subtitle="VA accounts are read-only for documents. Only files specifically shared by Admin or HR are available."><div className="detail-list"><div><span>Document access</span><strong>View only</strong></div><div><span>Upload permission</span><strong>Admin / HR only</strong></div></div><a className="btn btn-secondary btn-link" href="/employee/documents">Open Shared Documents</a></Card>
    </div>
   </div>
  </>;

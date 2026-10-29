@@ -107,7 +107,6 @@ Route::prefix('api')->group(function () {
             // Profile endpoints remain available during first-login onboarding.
             Route::get('/profile', [EmployeeApiController::class, 'profile']);
             Route::post('/profile', [EmployeeApiController::class, 'updateProfile']);
-            Route::delete('/profile/document', [EmployeeApiController::class, 'removeDocument']);
 
             Route::middleware('profile.complete')->group(function () {
                 Route::get('/dashboard', [EmployeeApiController::class, 'dashboard']);

@@ -1,8 +1,4 @@
-CareVMA Final Replace Patch - changed/new files
-Total: 56 files
-
 CAREVMA_FINAL_PATCH_README.md
-CHANGED_FILES.txt
 app/Console/Commands/GenerateMonthlyInvoices.php
 app/Http/Controllers/Api/AdminApiController.php
 app/Http/Controllers/Api/AuthApiController.php
@@ -11,6 +7,8 @@ app/Http/Controllers/Api/EmployeeApiController.php
 app/Http/Controllers/Api/InvoicePdfController.php
 app/Http/Controllers/Api/NotebookApiController.php
 app/Http/Controllers/Api/NotificationApiController.php
+app/Http/Controllers/EmployeeProfile/CompleteProfileController.php
+app/Http/Controllers/EmployeeProfile/ProfileController.php
 app/Http/Middleware/OperationalActivityNotifier.php
 app/Mail/HrInvitationMail.php
 app/Mail/InvoiceNotificationMail.php
@@ -53,7 +51,10 @@ resources/js/timezone.js
 resources/views/client/auth/set-password.blade.php
 resources/views/emails/hr-invitation.blade.php
 resources/views/emails/invoice_notification.blade.php
+resources/views/employee/after_register/complete_profile.blade.php
+resources/views/employee/profile/index.blade.php
 resources/views/errors/layout.blade.php
 resources/views/invoices/invoice.blade.php
 routes/console.php
+routes/employee.php
 routes/web.php

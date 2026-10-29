@@ -265,7 +265,7 @@ class AdminApiController extends Controller
             ->with([
                 'employee:id,user_id,first_name,last_name,email,employee_code,profile_picture,timezone',
                 'employee.user:id,name,email,last_seen_at',
-                'client:id,name,business_name,timezone',
+                'client:id,name,business_name,timezone,profile_picture',
                 'schedule:id,weekday,start_time,end_time,timezone,break_allowed_hours',
                 'openBreak:id,attendance_id,start_time,end_time',
             ])
@@ -799,14 +799,34 @@ class AdminApiController extends Controller
             return $rows;
         });
 
+        $operationalNotifier = app(\App\Services\OperationalNotifier::class);
+
         if ($employee->user) {
-            app(\App\Services\OperationalNotifier::class)->send(
+            $operationalNotifier->send(
                 $employee->user,
                 'Client assignment updated',
                 'You were assigned to '.$client->name.' for '.count($payload['schedules']).' scheduled day(s).',
                 'ScheduleAssignment',
                 '/employee/schedule',
                 ['employee_id' => $employee->id, 'client_id' => $client->id, 'schedule_count' => count($payload['schedules'])]
+            );
+        }
+
+        // One audit notification per assignment action for Admin/HR observers.
+        // Do not email this high-frequency audit stream and do not notify the actor.
+        $actor = $request->user();
+        $operationsRecipients = $operationalNotifier->operationsUsers()
+            ->reject(fn ($recipient) => $actor && $recipient->id === $actor->id)
+            ->values();
+        foreach ($operationsRecipients as $operationsRecipient) {
+            $operationalNotifier->send(
+                $operationsRecipient,
+                'VA assignment changed',
+                ($actor?->name ?: 'A CareVMA user').' assigned '.$employee->first_name.' '.$employee->last_name.' to '.$client->name.' for '.count($payload['schedules']).' scheduled day(s).',
+                'OperationalAudit',
+                $operationsRecipient->role === 'hr' ? '/hr/schedules' : '/admin/schedules',
+                ['employee_id' => $employee->id, 'client_id' => $client->id, 'schedule_count' => count($payload['schedules'])],
+                false
             );
         }
 

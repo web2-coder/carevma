@@ -26,6 +26,7 @@ import {
   Notice,
   Pagination,
   Select,
+  SearchableSelect,
   Table,
   money,
   mins,
@@ -709,14 +710,19 @@ export default function ClientProfilePage() {
 
         <Card className="client-workspace-panel assign-va-card">
           <div className="assign-va-employee-row">
-            <Select label="Select Employee *" value={weeklyAssign.employee_id} onChange={event => setAssignEmployee(event.target.value)}>
-              <option value="">Select value</option>
-              {(options.employees || []).map(employee => (
-                <option key={employee.id} value={employee.id}>
-                  {employee.employee_code} · {employee.first_name} {employee.last_name}{assignedEmployeeIds.has(String(employee.id)) ? ' · assigned' : ''}
-                </option>
-              ))}
-            </Select>
+            <SearchableSelect
+              label="Select Employee / VA *"
+              value={weeklyAssign.employee_id}
+              onChange={setAssignEmployee}
+              placeholder="Search and select VA"
+              searchPlaceholder="Search VA name, code or timezone…"
+              options={(options.employees || []).map(employee => ({
+                value: String(employee.id),
+                label: `${employee.employee_code || 'VA'} · ${employee.first_name || ''} ${employee.last_name || ''}`.trim(),
+                meta: `${employee.timezone || 'Timezone not set'}${assignedEmployeeIds.has(String(employee.id)) ? ' · already assigned' : ''}`,
+                searchText: `${employee.email || ''} ${employee.employee_code || ''}`,
+              }))}
+            />
             <div className="assign-va-selected-meta">
               <span>VA assigned timezone</span>
               <strong>{selectedAssignEmployee?.timezone || 'Select a VA first'}</strong>
@@ -830,10 +836,7 @@ export default function ClientProfilePage() {
   const renderReport = () => (
     <Card className="client-workspace-panel" title="Daily Work Report" subtitle="All report dates and times are shown in the Doctor / Client timezone used for billing and calculation.">
       <div className="client-report-filters">
-        <Select label="VA" value={reportFilters.employee_id} onChange={event => setReportFilters(current => ({ ...current, employee_id: event.target.value }))}>
-          <option value="">All assigned VAs</option>
-          {assignedEmployees.map(employee => <option key={employee.id} value={employee.id}>{employee.first_name} {employee.last_name}</option>)}
-        </Select>
+        <SearchableSelect label="VA" value={reportFilters.employee_id} onChange={value => setReportFilters(current => ({ ...current, employee_id: value }))} placeholder="All assigned VAs" searchPlaceholder="Search assigned VA…" options={[{value:'',label:'All assigned VAs'},...assignedEmployees.map(employee => ({value:String(employee.id),label:`${employee.first_name||''} ${employee.last_name||''}`.trim(),meta:employee.employee_code||employee.timezone||'',searchText:employee.email||''}))]}/>
         <Input label="From" type="date" value={reportFilters.from} onChange={event => setReportFilters(current => ({ ...current, from: event.target.value }))} />
         <Input label="To" type="date" value={reportFilters.to} onChange={event => setReportFilters(current => ({ ...current, to: event.target.value }))} />
         <Input label="Search" value={reportFilters.search} onChange={event => setReportFilters(current => ({ ...current, search: event.target.value }))} placeholder="Date, VA or time" />
@@ -884,14 +887,22 @@ export default function ClientProfilePage() {
           <div className="client-schedule-drawer">
             <div className="client-schedule-drawer-head"><div><span>{editingSchedule ? 'Edit assignment' : 'New assignment'}</span><h2>{editingSchedule ? 'Edit schedule' : 'Add schedule'}</h2></div><button type="button" onClick={() => setScheduleOpen(false)}>×</button></div>
             <div className="client-profile-form-grid one-column">
-              <Select label="VA / Employee *" value={scheduleForm.employee_id} onChange={event => {
-                const employeeId = event.target.value;
-                const employee = (options.employees || []).find(item => String(item.id) === String(employeeId));
-                setScheduleForm(current => ({ ...current, employee_id: employeeId, timezone: employee?.timezone || current.timezone }));
-              }}>
-                <option value="">Select VA</option>
-                {(options.employees || []).map(employee => <option key={employee.id} value={employee.id}>{employee.employee_code} · {employee.first_name} {employee.last_name}</option>)}
-              </Select>
+              <SearchableSelect
+                label="VA / Employee *"
+                value={scheduleForm.employee_id}
+                onChange={employeeId => {
+                  const employee = (options.employees || []).find(item => String(item.id) === String(employeeId));
+                  setScheduleForm(current => ({ ...current, employee_id: employeeId, timezone: employee?.timezone || current.timezone }));
+                }}
+                placeholder="Search and select VA"
+                searchPlaceholder="Search VA name, code or timezone…"
+                options={(options.employees || []).map(employee => ({
+                  value: String(employee.id),
+                  label: `${employee.employee_code || 'VA'} · ${employee.first_name || ''} ${employee.last_name || ''}`.trim(),
+                  meta: employee.timezone || 'Timezone not set',
+                  searchText: `${employee.email || ''} ${employee.employee_code || ''}`,
+                }))}
+              />
               <Input label={scheduleForm.repeat ? 'Date (optional while weekly)' : 'Date *'} type="date" value={scheduleForm.date || ''} disabled={!!scheduleForm.repeat} onChange={event => { const date = event.target.value; const weekday = weekdayFromDate(date); setScheduleForm(current => ({ ...current, date, weekday: weekday || current.weekday, repeat: date ? false : current.repeat })); }} hint="For a one-time shift, select the exact Doctor-local date; weekday is set automatically." />
               <Select label="Day *" value={scheduleForm.weekday} onChange={event => setScheduleField('weekday', event.target.value)}>{WEEKDAYS.map(day => <option key={day} value={day}>{day}</option>)}</Select>
               <Input label="Start time *" type="time" value={scheduleForm.start_time} onChange={event => setScheduleField('start_time', event.target.value)} />

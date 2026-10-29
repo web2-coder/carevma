@@ -408,7 +408,6 @@ class EmployeeApiController extends Controller
     public function profile(Request $request)
     {
         $employee = $this->employee($request)->load(['user', 'department', 'designation', 'employmentType', 'shiftType', 'employeeStatus', 'expertise', 'reportingManager']);
-        $employee->setAttribute('upload_documents', $this->normalizeDocuments($employee->upload_documents));
         $missing = $employee->missingRequiredProfileFields();
         $total = count(Employee::REQUIRED_SELF_SERVICE_FIELDS);
         $employee->setAttribute('profile_missing_fields', $missing);
@@ -426,17 +425,12 @@ class EmployeeApiController extends Controller
             'phone' => ['required', 'string', 'max:60'], 'date_of_birth' => ['required', 'date', 'before_or_equal:today'], 'gender' => ['required', Rule::in(['male','female','other'])],
             'marital_status' => ['required', 'string', 'max:60'], 'about_me_notes' => ['nullable', 'string', 'max:3000'],
             'profile_picture' => ['nullable', 'image', 'mimes:jpg,jpeg,png', 'max:800'],
-            'documents.*' => ['nullable', 'file', 'max:5120', 'mimes:pdf,doc,docx,jpg,jpeg,png'],
         ]);
         if ($request->hasFile('profile_picture')) {
             if ($employee->profile_picture) Storage::disk('public')->delete(ltrim(str_replace('/storage/', '', $employee->profile_picture), '/'));
             $path = $request->file('profile_picture')->store('employees/profile_pictures', 'public');
             $data['profile_picture'] = '/storage/'.$path;
         }
-        unset($data['documents']);
-        $documents = $this->normalizeDocuments($employee->upload_documents);
-        foreach ($request->file('documents', []) as $file) $documents[] = '/storage/'.$file->store('employees/documents', 'public');
-        if ($request->hasFile('documents')) $data['upload_documents'] = $documents;
         $employee->update($data);
         $employee->refresh();
         $employee->profile_completed = $employee->hasCompleteSelfServiceProfile();
@@ -450,16 +444,6 @@ class EmployeeApiController extends Controller
             'profile_completed' => (bool) $employee->profile_completed,
             'missing_fields' => $employee->missingRequiredProfileFields(),
         ]);
-    }
-
-    public function removeDocument(Request $request)
-    {
-        $employee = $this->employee($request); $data = $request->validate(['path' => ['required', 'string']]);
-        $documents = $this->normalizeDocuments($employee->upload_documents);
-        if (!in_array($data['path'], $documents, true)) return response()->json(['message' => 'Document not found.'], 404);
-        Storage::disk('public')->delete(ltrim(str_replace('/storage/', '', $data['path']), '/'));
-        $employee->update(['upload_documents' => array_values(array_filter($documents, fn ($p) => $p !== $data['path']))]);
-        return response()->json(['message' => 'Document removed.']);
     }
 
     public function sendBirthdayWish(Request $request, Employee $employee)

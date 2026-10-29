@@ -8,7 +8,7 @@ import api, { messageFrom } from '../api';
 import { DEFAULT_TIMEZONE, formatDate, formatDateTime, formatTime as formatTimeInZone, todayInZone, weekdayFromDateOnly } from '../timezone';
 import { useAuth } from '../context/AuthContext';
 import {
-  PageHeader, Card, MetricCard, Button, Input, Select, Textarea, SearchBox, Badge, statusTone,
+  PageHeader, Card, MetricCard, Button, Input, Select, SearchableSelect, Textarea, SearchBox, Badge, statusTone,
   EmptyState, Loading, Notice, Modal, Table, Pagination, money, mins, dateTime, AvatarMedia
 } from '../components/ui';
 import TimezonePicker from '../components/TimezonePicker';
@@ -203,13 +203,29 @@ export function LiveUsersPage(){
       {data.sessions.length?<div className="live-user-card-grid">{data.sessions.map(r=>{
         const employee=r.employee||{};
         const name=`${employee.first_name||''} ${employee.last_name||''}`.trim()||'Unknown employee';
+        const doctorName=r.client?.name||r.client?.business_name||'Unallocated';
+        const doctorFallback=String(doctorName||'D').split(/\s+/).filter(Boolean).slice(0,2).map(part=>part[0]).join('').toUpperCase()||'D';
+        const vaFallback=`${employee.first_name?.[0]||''}${employee.last_name?.[0]||''}`.toUpperCase()||'VA';
+        const totalBreakSeconds=Math.max(0,Number(r.total_break_seconds||0));
+        const workedSeconds=Math.max(0,Number(r.elapsed_seconds||0)-totalBreakSeconds);
         return <article className="live-user-card" key={r.id}>
-          <div className="live-user-card-head"><div className="avatar">{employee.first_name?.[0]}{employee.last_name?.[0]}</div><div><strong>{name}</strong><span>{employee.employee_code||employee.email||'—'}</span></div><Badge tone={r.is_on_break?'warning':'success'}>{r.is_on_break?'On break':'Working'}</Badge></div>
+          <div className="live-user-card-profile-row">
+            <div className="live-user-profile-block">
+              <AvatarMedia className="live-user-profile-photo" src={employee.profile_picture} alt={name} fallback={vaFallback}/>
+              <span>VA</span><strong>{name}</strong><small>{employee.employee_code||employee.email||'—'}</small>
+            </div>
+            <div className="live-user-profile-link"><span>working with</span><i>→</i></div>
+            <div className="live-user-profile-block doctor">
+              <AvatarMedia className="live-user-profile-photo" src={r.client?.profile_picture} alt={doctorName} fallback={doctorFallback}/>
+              <span>Doctor</span><strong>{doctorName}</strong><small>{r.doctor_timezone||'Timezone not assigned'}</small>
+            </div>
+          </div>
+          <div className="live-user-card-status"><Badge tone={r.is_on_break?'warning':'success'}>{r.is_on_break?'On break':'Working'}</Badge></div>
           <div className="live-user-card-body">
-            <div><span>Doctor / Client</span><strong>{r.client?.name||'Unallocated'}</strong><small>{r.doctor_timezone||'Timezone not assigned'}</small></div>
             <div><span>Doctor shift</span><strong>{r.schedule_doctor_label||'Legacy session'}</strong><small>{r.schedule?`Break: ${breakCodeText(r.schedule.break_allowed_hours)}`:'No schedule snapshot'}</small></div>
             <div><span>Clocked in</span><strong>{r.clock_in_doctor_label||'—'}</strong><small>Doctor local time</small></div>
-            <div><span>Live duration</span><LiveDuration baseSeconds={r.elapsed_seconds}/><small>{r.is_on_break?'Break currently active':'Working session'}</small></div>
+            <div><span>Work + Break</span><LiveDuration baseSeconds={r.elapsed_seconds}/><small>Work {durationLabel(workedSeconds)} · Break {durationLabel(totalBreakSeconds)}</small></div>
+            <div><span>Break time</span><LiveBreakDuration row={r}/><small>{r.is_on_break?'Break is active now':'Current break status'}</small></div>
           </div>
           <div className="live-user-card-actions"><Link className="btn btn-secondary btn-link" to={`${base}/employees/${employee.id}`}>View full profile</Link>{user?.role==='admin'&&<Link className="btn btn-primary btn-link" to={`/admin/employees?edit=${employee.id}`}>Edit user</Link>}</div>
         </article>;
@@ -397,9 +413,9 @@ export function SchedulesPage(){
    <Card>{busy&&!rows.length?<Loading/>:<><Table columns={columns} rows={rows} emptyTitle="No schedules configured"/><Pagination meta={meta} onPage={setPage}/></>}</Card>
    <Modal open={modal} onClose={()=>setModal(false)} title={edit?'Edit schedule':'New schedule'} footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={save}>Save schedule</Button></>}>
      <div className="form-grid">
-       <Select label="Employee / VA *" value={form.employee_id} onChange={e=>chooseEmployee(e.target.value)}><option value="">Select employee</option>{(options.employees||[]).map(x=><option key={x.id} value={x.id}>{x.employee_code} · {x.first_name} {x.last_name}</option>)}</Select>
+       <SearchableSelect label="Employee / VA *" value={form.employee_id} onChange={chooseEmployee} placeholder="Search and select VA" searchPlaceholder="Search VA name, code or timezone…" options={(options.employees||[]).map(x=>({value:String(x.id),label:`${x.employee_code||'VA'} · ${x.first_name||''} ${x.last_name||''}`.trim(),meta:x.timezone||'Timezone not set',searchText:`${x.email||''} ${x.employee_code||''}`}))}/>
        <Input label="VA assigned timezone" value={currentEmployee?.timezone||'Select a VA first'} disabled/>
-       <Select label="Client / Doctor *" value={form.client_id} onChange={e=>chooseClient(e.target.value)}><option value="">Select client</option>{(options.clients||[]).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</Select>
+       <SearchableSelect label="Client / Doctor *" value={form.client_id} onChange={chooseClient} placeholder="Search and select Doctor" searchPlaceholder="Search Doctor name, business or timezone…" options={(options.clients||[]).map(x=>({value:String(x.id),label:x.name||x.business_name||x.email,meta:x.timezone||'Timezone not set',searchText:`${x.business_name||''} ${x.email||''}`}))}/>
        <Input label={form.repeat?'Date (optional while weekly)':'Date *'} type="date" value={form.schedule_date||''} disabled={!!form.repeat} onChange={e=>chooseDate(e.target.value)}/>
        <Select label="Doctor day *" value={form.weekday} disabled={!!form.schedule_date} onChange={e=>set('weekday',e.target.value)}>{['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(x=><option key={x}>{x}</option>)}</Select>
        <Time12Field label="Doctor start time *" value={form.start_time} onChange={value=>set('start_time',value)}/>
@@ -421,7 +437,7 @@ export function AttendancePage(){
  const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[options,setOptions]=useState({}),[filters,setFilters]=useState({employee_id:'',from:'',to:'',search:''}),[page,setPage]=useState(1),[busy,setBusy]=useState(false);const n=useNotice();
  const load=async(nextFilters=filters,nextPage=page)=>{setBusy(true);try{const [r,o]=await Promise.all([api.get('/management/attendance',{params:{...nextFilters,page:nextPage}}),api.get('/management/options')]);setRows(r.data.data);setMeta(r.data);setOptions(o.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};useEffect(()=>{load(filters,page)},[page]);const apply=()=>{setPage(1);load(filters,1)};const reset=()=>{const clean={employee_id:'',from:'',to:'',search:''};setFilters(clean);setPage(1);load(clean,1)};
  const columns=[{key:'employee',label:'VA Name',render:r=>`${r.employee?.first_name||''} ${r.employee?.last_name||''}`.trim()||'—'},{key:'client',label:'Doctor Worked With',render:r=>r.client?.name||r.client?.business_name||'Legacy / unallocated'},{key:'date',label:'Date',render:r=><DualDate value={r.clock_in||r.date} doctorTz={r.client_timezone||r.client?.timezone||'UTC'}/>},{key:'clock_in',label:'Clock in',render:r=><DualTime value={r.clock_in} doctorTz={r.client_timezone||r.client?.timezone||'UTC'}/>},{key:'clock_out',label:'Clock out',render:r=><DualTime value={r.clock_out} doctorTz={r.client_timezone||r.client?.timezone||'UTC'} live={!r.clock_out}/>},{key:'breaks',label:'Break',render:r=>`${Math.floor(Number(r.break_taken||0)/60)} min`},{key:'worked',label:'Regular',render:r=>mins(r.total_minutes)},{key:'late',label:'Late',render:r=>`${r.late_minutes||0} min`},{key:'overtime',label:'Overtime',render:r=><Badge tone={(r.overtime||0)>0?'warning':'neutral'}>{r.overtime||0} min</Badge>}];
- return <><PageHeader eyebrow="Time operations" title="Attendance" description="Attendance dates and times are displayed in the Doctor / Client timezone used for calculation."/><NoticeBar notice={n.notice} clear={n.clear}/><Card><div className="filter-grid"><Select label="Employee" value={filters.employee_id} onChange={e=>setFilters({...filters,employee_id:e.target.value})}><option value="">All employees</option>{(options.employees||[]).map(x=><option key={x.id} value={x.id}>{x.first_name} {x.last_name}</option>)}</Select><Input label="From date" type="date" value={filters.from} onChange={e=>setFilters({...filters,from:e.target.value})}/><Input label="To date" type="date" value={filters.to} onChange={e=>setFilters({...filters,to:e.target.value})}/><Input label="Search" value={filters.search} onChange={e=>setFilters({...filters,search:e.target.value})} placeholder="Date, time or employee"/><div className="filter-actions"><Button onClick={apply}>Filter</Button><Button variant="ghost" onClick={reset}>Reset</Button></div></div><Table columns={columns} rows={rows} emptyTitle="No attendance records" emptyDescription="No attendance matches these filters."/><Pagination meta={meta} onPage={setPage}/></Card></>;
+ return <><PageHeader eyebrow="Time operations" title="Attendance" description="Attendance dates and times are displayed in the Doctor / Client timezone used for calculation."/><NoticeBar notice={n.notice} clear={n.clear}/><Card><div className="filter-grid"><SearchableSelect label="Employee / VA" value={filters.employee_id} onChange={value=>setFilters({...filters,employee_id:value})} placeholder="All employees" searchPlaceholder="Search VA…" options={[{value:'',label:'All employees'},...(options.employees||[]).map(x=>({value:String(x.id),label:`${x.first_name||''} ${x.last_name||''}`.trim(),meta:x.employee_code||x.timezone||'',searchText:`${x.email||''} ${x.employee_code||''}`}))]}/><Input label="From date" type="date" value={filters.from} onChange={e=>setFilters({...filters,from:e.target.value})}/><Input label="To date" type="date" value={filters.to} onChange={e=>setFilters({...filters,to:e.target.value})}/><Input label="Search" value={filters.search} onChange={e=>setFilters({...filters,search:e.target.value})} placeholder="Date, time or employee"/><div className="filter-actions"><Button onClick={apply}>Filter</Button><Button variant="ghost" onClick={reset}>Reset</Button></div></div><Table columns={columns} rows={rows} emptyTitle="No attendance records" emptyDescription="No attendance matches these filters."/><Pagination meta={meta} onPage={setPage}/></Card></>;
 }
 
 export function ChangeRequestsPage(){
@@ -607,9 +623,7 @@ export function InvoicesPage(){
 
     <Modal open={createOpen} onClose={()=>setCreateOpen(false)} title="Generate invoice" footer={<><Button variant="ghost" onClick={()=>setCreateOpen(false)}>Cancel</Button><Button loading={busy} onClick={generate}>Generate draft</Button></>}>
       <div className="form-grid one-col">
-        <Select label="Client *" value={createForm.client_id} onChange={e=>setCreateForm({...createForm,client_id:e.target.value})}>
-          <option value="">Select client</option>{(options.clients||[]).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}
-        </Select>
+        <SearchableSelect label="Client / Doctor *" value={createForm.client_id} onChange={value=>setCreateForm({...createForm,client_id:value})} placeholder="Search and select Doctor" searchPlaceholder="Search Doctor name, business or timezone…" options={(options.clients||[]).map(x=>({value:String(x.id),label:x.name||x.business_name||x.email,meta:x.timezone||'',searchText:`${x.business_name||''} ${x.email||''}`}))}/>
         <Input label="Start date *" type="date" value={createForm.period_start} onChange={e=>setCreateForm({...createForm,period_start:e.target.value})}/>
         <Input label="End date *" type="date" min={createForm.period_start||undefined} value={createForm.period_end} onChange={e=>setCreateForm({...createForm,period_end:e.target.value})}/>
         <div className="invoice-cycle-hint">Manual invoices can use any custom date range. Automatic billing runs on the 26th → next month 25th cycle. Any invoice generated after the 20th is assigned to the next invoice month.</div>
@@ -642,10 +656,7 @@ export function InvoicesPage(){
           {(editForm.adjustments||[]).length===0?<div className="muted">No manual adjustments added.</div>:
             <div className="invoice-edit-list">{editForm.adjustments.map((item,index)=><div key={`adj-${index}`} className="card" style={{padding:14}}>
               <div className="form-grid two-col">
-                <Select label="Apply to" value={item.employee_id} onChange={e=>changeAdjustment(index,'employee_id',e.target.value)}>
-                  <option value="">Whole invoice / General</option>
-                  {editForm.lines.map(line=><option key={line.employee_id} value={line.employee_id}>{line.employee_name}</option>)}
-                </Select>
+                <SearchableSelect label="Apply to VA" value={item.employee_id} onChange={value=>changeAdjustment(index,'employee_id',value)} placeholder="Whole invoice / General" searchPlaceholder="Search VA on this invoice…" options={[{value:'',label:'Whole invoice / General'},...editForm.lines.map(line=>({value:String(line.employee_id),label:line.employee_name||`VA #${line.employee_id}`}))]}/>
                 <Select label="Adjustment type" value={item.direction} onChange={e=>changeAdjustment(index,'direction',e.target.value)}>
                   <option value="addition">Addition (+)</option>
                   <option value="deduction">Deduction (-)</option>

@@ -199,4 +199,161 @@
 }
 
 /* Currently Active: card presentation */
-.live-user-card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:14px}.live-user-card{border:1px solid var(--border);border-radius:16px;background:var(--surface);padding:16px;box-shadow:0 7px 22px rgba(11,31,42,.055);font-family:Poppins,sans-serif}.live-user-card-head{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding-bottom:13px;border-bottom:1px solid var(--border)}.live-user-card-head>div:nth-child(2){display:flex;flex-direction:column;min-width:0}.live-user-card-head strong{font-size:12px;color:var(--text)}.live-user-card-head span{font-size:9px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.live-user-card-body{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:13px 0}.live-user-card-body>div{display:flex;flex-direction:column;gap:3px;padding:10px;border-radius:11px;background:var(--surface-2);min-width:0}.live-user-card-body span{font-size:8.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700}.live-user-card-body strong{font-size:10.5px;color:var(--text);overflow:hidden;text-overflow:ellipsis}.live-user-card-body small{font-size:8.5px;color:var(--muted)}.live-user-card-actions{display:flex;gap:8px;justify-content:flex-end;border-top:1px solid var(--border);padding-top:12px}.profile-summary{display:flex;align-items:center;gap:14px}.profile-summary h2{font:800 18px Poppins,sans-serif;margin:0}.profile-summary p{margin:4px 0 0;color:var(--muted)}.detail-list{display:grid;gap:0}.detail-list>div{display:flex;justify-content:space-between;gap:16px;padding:10px 0;border-bottom:1px solid var(--border)}.detail-list>div:last-child{border-bottom:0}.detail-list span{color:var(--muted);font-size:10px}.detail-list strong{font-size:10.5px;text-align:right}.table-subtext{display:block;margin-top:2px;color:var(--muted);font-size:8.5px;font-weight:500}@media(max-width:640px){.live-user-card-grid{grid-template-columns:1fr}.live-user-card-body{grid-template-columns:1fr}.live-user-card-actions{flex-direction:column}.live-user-card-actions .btn{width:100%}}
+.live-user-card-grid{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:18px;
+}
+.live-user-card{
+  position:relative;
+  min-width:0;
+  border:1px solid var(--border);
+  border-radius:18px;
+  background:var(--surface);
+  padding:18px;
+  box-shadow:0 8px 26px rgba(11,31,42,.06);
+  font-family:Poppins,sans-serif;
+}
+.live-user-card-profile-row{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 46px minmax(0,1fr);
+  gap:10px;
+  align-items:start;
+  padding:2px 0 16px;
+  border-bottom:1px solid var(--border);
+}
+.live-user-profile-block{
+  display:flex;
+  min-width:0;
+  flex-direction:column;
+  align-items:center;
+  text-align:center;
+}
+.live-user-profile-photo{
+  width:72px;
+  height:72px;
+  border-radius:20px;
+  object-fit:cover;
+  display:grid;
+  place-items:center;
+  overflow:hidden;
+  background:linear-gradient(135deg,#d8f2eb,#b6ddd4);
+  border:3px solid #fff;
+  box-shadow:0 6px 18px rgba(11,31,42,.12);
+  color:#155d50;
+  font-size:16px;
+  font-weight:900;
+}
+.live-user-profile-block.doctor .live-user-profile-photo{
+  background:linear-gradient(135deg,#e8f0ff,#d7e5f8);
+  color:#315a78;
+}
+.live-user-profile-block>span{
+  margin-top:8px;
+  color:var(--muted);
+  font-size:8px;
+  font-weight:800;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+.live-user-profile-block>strong{
+  width:100%;
+  margin-top:2px;
+  overflow:hidden;
+  color:var(--text);
+  font-size:11px;
+  font-weight:800;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.live-user-profile-block>small{
+  width:100%;
+  margin-top:2px;
+  overflow:hidden;
+  color:var(--muted);
+  font-size:8.5px;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.live-user-profile-link{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  align-self:center;
+  gap:2px;
+  color:var(--muted);
+  text-align:center;
+}
+.live-user-profile-link span{font-size:7.5px;text-transform:uppercase;letter-spacing:.05em}
+.live-user-profile-link i{font-style:normal;font-size:20px;color:var(--brand)}
+.live-user-card-status{
+  position:absolute;
+  top:12px;
+  right:12px;
+  z-index:2;
+}
+.live-user-card-body{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px;
+  padding:14px 0;
+}
+.live-user-card-body>div{
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+  min-width:0;
+  padding:10px;
+  border-radius:12px;
+  background:var(--surface-2);
+}
+.live-user-card-body>div>span:first-child{
+  color:var(--muted);
+  font-size:8px;
+  font-weight:800;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+}
+.live-user-card-body strong{
+  overflow:hidden;
+  color:var(--text);
+  font-size:10px;
+  text-overflow:ellipsis;
+}
+.live-user-card-body small{color:var(--muted);font-size:8.3px;line-height:1.35}
+.live-user-card-body .live-time-cell{min-width:0}
+.live-user-card-body .live-duration-value{font-size:14px}
+.live-user-card-body .live-break-cell{min-width:0}
+.live-user-card-body .live-break-cell strong{font-size:10px}
+.live-user-card-body .live-break-cell span{font-size:8.3px;white-space:normal}
+.live-user-card-actions{
+  display:flex;
+  gap:8px;
+  justify-content:flex-end;
+  padding-top:12px;
+  border-top:1px solid var(--border);
+}
+.profile-summary{display:flex;align-items:center;gap:14px}
+.profile-summary h2{font:800 18px Poppins,sans-serif;margin:0}
+.profile-summary p{margin:4px 0 0;color:var(--muted)}
+.detail-list{display:grid;gap:0}
+.detail-list>div{display:flex;justify-content:space-between;gap:16px;padding:10px 0;border-bottom:1px solid var(--border)}
+.detail-list>div:last-child{border-bottom:0}
+.detail-list span{color:var(--muted);font-size:10px}
+.detail-list strong{font-size:10.5px;text-align:right}
+.table-subtext{display:block;margin-top:2px;color:var(--muted);font-size:8.5px;font-weight:500}
+
+@media(max-width:1240px){
+  .live-user-card-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:760px){
+  .live-user-card-grid{grid-template-columns:1fr}
+  .live-user-card-actions{flex-direction:column}
+  .live-user-card-actions .btn{width:100%}
+}
+@media(max-width:440px){
+  .live-user-profile-photo{width:62px;height:62px;border-radius:17px}
+  .live-user-card-profile-row{grid-template-columns:minmax(0,1fr) 30px minmax(0,1fr);gap:5px}
+  .live-user-card-body{grid-template-columns:1fr}
+}

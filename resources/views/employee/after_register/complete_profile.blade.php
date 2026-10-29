@@ -169,11 +169,7 @@
                                             <textarea class="form-control @error('notes') is-invalid @enderror" id="collapsible-notes" rows="2" name='about_me_notes'
                                                 placeholder="write additional notes"></textarea>
                                         </div>
-                                       
-                                            <div class="col-md-12">
-                                                <input name="upload_documents[]" class="@error('upload_documents') is-invalid @enderror" type="file" multiple />
-                                            </div>
-                                       
+
                                         <div class="col-12 mt-2 d-flex justify-content-between">
                                             <button type="button" class="btn btn-label-secondary btn-prev waves-effect">
                                                 <i class="icon-base ti tabler-arrow-left icon-xs me-sm-2 me-0"></i>
