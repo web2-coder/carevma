@@ -140,9 +140,22 @@ class InvoiceGenerator
 
     private function nextNumber(Client $client): string
     {
-        do {
-            $number = 'INV-'.$this->timezones->now($client)->format('Ym').'-'.strtoupper(Str::random(6));
-        } while (Invoice::where('invoice_number', $number)->exists());
+        $doctorName = Str::of($client->name ?: 'Doctor')
+            ->ascii()
+            ->replaceMatches('/[^A-Za-z0-9]+/', '-')
+            ->trim('-')
+            ->limit(50, '')
+            ->value();
+
+        $doctorName = $doctorName !== '' ? $doctorName : 'Doctor';
+        $base = 'CAREVMA-INV-'.$doctorName.'-'.$this->timezones->now($client)->format('Ym');
+        $number = $base;
+        $sequence = 2;
+
+        while (Invoice::where('invoice_number', $number)->exists()) {
+            $number = $base.'-'.str_pad((string) $sequence, 2, '0', STR_PAD_LEFT);
+            $sequence++;
+        }
 
         return $number;
     }

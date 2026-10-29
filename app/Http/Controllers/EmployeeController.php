@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use Carbon\Carbon;
 use App\Models\Department;
 use App\Models\Role;
 use App\Models\EmploymentType;
@@ -117,7 +118,7 @@ class EmployeeController extends Controller
 
         $temporaryUrl = URL::temporarySignedRoute(
             'employee.completeProfile',
-            now()->addMinutes(5),
+            now()->addDay(),
             ['email' => $user->email, 'token' => $token, 'employee_id' => $employee->id]
         );
 
@@ -153,7 +154,7 @@ class EmployeeController extends Controller
 
         $temporaryUrl = URL::temporarySignedRoute(
             'employee.completeProfile',
-            now()->addMinutes(5),
+            now()->addDay(),
             ['email' => $user->email, 'token' => $token]
         );
 
@@ -185,7 +186,9 @@ class EmployeeController extends Controller
         ->where('email', $email)
         ->first();
 
-    if (!$record || !Hash::check($token, $record->token)) {
+    $expired = !$record?->created_at || Carbon::parse($record->created_at)->addDay()->isPast();
+
+    if (!$record || $expired || !Hash::check($token, $record->token)) {
         return redirect()->route('login')
             ->with('error', 'Invalid or expired link.');
     }

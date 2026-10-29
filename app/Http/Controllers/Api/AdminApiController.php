@@ -1502,7 +1502,7 @@ class AdminApiController extends Controller
 
         $url = URL::temporarySignedRoute(
             'client.password.form',
-            now()->addMinutes((int) config('auth.passwords.users.expire', 60)),
+            now()->addDay(),
             ['email' => $user->email, 'token' => $token]
         );
 

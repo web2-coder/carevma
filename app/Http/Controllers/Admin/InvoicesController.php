@@ -9,6 +9,7 @@ use App\Models\EmployeeSalary;
 use App\Models\Invoice;
 use App\Models\ClientEmployeeRate;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use PDF;
 use Carbon\Carbon;
 use Yajra\DataTables\Facades\DataTables;
@@ -85,8 +86,22 @@ class InvoicesController extends Controller
             'period_end' => 'required|date|after_or_equal:period_start',
         ]);
 
-        // Generate one invoice number for all employees
-        $invoiceNumber = 'INV-' . str_pad(mt_rand(0, 99999), 5, '0', STR_PAD_LEFT);
+        // Human-readable CareVMA invoice number: CAREVMA-INV-{Doctor}-{YYYYMM}.
+        $client = Client::findOrFail($request->client_id);
+        $doctorName = Str::of($client->name ?: 'Doctor')
+            ->ascii()
+            ->replaceMatches('/[^A-Za-z0-9]+/', '-')
+            ->trim('-')
+            ->limit(50, '')
+            ->value();
+        $doctorName = $doctorName !== '' ? $doctorName : 'Doctor';
+        $baseInvoiceNumber = 'CAREVMA-INV-'.$doctorName.'-'.Carbon::parse($request->period_end)->format('Ym');
+        $invoiceNumber = $baseInvoiceNumber;
+        $sequence = 2;
+        while (Invoice::where('invoice_number', $invoiceNumber)->exists()) {
+            $invoiceNumber = $baseInvoiceNumber.'-'.str_pad((string) $sequence, 2, '0', STR_PAD_LEFT);
+            $sequence++;
+        }
 
         // Calculate totals
         $totalHours = 0;

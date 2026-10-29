@@ -1,10 +1,25 @@
-# CareVMA Invoice PDF Adjustment Visibility Fix
+# CareVMA Invoice Number + 24 Hour Activation Patch
 
-This patch only fixes invoice adjustment visibility in generated PDFs.
+## Invoice number
+New invoices use:
+`CAREVMA-INV-{DoctorName}-{YYYYMM}`
 
-- Reloads the latest invoice + adjustments before PDF render.
-- Disables PDF browser/proxy caching so an edited invoice never shows an old PDF.
-- Shows Bonus / Allowance / Reimbursement / Deduction in a dedicated INVOICE ADJUSTMENTS table.
-- Shows related VA, type, category, note, +/- amount, net adjustments and final TOTAL COST.
-- Adds a cache-busting query value to the View PDF link.
-- Does not change attendance, billing-period, timezone, or salary calculation logic.
+Example:
+`CAREVMA-INV-Harram-Doctor-202610`
+
+If another invoice for the same doctor/month needs a distinct number, suffixes are added (`-02`, `-03`, ...).
+Existing invoice numbers are not renamed.
+
+## Activation expiry
+New VA/Employee, Doctor/Client and HR activation/password-setup tokens are valid for 24 hours (1440 minutes). Resending generates a fresh token/link and restarts the 24-hour window.
+
+## Deploy
+Extract over project root, then:
+
+php artisan config:clear
+php artisan route:clear
+php artisan view:clear
+npm run build
+
+After verifying, config may be cached with:
+php artisan config:cache

@@ -145,7 +145,7 @@ class AdminClientController extends Controller
 
         $url = URL::temporarySignedRoute(
             'client.password.form',
-            now()->addMinutes(60), // better than 5 mins
+            now()->addDay(), // activation link valid for 24 hours
             ['email' => $user->email, 'token' => $token]
         );
 
