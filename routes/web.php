@@ -30,9 +30,13 @@ Route::prefix('api')->group(function () {
         Route::post('/logout', [AuthApiController::class, 'logout']);
         Route::post('/birthday-popup/seen', [AuthApiController::class, 'markBirthdayPopupSeen']);
 
-        Route::get('/notebook', [NotebookApiController::class, 'index']);
-        Route::post('/notebook', [NotebookApiController::class, 'store']);
-        Route::delete('/notebook/{document}', [NotebookApiController::class, 'destroy']);
+        Route::middleware('role:admin,hr')->group(function () {
+            Route::get('/notebook', [NotebookApiController::class, 'index']);
+            Route::post('/notebook', [NotebookApiController::class, 'store']);
+            Route::delete('/notebook/{document}', [NotebookApiController::class, 'destroy']);
+        });
+        Route::get('/shared-documents', [NotebookApiController::class, 'sharedIndex']);
+        Route::get('/shared-documents/{document}/download', [NotebookApiController::class, 'download']);
 
         Route::middleware('profile.complete')->group(function () {
             Route::get('/notifications', [NotificationApiController::class, 'index']);

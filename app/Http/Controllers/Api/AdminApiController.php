@@ -30,6 +30,7 @@ use App\Services\TrustedTimeService;
 use App\Services\ClientTimezoneService;
 use App\Services\AttendanceBillingService;
 use App\Services\InvoicePdfService;
+use App\Services\MailDeliveryService;
 use DateTimeZone;
 use App\Mail\EmployeeInvitationMail;
 use App\Mail\ClientSetPasswordMail;
@@ -41,7 +42,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
@@ -447,7 +447,7 @@ class AdminApiController extends Controller
         return response()->json([
             'message' => $invite['sent']
                 ? 'VA created and activation invitation sent.'
-                : 'VA created. Email delivery failed, so use the activation link below or resend the invitation.',
+                : 'VA created. Email delivery failed, so use the activation link below after checking SMTP settings.',
             'employee' => $employee->fresh(),
             'invitation_sent' => $invite['sent'],
             'activation_url' => $invite['url'],
@@ -530,20 +530,18 @@ class AdminApiController extends Controller
             'email' => $user->email,
         ]);
 
-        $sent = true;
-        try {
-            Mail::to($user->email)->send(new HrInvitationMail($user, $setupUrl));
-        } catch (\Throwable $e) {
-            $sent = false;
-            report($e);
-        }
+        $mail = app(MailDeliveryService::class)->sendNow(
+            $user->email,
+            new HrInvitationMail($user, $setupUrl),
+            'HR invitation'
+        );
 
         return response()->json([
-            'message' => $sent
+            'message' => $mail['sent']
                 ? 'HR account created and password setup email sent.'
-                : 'HR account created, but the password setup email could not be sent. Use the setup link after checking mail settings.',
+                : 'HR account created, but the password setup email could not be sent. Check the Laravel mail log and SMTP settings.',
             'user' => $user,
-            'invitation_sent' => $sent,
+            'invitation_sent' => $mail['sent'],
             'setup_url' => $setupUrl,
         ], 201);
     }
@@ -618,7 +616,7 @@ class AdminApiController extends Controller
         return response()->json([
             'message' => $invite['sent']
                 ? 'Client / Doctor created and password setup invitation sent.'
-                : 'Client / Doctor created. Email delivery failed; resend the invitation after checking mail settings.',
+                : 'Client / Doctor created. Email delivery failed; check SMTP settings and resend the invitation.',
             'client' => $client->fresh(),
             'invitation_sent' => $invite['sent'],
         ], 201);
@@ -1188,10 +1186,20 @@ class AdminApiController extends Controller
 
         try {
             $pdfContent = $documents->make($invoice)->output();
-            Mail::to($invoice->client->email)->send(new InvoiceNotificationMail($invoice, $pdfContent));
+            $mail = app(MailDeliveryService::class)->sendNow(
+                $invoice->client->email,
+                new InvoiceNotificationMail($invoice, $pdfContent),
+                'invoice PDF'
+            );
         } catch (\Throwable $e) {
             report($e);
-            return response()->json(['message' => 'Invoice email could not be sent. Check SMTP/mail configuration and try again.'], 422);
+            return response()->json(['message' => 'Invoice email could not be prepared. Check the Laravel mail log and try again.'], 422);
+        }
+
+        if (!$mail['sent']) {
+            return response()->json([
+                'message' => 'Invoice email could not be sent. Check SMTP configuration and the Laravel mail log.',
+            ], 422);
         }
 
         return response()->json([
@@ -1371,8 +1379,8 @@ class AdminApiController extends Controller
         });
 
         return response()->json(array_merge([
-            'employees' => Employee::orderBy('first_name')->get(['id', 'employee_code', 'first_name', 'last_name', 'timezone']),
-            'clients' => Client::orderBy('name')->get(['id', 'name', 'business_name', 'timezone', 'per_hour_charges']),
+            'employees' => Employee::orderBy('first_name')->get(['id', 'user_id', 'employee_code', 'first_name', 'last_name', 'email', 'timezone']),
+            'clients' => Client::orderBy('name')->get(['id', 'user_id', 'name', 'email', 'business_name', 'timezone', 'per_hour_charges']),
         ], $references, [
             'business_timezone' => $this->timezones->businessTimezone(),
         ]));
@@ -1476,13 +1484,13 @@ class AdminApiController extends Controller
             ['email' => $user->email, 'token' => $token]
         );
 
-        try {
-            Mail::to($user->email)->send(new ClientSetPasswordMail($client, $url));
-            return ['sent' => true, 'url' => $url];
-        } catch (\Throwable $e) {
-            report($e);
-            return ['sent' => false, 'url' => $url];
-        }
+        $mail = app(MailDeliveryService::class)->sendNow(
+            $user->email,
+            new ClientSetPasswordMail($client, $url),
+            'Doctor / Client invitation'
+        );
+
+        return ['sent' => $mail['sent'], 'url' => $url];
     }
 
     private function storeEmployeeMedia(Request $request): array
@@ -1509,16 +1517,13 @@ class AdminApiController extends Controller
     {
         $token = Password::broker()->createToken($user);
         $url = url('/reset-password/'.$token).'?email='.urlencode($user->email).'&invite=1';
-        $sent = false;
+        $mail = app(MailDeliveryService::class)->sendNow(
+            $user->email,
+            new EmployeeInvitationMail($employee, $url),
+            'VA / Employee invitation'
+        );
 
-        try {
-            Mail::to($user->email)->send(new EmployeeInvitationMail($employee, $url));
-            $sent = true;
-        } catch (\Throwable $exception) {
-            report($exception);
-        }
-
-        return ['sent' => $sent, 'url' => $url];
+        return ['sent' => $mail['sent'], 'url' => $url];
     }
 
     private function normalizeScheduleRecurrence(array $data, ?EmployeeClientSchedule $existing = null): array

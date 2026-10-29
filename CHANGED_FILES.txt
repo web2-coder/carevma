@@ -1,3 +1,8 @@
+CareVMA Final Replace Patch - changed/new files
+Total: 56 files
+
+CAREVMA_FINAL_PATCH_README.md
+CHANGED_FILES.txt
 app/Console/Commands/GenerateMonthlyInvoices.php
 app/Http/Controllers/Api/AdminApiController.php
 app/Http/Controllers/Api/AuthApiController.php
@@ -16,9 +21,13 @@ app/Models/User.php
 app/Services/AttendanceBillingService.php
 app/Services/InvoiceGenerator.php
 app/Services/InvoicePdfService.php
+app/Services/MailDeliveryService.php
+app/Services/OperationalNotifier.php
+config/mail.php
 database/migrations/2026_10_28_100000_add_billing_cycle_month_and_notebook_documents.php
 database/migrations/2026_10_28_110000_create_birthday_wishes_table.php
 database/migrations/2026_10_28_111000_add_birthday_popup_seen_date_to_users.php
+database/migrations/2026_10_28_120000_secure_notebook_document_sharing.php
 resources/css/app.css
 resources/css/birthday-popup.css
 resources/css/carevma-brand-clock.css
@@ -39,6 +48,7 @@ resources/js/pages/Doctor.jsx
 resources/js/pages/Employee.jsx
 resources/js/pages/Management.jsx
 resources/js/pages/Notebook.jsx
+resources/js/pages/SharedDocuments.jsx
 resources/js/timezone.js
 resources/views/client/auth/set-password.blade.php
 resources/views/emails/hr-invitation.blade.php

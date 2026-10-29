@@ -136,6 +136,12 @@ class OperationalActivityNotifier
 
     private function shouldIgnore(Request $request): bool
     {
+        if (($request->is('api/admin/hr-users') && $request->isMethod('post'))
+            || $request->is('api/management/employees/*/resend-invite')
+            || $request->is('api/admin/clients/*/resend-invite')) {
+            return true;
+        }
+
         return $request->is(
             'api/logout',
             'api/notifications/read-all',

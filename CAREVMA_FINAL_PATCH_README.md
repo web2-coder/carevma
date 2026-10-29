@@ -1,75 +1,91 @@
-# CareVMA Final Consolidated Replace Patch — 2026-10-28
+# CareVMA Final Replace Patch — 2026-10-28 (Updated)
 
-This ZIP contains only the files that were changed or added for the final consolidated CareVMA requirements. The folders inside the ZIP match the Laravel project structure.
+This replace-ready patch contains the previous consolidated CareVMA changes plus the latest attendance, email, Notebook sharing, and timezone requirements.
 
-## How to apply
+## Latest requirements included
 
-1. Back up the current CareVMA project and database.
-2. Extract this ZIP directly into the CareVMA project root (the folder containing `artisan`).
-3. Allow the extracted files to overwrite files with the same names.
-4. Do **not** delete unrelated existing project files.
-5. Run:
+1. **Attendance identity display**
+   - Admin/HR Attendance now labels the employee as **VA Name**.
+   - The assignment identity is shown as **Doctor Worked With**.
+   - Attendance date/time calculation remains Doctor/Client-timezone based.
+
+2. **Email delivery / SMTP reliability**
+   - Laravel log evidence in the supplied project showed SMTP rejection: `550 5.7.0 Too many emails per second` from Mailtrap.
+   - The supplied project `.env` currently points to Titan SMTP, so a live server that still reports Mailtrap is using a different/stale `.env` or cached config.
+   - Duplicate operational emails are suppressed for invitation/resend actions.
+   - Critical invitation/invoice emails retry transient provider rate-limit errors.
+   - Non-critical operational emails are queued into spaced delivery slots.
+   - `MAIL_ENCRYPTION=ssl` remains compatible with Laravel 12 mail scheme handling.
+   - A non-secret diagnostics command is included: `php artisan carevma:mail-diagnostics`.
+
+3. **Notebook security and document sharing**
+   - Notebook management is restricted to **Admin / HR** at both frontend and backend.
+   - Admin/HR must choose one exact recipient: a **VA** or **Doctor**.
+   - New shared files are stored on the private local disk.
+   - VA/Doctor portals now have **Shared Documents**, not Notebook.
+   - Recipients can only list/download files whose `recipient_user_id` matches their own user account.
+   - Admin/HR can review and delete shared documents.
+
+4. **VA timezone during assignment**
+   - The VA's own assigned/profile timezone is shown while selecting/assigning a VA.
+   - The Doctor timezone is shown separately and remains the canonical calculation/display timezone for the schedule.
+
+5. **Doctor-side timezone consistency**
+   - Doctor dashboard schedules display Doctor local time.
+   - Doctor attendance displays Doctor-local dates and clock times.
+   - Invoice periods and attendance selection use Doctor/Client-local UTC boundaries.
+   - Invoice PDF attendance rows and generated date are rendered using the Doctor/Client timezone.
+
+## Previous consolidated requirements retained
+
+The patch still includes the earlier requirements: Doctor-time system-wide display, one-day date correction, 26th–25th invoice cycle, post-20th billing month assignment, Doctor break visibility, 10-row pagination, session/CSRF fixes, invoice layout/bank page, HR invitation, invoice delete, Doctor type/service on invoice, send invoice PDF, VA shift/break/overtime billing rules, auto-checkout after two hours, Secure/red-dot removal, single assignment notification, recipient-scoped notifications, Poppins/color scheme, birthday popup/banner/cake stickers, and Currently Active cards.
+
+## Apply
+
+Extract this ZIP into the **CareVMA project root** and overwrite/replace matching files.
+
+Then run:
 
 ```bash
 php artisan migrate --force
-php artisan storage:link
 php artisan optimize:clear
+php artisan queue:restart
+php artisan storage:link
+php artisan carevma:mail-diagnostics
 npm install
 npm run build
 ```
 
-For local development you can run the scheduler with:
+For queued operational email notifications, keep a queue worker running:
 
 ```bash
-php artisan schedule:work
+php artisan queue:work --tries=3 --sleep=1
 ```
 
-For production, Laravel's scheduler must run every minute (for the 26th invoice cycle, birthday reminders, and the automatic checkout rule). Example cron:
+On shared hosting, run a cron every minute if a persistent worker is unavailable:
+
+```cron
+* * * * * cd /path/to/carevma && php artisan queue:work --stop-when-empty --tries=3 --sleep=1 >> /dev/null 2>&1
+```
+
+The attendance auto-checkout and scheduled invoice/birthday jobs also require Laravel Scheduler:
 
 ```cron
 * * * * * cd /path/to/carevma && php artisan schedule:run >> /dev/null 2>&1
 ```
 
-HR invitation emails and invoice-PDF emails require working `MAIL_*` settings in your existing `.env`.
+## Important SMTP deployment check
 
-## Included requirements
+If the live portal still reports Mailtrap after this patch, run:
 
-1. VA/VMA operational time uses the assigned Doctor/Client timezone.
-2. Date-only formatting avoids the one-day timezone shift.
-3. Doctor timezone is the canonical operational display timezone across the portal.
-4. Notebook document upload, listing, download/open, and delete support.
-5. Invoices generated after the 20th are assigned to the next billing month.
-6. Invoice attendance cycle is the 26th through the 25th.
-7. Doctor break allowance is visible with schedules.
-8. Table pagination is standardized to 10 records per page.
-9. Login/logout CSRF/token recovery is hardened; no standalone hardcoded `R` source marker was found.
-10. Invoice Grand Total is at the end and bank/payment details are on a dedicated final page.
-11. New HR accounts receive a password-setup invitation email.
-12. Admin can delete invoices.
-13. Doctor service and doctor/contract type are shown on the invoice.
-14. Admin can send the invoice PDF directly to the Doctor/Client email.
-15. Regular billing is capped at scheduled working time excluding the scheduled break; early clock-in/late clock-out do not increase regular billing. Extra time becomes overtime, must be requested by the VA and approved before billing. Open sessions auto-checkout at Doctor-local shift end + 2 hours.
-16. The top-bar Secure section is removed.
-17. The top-bar timer red-dot indicator is removed.
-18. Weekly/multi-day VA assignment uses one assignment action and sends one VA notification.
-19. Operational notifications are scoped to the intended recipient and are not echoed to the admin/actor or unrelated users.
-20. Portal brand styling follows the CareVMA sidebar/logo blue/cyan palette and Poppins is enforced across portal surfaces.
-21. Birthday popup is shown only to the birthday person and only once per birthday/day, including after logout/login.
-22. Birthday dashboard banner stays visible during the birthday day; VAs can see today's birthdays, send one cake sticker per person, and the birthday person can see sticker senders (view-only).
-23. Currently Active users are displayed as cards with full-profile links and Admin edit access.
+```bash
+php artisan optimize:clear
+php artisan queue:restart
+php artisan carevma:mail-diagnostics
+```
 
-## New database changes
+If diagnostics still show a Mailtrap host, update the **live server's** `.env` to the intended production SMTP account. This patch intentionally does not include or overwrite `.env`, SMTP passwords, or any secrets.
 
-The patch adds migrations for:
-- `invoices.billing_cycle_month`
-- `notebook_documents`
-- `birthday_wishes`
-- `users.birthday_popup_seen_date`
+## Safety
 
-## Important
-
-- `.env` is intentionally NOT included.
-- `vendor/` is NOT included.
-- `node_modules/` is NOT included.
-- No passwords, SMTP credentials, application keys, or other secrets are included.
-- `CHANGED_FILES.txt` contains the exact replace-file manifest.
+The replace ZIP excludes `.env`, `vendor`, `node_modules`, storage logs, cached config, compiled frontend build files, and credentials.

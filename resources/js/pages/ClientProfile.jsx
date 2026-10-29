@@ -718,6 +718,11 @@ export default function ClientProfilePage() {
               ))}
             </Select>
             <div className="assign-va-selected-meta">
+              <span>VA assigned timezone</span>
+              <strong>{selectedAssignEmployee?.timezone || 'Select a VA first'}</strong>
+              <small>This is the VA profile timezone. Schedule calculation and Doctor-side display use the Doctor timezone.</small>
+            </div>
+            <div className="assign-va-selected-meta">
               <span>Doctor timezone</span>
               <strong>{client?.timezone || 'Set client timezone first'}</strong>
               <small>Enter schedule times directly in the Doctor timezone.</small>
@@ -893,6 +898,7 @@ export default function ClientProfilePage() {
               <Input label="End time *" type="time" value={scheduleForm.end_time} onChange={event => setScheduleField('end_time', event.target.value)} />
               <Input label="Rate / hour" type="number" min="0" step="0.01" value={scheduleForm.per_hour_rate} onChange={event => setScheduleField('per_hour_rate', event.target.value)} />
               <Input label="Allowed Break (H.MM) *" type="number" min="0" max="12.59" step="0.01" value={scheduleForm.break_allowed_hours || '0.00'} onChange={event => setScheduleField('break_allowed_hours', event.target.value)} hint="0.30 = 30 min · 0.50 = 50 min" />
+              <Input label="VA assigned timezone" value={(options.employees || []).find(item => String(item.id) === String(scheduleForm.employee_id))?.timezone || 'Select a VA'} disabled />
               <Input label="Doctor timezone" value={client?.timezone || scheduleForm.timezone || 'Set client timezone'} disabled />
               <label className="client-ring-toggle"><input type="checkbox" checked={!!scheduleForm.repeat} onChange={event => setScheduleForm(current => ({ ...current, repeat: event.target.checked, date: event.target.checked ? '' : current.date }))} /><span>Repeat weekly</span></label>
             </div>

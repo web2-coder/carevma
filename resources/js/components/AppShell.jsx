@@ -91,7 +91,7 @@ function navFor(user) {
       { label: 'My Schedule', to: '/employee/schedule', icon: CalendarDays },
       { label: 'My Attendance', to: '/employee/attendance', icon: Clock3 },
       { label: 'My Profile', to: '/employee/profile', icon: UserCircle2 },
-      { label: 'Notebook', to: '/employee/notebook', icon: BookOpenText },
+      { label: 'Shared Documents', to: '/employee/documents', icon: BookOpenText },
       { label: 'Notifications', to: '/employee/notifications', icon: Bell },
       { label: 'Settings', to: '/employee/settings', icon: Settings },
     ];
@@ -99,7 +99,7 @@ function navFor(user) {
   if (user.role === 'client') {
     return [
       { label: 'Assigned Team', to: '/doctor/dashboard', icon: Users },
-      { label: 'Notebook', to: '/doctor/notebook', icon: BookOpenText },
+      { label: 'Shared Documents', to: '/doctor/documents', icon: BookOpenText },
       { label: 'Notifications', to: '/doctor/notifications', icon: Bell },
       { label: 'My Profile', to: '/doctor/profile', icon: UserCircle2 },
     ];

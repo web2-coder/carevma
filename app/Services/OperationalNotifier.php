@@ -8,10 +8,13 @@ use App\Models\Notification;
 use App\Models\User;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 
 class OperationalNotifier
 {
+    public function __construct(private readonly MailDeliveryService $mailDelivery)
+    {
+    }
+
     /**
      * @param iterable<User>|User $recipients
      */
@@ -58,20 +61,23 @@ class OperationalNotifier
                 continue;
             }
 
-            try {
-                Mail::to($user->email)->send(new OperationalActivityMail(
+            $result = $this->mailDelivery->queue(
+                $user->email,
+                new OperationalActivityMail(
                     recipient: $user,
                     title: $title,
                     messageText: $message,
                     type: $type,
                     actionUrl: $actionUrl,
-                ));
-            } catch (\Throwable $e) {
-                // Email is best-effort: never make the business action fail because SMTP is unavailable.
-                Log::warning('CareVMA operational email could not be sent.', [
+                ),
+                'operational notification'
+            );
+
+            if (!$result['queued']) {
+                Log::warning('CareVMA operational email could not be queued.', [
                     'user_id' => $user->id,
                     'email' => $user->email,
-                    'error' => $e->getMessage(),
+                    'error' => $result['error'],
                 ]);
             }
         }

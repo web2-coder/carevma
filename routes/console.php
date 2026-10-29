@@ -216,3 +216,28 @@ Schedule::call(function () {
     $now = app(TrustedTimeService::class)->now(config('carevma.business_timezone', 'Asia/Karachi'));
     return $now->format('H:i') === '09:15';
 })->name('carevma-probation-reminders')->withoutOverlapping(30);
+
+
+Artisan::command('carevma:mail-diagnostics', function () {
+    $mailer = (string) config('mail.default');
+    $host = (string) config('mail.mailers.smtp.host');
+    $port = (string) config('mail.mailers.smtp.port');
+    $queue = (string) config('queue.default');
+
+    $this->info('CareVMA mail diagnostics');
+    $this->line('Mailer: '.$mailer);
+    $this->line('SMTP host: '.($host ?: '(not configured)'));
+    $this->line('SMTP port: '.($port ?: '(not configured)'));
+    $this->line('Queue connection: '.($queue ?: '(not configured)'));
+    $this->line('From: '.(string) config('mail.from.address'));
+
+    if (str_contains(strtolower($host), 'mailtrap')) {
+        $this->warn('Mailtrap detected. Testing plans can reject bursts with 550 5.7.0 rate-limit responses. Use the queued mail worker and production SMTP for live delivery.');
+    }
+
+    if ($queue !== 'sync') {
+        $this->comment('Queued mail requires a running worker: php artisan queue:work --tries=3 --sleep=1');
+    }
+
+    $this->comment('After changing .env mail settings run: php artisan optimize:clear && php artisan queue:restart');
+})->purpose('Show non-secret CareVMA SMTP and queue diagnostics');
