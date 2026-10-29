@@ -239,5 +239,5 @@ Artisan::command('carevma:mail-diagnostics', function () {
         $this->comment('Queued mail requires a running worker: php artisan queue:work --tries=3 --sleep=1');
     }
 
-    $this->comment('After changing .env mail settings run: php artisan optimize:clear && php artisan queue:restart');
+    $this->comment('After changing .env mail settings run: php artisan config:clear && php artisan config:cache && php artisan queue:restart');
 })->purpose('Show non-secret CareVMA SMTP and queue diagnostics');

@@ -1,4 +1,4 @@
-resources/js/pages/Management.jsx
-resources/js/pages/Employee.jsx
+app/Http/Controllers/Api/DoctorApiController.php
+resources/js/pages/Doctor.jsx
 resources/views/invoices/invoice.blade.php
-CAREVMA_VA_LOCAL_TIME_INVOICE_PATCH_README.md
+CAREVMA_DOCTOR_VA_STATUS_PDF_FIX_README.md

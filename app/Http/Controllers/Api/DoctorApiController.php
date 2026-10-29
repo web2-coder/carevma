@@ -38,11 +38,36 @@ class DoctorApiController extends Controller
         }
 
         $employees = Employee::query()
-            ->with(['department', 'designation', 'employeeStatus'])
+            ->with(['department', 'designation', 'employeeStatus', 'user:id,last_seen_at'])
             ->whereIn('id', $employeeIds)
             ->orderBy('first_name')
             ->orderBy('last_name')
             ->get();
+
+        $serverNow = now();
+        $employees->each(function (Employee $employee) use ($client, $serverNow) {
+            $lastSeenAt = $employee->user?->last_seen_at;
+            $isOnline = $lastSeenAt && $lastSeenAt->gt($serverNow->copy()->subMinutes(5));
+
+            $latestAttendanceQuery = Attendance::query()
+                ->where('employee_id', $employee->id);
+            if (Schema::hasColumn('attendances', 'client_id')) {
+                $latestAttendanceQuery->where('client_id', $client->id);
+            }
+            $latestAttendance = $latestAttendanceQuery
+                ->latest('clock_in')
+                ->latest('id')
+                ->first();
+
+            $employee->setAttribute('is_online', (bool) $isOnline);
+            $employee->setAttribute('login_status', $isOnline ? 'Online' : 'Offline');
+            $employee->setAttribute('last_seen_at', $lastSeenAt?->toIso8601String());
+            $employee->setAttribute('attendance_status', !$latestAttendance
+                ? 'Not checked in'
+                : ($latestAttendance->clock_out ? 'Checked out' : 'Checked in'));
+            $employee->setAttribute('current_clock_in', $latestAttendance?->clock_in?->toIso8601String());
+            $employee->setAttribute('current_clock_out', $latestAttendance?->clock_out?->toIso8601String());
+        });
 
         $schedules = $client->employeeSchedules()
             ->with('employee:id,first_name,last_name,email')
@@ -89,9 +114,28 @@ class DoctorApiController extends Controller
             return $row;
         });
 
+        $lastSeenAt = $employee->user?->last_seen_at;
+        $isOnline = $lastSeenAt && $lastSeenAt->gt(now()->subMinutes(5));
+        $latestAttendanceQuery = Attendance::query()->where('employee_id', $employee->id);
+        if (Schema::hasColumn('attendances', 'client_id')) {
+            $latestAttendanceQuery->where('client_id', $client->id);
+        }
+        $latestAttendance = $latestAttendanceQuery->latest('clock_in')->latest('id')->first();
+
         return response()->json([
             'client' => $client->only(['id', 'name', 'business_name', 'timezone']),
-            'employee' => $employee,
+            'employee' => $employee->loadMissing('user:id,last_seen_at'),
+            'presence' => [
+                'is_online' => (bool) $isOnline,
+                'login_status' => $isOnline ? 'Online' : 'Offline',
+                'last_seen_at' => $lastSeenAt?->toIso8601String(),
+                'location' => $employee->location ?: null,
+                'attendance_status' => !$latestAttendance
+                    ? 'Not checked in'
+                    : ($latestAttendance->clock_out ? 'Checked out' : 'Checked in'),
+                'clock_in' => $latestAttendance?->clock_in?->toIso8601String(),
+                'clock_out' => $latestAttendance?->clock_out?->toIso8601String(),
+            ],
             'attendance' => $attendance,
         ]);
     }

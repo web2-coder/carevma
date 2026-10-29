@@ -3,16 +3,19 @@
 namespace App\Services;
 
 use Illuminate\Mail\Mailable;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
 class MailDeliveryService
 {
     /**
-     * Send a user-critical message during the request. Transient SMTP rate
-     * limits are retried with backoff so invitations/invoices do not depend
-     * on a queue worker to reach the recipient.
+     * Send a user-critical message during the request.
+     *
+     * CareVMA deliberately reserves a provider delivery slot before every
+     * synchronous SMTP send. The reservation is filesystem based instead of
+     * Laravel Cache so mail delivery is not coupled to the database cache
+     * connection. This protects low-throughput SMTP/testing accounts from
+     * bursts such as Mailtrap's "Too many emails per second" response.
      *
      * @return array{sent:bool,error:?string}
      */
@@ -25,11 +28,16 @@ class MailDeliveryService
 
         for ($attempt = 1; $attempt <= 3; $attempt++) {
             try {
+                $delaySeconds = $this->reserveDeliverySlot();
+                if ($delaySeconds > 0) {
+                    sleep($delaySeconds);
+                }
+
                 Mail::to($recipient)->send($mailable);
                 return ['sent' => true, 'error' => null];
             } catch (\Throwable $e) {
                 if ($attempt < 3 && $this->looksRateLimited($e->getMessage())) {
-                    sleep($attempt * 2);
+                    // Reserve a brand-new provider slot before the next attempt.
                     continue;
                 }
 
@@ -41,7 +49,7 @@ class MailDeliveryService
                     'error' => $e->getMessage(),
                 ]);
 
-                return ['sent' => false, 'error' => $e->getMessage()];
+                return ['sent' => false, 'error' => $this->friendlyError($e->getMessage())];
             }
         }
 
@@ -65,24 +73,25 @@ class MailDeliveryService
 
         try {
             if (config('queue.default') === 'sync') {
-                // A sync queue cannot protect a provider from a burst. Retry a
-                // transient provider-rate rejection with a short backoff.
-                $attempts = 0;
-                do {
+                if ($delaySeconds > 0) {
+                    sleep($delaySeconds);
+                }
+
+                for ($attempt = 1; $attempt <= 3; $attempt++) {
                     try {
-                        if ($delaySeconds > 0) {
-                            usleep($delaySeconds * 1000000);
-                        }
                         Mail::to($recipient)->send($mailable);
                         return ['queued' => true, 'delay_seconds' => $delaySeconds, 'error' => null];
                     } catch (\Throwable $e) {
-                        $attempts++;
-                        if ($attempts >= 3 || !$this->looksRateLimited($e->getMessage())) {
+                        if ($attempt >= 3 || !$this->looksRateLimited($e->getMessage())) {
                             throw $e;
                         }
-                        sleep($attempts * 2);
+
+                        $retryDelay = $this->reserveDeliverySlot();
+                        if ($retryDelay > 0) {
+                            sleep($retryDelay);
+                        }
                     }
-                } while ($attempts < 3);
+                }
             }
 
             Mail::to($recipient)->later(now()->addSeconds($delaySeconds), $mailable);
@@ -96,29 +105,89 @@ class MailDeliveryService
                 'error' => $e->getMessage(),
             ]);
 
-            return ['queued' => false, 'delay_seconds' => $delaySeconds, 'error' => $e->getMessage()];
+            return [
+                'queued' => false,
+                'delay_seconds' => $delaySeconds,
+                'error' => $this->friendlyError($e->getMessage()),
+            ];
         }
     }
 
+    /**
+     * Reserve a send slot at least three seconds after the previous slot.
+     *
+     * The timestamp is protected by an OS file lock, so concurrent PHP-FPM
+     * requests and queue workers on the same CareVMA server share the same
+     * throttle without needing a working database/cache connection.
+     */
     private function reserveDeliverySlot(): int
     {
-        $bucket = 'carevma:mail-slot:'.now()->format('YmdHi');
-        Cache::add($bucket, 0, now()->addMinutes(3));
-        $slot = max(1, (int) Cache::increment($bucket));
+        $directory = storage_path('framework/cache');
+        if (!is_dir($directory)) {
+            @mkdir($directory, 0775, true);
+        }
 
-        // Three seconds between queued messages is deliberately conservative
-        // for low-throughput/testing SMTP accounts.
-        return min(($slot - 1) * 3, 180);
+        $path = $directory.DIRECTORY_SEPARATOR.'carevma-mail-provider-slot.lock';
+        $handle = @fopen($path, 'c+');
+
+        if (!$handle) {
+            // Safe fallback: spacing is preferable to an unthrottled burst.
+            return 3;
+        }
+
+        try {
+            if (!flock($handle, LOCK_EX)) {
+                return 3;
+            }
+
+            rewind($handle);
+            $stored = trim((string) stream_get_contents($handle));
+            $nextAvailable = is_numeric($stored) ? (int) $stored : 0;
+            $now = time();
+            $sendAt = max($now, $nextAvailable);
+            $delay = max(0, $sendAt - $now);
+            $nextSlot = $sendAt + 3;
+
+            ftruncate($handle, 0);
+            rewind($handle);
+            fwrite($handle, (string) $nextSlot);
+            fflush($handle);
+            flock($handle, LOCK_UN);
+
+            return min($delay, 180);
+        } finally {
+            fclose($handle);
+        }
     }
 
     private function looksRateLimited(string $message): bool
     {
         $message = strtolower($message);
+
         return str_contains($message, 'too many emails')
             || str_contains($message, 'rate limit')
             || str_contains($message, 'too many requests')
             || str_contains($message, '421')
             || str_contains($message, '450')
             || str_contains($message, '451');
+    }
+
+    private function friendlyError(string $message): string
+    {
+        $lower = strtolower($message);
+
+        if (str_contains($lower, 'authentication failed') || str_contains($lower, '535')) {
+            return 'SMTP authentication failed. Verify MAIL_USERNAME and MAIL_PASSWORD, then clear Laravel config cache.';
+        }
+
+        if ($this->looksRateLimited($message)) {
+            return 'The SMTP provider rate limit was reached. CareVMA throttled and retried the message, but the provider still rejected it.';
+        }
+
+        if (str_contains($lower, 'connection') || str_contains($lower, 'timed out') || str_contains($lower, 'could not connect')) {
+            return 'CareVMA could not connect to the SMTP server. Verify MAIL_HOST, MAIL_PORT, encryption, and firewall settings.';
+        }
+
+        return 'SMTP delivery failed. Check the Laravel mail log and active mail configuration.';
     }
 }

@@ -223,7 +223,7 @@ class AdminApiController extends Controller
             'recent_attendance' => Attendance::with([
                 'employee:id,first_name,last_name,profile_picture,timezone',
                 'client:id,name,business_name,timezone',
-            ])->latest('id')->limit(8)->get()->map(function (Attendance $row) {
+            ])->latest('id')->limit(5)->get()->map(function (Attendance $row) {
                 $clientZone = $this->timezones->forAttendance($row, true);
                 $row->setAttribute('client_timezone', $clientZone);
                 $row->setAttribute('client_local_date', $row->clock_in
@@ -632,7 +632,7 @@ class AdminApiController extends Controller
         return response()->json([
             'message' => $invite['sent']
                 ? 'Client / Doctor password setup invitation sent again.'
-                : 'Email delivery failed. Check the Laravel mail log and SMTP settings, then try again.',
+                : ($invite['error'] ?? 'Email delivery failed. Check the Laravel mail log and SMTP settings, then try again.'),
             'invitation_sent' => $invite['sent'],
         ]);
     }
@@ -1510,7 +1510,7 @@ class AdminApiController extends Controller
             'Doctor / Client invitation'
         );
 
-        return ['sent' => $mail['sent'], 'url' => $url];
+        return ['sent' => $mail['sent'], 'url' => $url, 'error' => $mail['error'] ?? null];
     }
 
     private function storeEmployeeMedia(Request $request): array
@@ -1543,7 +1543,7 @@ class AdminApiController extends Controller
             'VA / Employee invitation'
         );
 
-        return ['sent' => $mail['sent'], 'url' => $url];
+        return ['sent' => $mail['sent'], 'url' => $url, 'error' => $mail['error'] ?? null];
     }
 
     private function normalizeScheduleRecurrence(array $data, ?EmployeeClientSchedule $existing = null): array

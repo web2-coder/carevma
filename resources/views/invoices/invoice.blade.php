@@ -180,7 +180,7 @@
 <div class="invoice-box">
     <h2 style="color:#083589;">Attendance Records</h2>
     <p><strong>Period:</strong> {{ \Carbon\Carbon::parse($invoice->period_start)->format('d F Y') }} - {{ \Carbon\Carbon::parse($invoice->period_end)->format('d F Y') }}</p>
-    <p><strong>Timezone:</strong> {{ $clientTimezone }} (Doctor / Client timezone)</p>
+    <p><strong>Timezone:</strong> {{ $clientTimezone }}</p>
 
     @foreach($invoice->salaries as $salary)
         <div class="attendance-section">
