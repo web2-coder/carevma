@@ -269,7 +269,7 @@ export default function AppShell() {
     const loadLiveCount = async () => {
       try {
         const { data } = await api.get('/management/live-users');
-        if (alive) setLiveCount(Math.max(0, Number(data?.total) || 0));
+        if (alive) setLiveCount(Math.max(0, Number(data?.online) || 0));
       } catch {}
     };
 

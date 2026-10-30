@@ -1,24 +1,14 @@
-CareVMA PDF Payment Layout + Filename Fix
+CareVMA calculated demo reseeder
 
-Changes only:
-1. PDF filename format is now:
-   carevma-{doctor/client-name}-{invoice-number}.pdf
-   Example: carevma-harram-812377.pdf
+- Removes ONLY prior seed.va1..5@carevma-seed.test and seed.doctor1..5@carevma-seed.test users first. Their linked demo records are removed by existing FK cascades.
+- Recreates 5 VAs and 5 Doctors.
+- Creates repeating Mon-Fri schedules with 9-hour spans and 1-hour allowed break (8-hour max regular billable time).
+- Randomizes only clock-in, clock-out, break duration, absence, and overtime approval state.
+- AttendanceBillingService calculates late_minutes, total_minutes and overtime from timestamps.
+- Late arrival/early leave reduces regular payable time.
+- Early arrival does not increase regular payable time.
+- Regular payable time is capped at scheduled span minus allowed break.
+- Time after shift becomes overtime; only approved overtime is additionally payable.
 
-2. Payment & Bank Details is no longer forced to a new page.
-   - If enough room remains on page 1, the whole block stays on page 1.
-   - If it cannot fit, DomPDF moves the whole block to the next page.
-   - The block is kept together with page-break-inside: avoid.
-
-3. Attendance section still starts on its own page after Payment Details.
-4. Existing cleaned invoice/attendance content is preserved.
-
-Replace these files from project root:
-- resources/views/invoices/invoice.blade.php
-- app/Http/Controllers/Api/InvoicePdfController.php
-
-Then run:
-php artisan view:clear
-php artisan view:cache
-
-Do not run migrate, key:generate, or optimize:clear.
+Run:
+php artisan db:seed --class=CareVmaRandomAttendanceSeeder

@@ -213,16 +213,7 @@
   padding:18px;
   box-shadow:0 8px 26px rgba(11,31,42,.06);
   font-family:Poppins,sans-serif;
-  cursor:pointer;
-  transition:box-shadow .2s ease,border-color .2s ease,transform .2s ease;
 }
-.live-user-card:hover{border-color:rgba(12,95,79,.28);box-shadow:0 12px 30px rgba(11,31,42,.09)}
-.live-user-card:focus-visible{outline:2px solid var(--brand);outline-offset:3px}
-.live-user-card.is-collapsed{padding-bottom:12px}
-.live-user-card.is-collapsed .live-user-card-profile-row{padding-bottom:6px;border-bottom:0}
-.live-user-card.is-expanded .live-user-card-profile-row{padding-bottom:16px}
-.live-card-expand-hint{margin-top:6px;color:var(--muted);font-size:7.5px;font-weight:700;letter-spacing:.04em;text-align:center;text-transform:uppercase;opacity:.7}
-.live-user-card.is-expanded .live-card-expand-hint{margin-top:10px}
 .live-user-card-profile-row{
   display:grid;
   grid-template-columns:minmax(0,1fr) 46px minmax(0,1fr);
@@ -395,3 +386,12 @@
 .live-user-card-body .late-detail{background:#fff7ed;border:1px solid #fed7aa}
 .live-user-card-body .late-detail strong{color:#c2410c}
 @media(max-width:760px){.live-status-tabs{padding:5px}.live-status-tab{padding:8px 10px}}
+
+
+/* Same compact/expand Live Workforce card behavior across every status tab */
+.live-user-card{cursor:pointer;transition:box-shadow .2s ease,border-color .2s ease,transform .2s ease}
+.live-user-card:hover{box-shadow:0 10px 30px rgba(11,31,42,.09)}
+.live-user-card:focus-visible{outline:2px solid var(--brand);outline-offset:3px}
+.live-user-card.is-compact .live-user-card-profile-row{padding-bottom:2px;border-bottom:0}
+.live-user-card.is-expanded .live-user-card-profile-row{padding-bottom:16px;border-bottom:1px solid var(--border)}
+.live-user-card.is-expanded{cursor:default}
