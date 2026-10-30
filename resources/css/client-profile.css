@@ -36,3 +36,239 @@
 
 /* Safe patch: client workspace navigation across the top */
 .client-profile-shell{display:block!important}.client-profile-tabs{display:flex!important;flex-direction:row!important;align-items:center;gap:8px;width:100%!important;margin:0 0 18px!important;padding:8px!important;overflow-x:auto;border:1px solid #dce7f3;border-radius:16px;background:#fff}.client-profile-tabs button{flex:0 0 auto!important;min-height:44px!important;padding:10px 14px!important;border-radius:11px!important}.client-profile-tabs button.active{box-shadow:inset 0 -3px var(--cv-blue-600,#0352f0)!important}.client-profile-content{width:100%!important;min-width:0!important}
+
+
+/* =========================================================
+   CAREVMA - CLIENT PROFILE TOP TABS FIX
+   ========================================================= */
+
+/* Top navigation wrapper */
+.client-profile-tabs,
+.client-profile-nav,
+.client-tabs,
+.client-profile-sidebar {
+    width: 100% !important;
+    max-width: 100% !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 10px !important;
+
+    padding: 10px 12px !important;
+    margin: 0 0 24px !important;
+
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+
+    background: #fff !important;
+    border: 1px solid #d9e4f2 !important;
+    border-radius: 18px !important;
+
+    scrollbar-width: none;
+}
+
+.client-profile-tabs::-webkit-scrollbar,
+.client-profile-nav::-webkit-scrollbar,
+.client-tabs::-webkit-scrollbar,
+.client-profile-sidebar::-webkit-scrollbar {
+    display: none;
+}
+
+
+/* =========================================================
+   TAB BUTTONS
+   IMPORTANT: override old sidebar width:100%
+   ========================================================= */
+
+.client-profile-tabs button,
+.client-profile-tabs a,
+.client-profile-nav button,
+.client-profile-nav a,
+.client-tabs button,
+.client-tabs a,
+.client-profile-sidebar button,
+.client-profile-sidebar a {
+    width: auto !important;
+    min-width: max-content !important;
+    max-width: none !important;
+
+    flex: 1 1 0 !important;
+
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+
+    gap: 8px !important;
+
+    padding: 14px 18px !important;
+    margin: 0 !important;
+
+    white-space: nowrap !important;
+
+    border: 1px solid transparent !important;
+    border-radius: 12px !important;
+
+    background: transparent !important;
+    color: #52657d !important;
+
+    font-size: 14px !important;
+    font-weight: 700 !important;
+    line-height: 1.2 !important;
+
+    cursor: pointer !important;
+    transition:
+        background-color .2s ease,
+        border-color .2s ease,
+        color .2s ease,
+        box-shadow .2s ease !important;
+}
+
+
+/* Hover */
+.client-profile-tabs button:hover,
+.client-profile-tabs a:hover,
+.client-profile-nav button:hover,
+.client-profile-nav a:hover,
+.client-tabs button:hover,
+.client-tabs a:hover,
+.client-profile-sidebar button:hover,
+.client-profile-sidebar a:hover {
+    background: #f4f8fd !important;
+    border-color: #d7e4f3 !important;
+    color: #0d2b55 !important;
+}
+
+
+/* Active tab */
+.client-profile-tabs button.active,
+.client-profile-tabs a.active,
+.client-profile-nav button.active,
+.client-profile-nav a.active,
+.client-tabs button.active,
+.client-tabs a.active,
+.client-profile-sidebar button.active,
+.client-profile-sidebar a.active,
+.client-profile-tabs [aria-selected="true"],
+.client-profile-nav [aria-selected="true"],
+.client-tabs [aria-selected="true"],
+.client-profile-sidebar [aria-selected="true"] {
+    background: #eef6ff !important;
+    border-color: #b9d6f7 !important;
+    color: #075ed1 !important;
+
+    box-shadow: 0 5px 14px rgba(16, 87, 176, 0.08) !important;
+}
+
+
+/* Icons */
+.client-profile-tabs svg,
+.client-profile-nav svg,
+.client-tabs svg,
+.client-profile-sidebar svg {
+    width: 19px !important;
+    height: 19px !important;
+    flex: 0 0 auto !important;
+}
+
+
+/* =========================================================
+   CONTENT AREA
+   ========================================================= */
+
+.client-profile-layout,
+.client-profile-content,
+.client-workspace-content {
+    width: 100% !important;
+    max-width: 100% !important;
+}
+
+.client-profile-layout {
+    display: block !important;
+    grid-template-columns: 1fr !important;
+}
+
+
+/* =========================================================
+   DESKTOP
+   All 5 tabs visible in one row
+   ========================================================= */
+
+@media (min-width: 1100px) {
+
+    .client-profile-tabs,
+    .client-profile-nav,
+    .client-tabs,
+    .client-profile-sidebar {
+        overflow: visible !important;
+    }
+
+    .client-profile-tabs button,
+    .client-profile-tabs a,
+    .client-profile-nav button,
+    .client-profile-nav a,
+    .client-tabs button,
+    .client-tabs a,
+    .client-profile-sidebar button,
+    .client-profile-sidebar a {
+        flex: 1 1 0 !important;
+        min-width: 0 !important;
+    }
+}
+
+
+/* =========================================================
+   TABLET
+   ========================================================= */
+
+@media (max-width: 1099px) {
+
+    .client-profile-tabs,
+    .client-profile-nav,
+    .client-tabs,
+    .client-profile-sidebar {
+        justify-content: flex-start !important;
+        overflow-x: auto !important;
+    }
+
+    .client-profile-tabs button,
+    .client-profile-tabs a,
+    .client-profile-nav button,
+    .client-profile-nav a,
+    .client-tabs button,
+    .client-tabs a,
+    .client-profile-sidebar button,
+    .client-profile-sidebar a {
+        flex: 0 0 auto !important;
+        min-width: 150px !important;
+    }
+}
+
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media (max-width: 600px) {
+
+    .client-profile-tabs,
+    .client-profile-nav,
+    .client-tabs,
+    .client-profile-sidebar {
+        padding: 8px !important;
+        gap: 7px !important;
+        border-radius: 14px !important;
+    }
+
+    .client-profile-tabs button,
+    .client-profile-tabs a,
+    .client-profile-nav button,
+    .client-profile-nav a,
+    .client-tabs button,
+    .client-tabs a,
+    .client-profile-sidebar button,
+    .client-profile-sidebar a {
+        min-width: max-content !important;
+        padding: 11px 14px !important;
+        font-size: 13px !important;
+    }
+}
