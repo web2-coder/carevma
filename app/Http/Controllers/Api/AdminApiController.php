@@ -146,7 +146,9 @@ class AdminApiController extends Controller
             ];
         });
 
-        $activeQuery = Attendance::query()->whereNull('clock_out');
+        $onlineCutoff = now()->subMinutes(5);
+        $onlineEmployees = Employee::query()
+            ->whereHas('user', fn ($query) => $query->whereNotNull('last_seen_at')->where('last_seen_at', '>=', $onlineCutoff));
         $pendingOvertime = Schema::hasColumn('attendances', 'overtime_status')
             ? Attendance::where('overtime_status', 'pending')->count()
             : Attendance::where('overtime', '>', 0)->count();
@@ -213,7 +215,7 @@ class AdminApiController extends Controller
             'metrics' => [
                 'employees' => Employee::count(),
                 'clients' => Client::count(),
-                'active' => $activeQuery->count(),
+                'active' => $onlineEmployees->count(),
                 'today_sessions' => ($attendanceSummaries[$today]['sessions'] ?? 0),
                 'pending_overtime' => $pendingOvertime,
                 'invoices' => Invoice::count(),
