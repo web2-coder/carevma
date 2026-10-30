@@ -412,7 +412,9 @@ class AdminApiController extends Controller
             ->get(['id','user_id','first_name','last_name','email','employee_code','profile_picture','timezone','location'])
             ->map(function (Employee $employee) use ($serverNow) {
                 $lastSeenAt = $employee->user?->last_seen_at;
-                $isOnline = $lastSeenAt && Carbon::parse($lastSeenAt)->gt($serverNow->copy()->subMinutes(5));
+                // Live Workforce follows the work session: once checkout closes the
+                // attendance, the VA is Offline even if the portal remains open.
+                $isOnline = false;
 
                 return [
                     'id' => 'employee-'.$employee->id,

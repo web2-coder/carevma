@@ -73,6 +73,23 @@ class EmployeeApiController extends Controller
             // break_limit is snapshotted on attendance at clock-in; keep that stable for history.
             $active->setAttribute('break_limit', $active->break_limit ?: $this->breakCodeToHms($scheduleBreakCode));
             $active->setAttribute('break_allowance_source', 'schedule');
+
+            // Expose the canonical Doctor shift end plus the VA-local equivalent.
+            // Billing still uses the Doctor/Client timezone; the VA-local value is display-only.
+            $doctorZone = $this->validTimezone($active->client?->timezone ?: ($active->timezone_snapshot ?: 'UTC'), 'UTC');
+            $shiftEndUtc = $active->shift_end_snapshot?->copy()->utc();
+            if (!$shiftEndUtc && $active->schedule) {
+                $attendanceDate = $active->date?->toDateString() ?: $active->clock_in->copy()->setTimezone($doctorZone)->toDateString();
+                $scheduleStart = Carbon::parse($attendanceDate.' '.$active->schedule->start_time, $doctorZone);
+                $scheduleEnd = Carbon::parse($attendanceDate.' '.$active->schedule->end_time, $doctorZone);
+                if ($scheduleEnd->lte($scheduleStart)) $scheduleEnd->addDay();
+                $shiftEndUtc = $scheduleEnd->copy()->utc();
+            }
+            if ($shiftEndUtc) {
+                $active->setAttribute('doctor_shift_ends_at', $shiftEndUtc->copy()->setTimezone($doctorZone)->toIso8601String());
+                $active->setAttribute('employee_shift_ends_at', $shiftEndUtc->copy()->setTimezone($employeeTimezone)->toIso8601String());
+                $active->setAttribute('shift_end_utc', $shiftEndUtc->toIso8601ZuluString());
+            }
         }
 
         $allSchedules = EmployeeClientSchedule::with('client:id,name,business_name,timezone')
@@ -370,11 +387,38 @@ class EmployeeApiController extends Controller
         if (!$attendance) return response()->json(['message' => 'No active attendance session.'], 422);
 
         $attendance = $this->attendanceBilling->finalize($attendance, $this->clock->now('UTC'));
+
+        // Checkout means the VA is no longer live in the workforce view immediately.
+        // UpdateLastSeen runs before the controller, so clearing it here wins for this request.
+        if ($employee->user) {
+            $employee->user->forceFill(['last_seen_at' => null])->saveQuietly();
+        }
+
         $message = (int) ($attendance->overtime ?? 0) > 0
             ? 'Clocked out. Extra time is waiting for your overtime review request and is not billable yet.'
             : 'Clocked out successfully.';
 
-        return response()->json(['message' => $message, 'attendance' => $attendance]);
+        $approvedOt = $attendance->overtime_status === 'approved'
+            ? min((int) ($attendance->approved_overtime_minutes ?? 0), (int) ($attendance->overtime ?? 0))
+            : 0;
+
+        return response()->json([
+            'message' => $message,
+            'attendance' => $attendance,
+            'checkout_summary' => [
+                'attendance_id' => $attendance->id,
+                'clock_in' => $attendance->clock_in?->toIso8601String(),
+                'clock_out' => $attendance->clock_out?->toIso8601String(),
+                'doctor_timezone' => $this->timezones->forAttendance($attendance, false),
+                'client_name' => $attendance->client?->name ?: $attendance->client?->business_name,
+                'regular_minutes' => (int) ($attendance->total_minutes ?? 0),
+                'break_seconds' => (int) ($attendance->break_taken ?? 0),
+                'overtime_minutes' => (int) ($attendance->overtime ?? 0),
+                'overtime_status' => $attendance->overtime_status ?? 'none',
+                'approved_overtime_minutes' => $approvedOt,
+                'payable_minutes' => (int) ($attendance->total_minutes ?? 0) + $approvedOt,
+            ],
+        ]);
     }
 
     public function requestOvertimeReview(Request $request, Attendance $attendance)
