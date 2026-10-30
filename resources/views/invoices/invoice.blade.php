@@ -209,7 +209,7 @@
             <table style="font-size:8px;">
                 <thead>
                     <tr>
-                        <th>Date</th><th>Day</th><th>Status</th><th>Shift(s)</th><th>Clock In</th><th>Clock Out</th><th>Break</th><th>Total Hours Worked</th><th>Regular Work</th><th>Overtime</th><th>OT Status</th><th>Payable Hours</th>
+                        <th>Date</th><th>Day</th><th>Status</th><th>Shift(s)</th><th>Clock In</th><th>Clock Out</th><th>Break</th><th>Total Hours Worked</th><th>Overtime</th><th>Payable Hours</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -246,13 +246,11 @@
                         <td>{{ $clockOut }}</td>
                         <td>{{ $formatAttendanceMinutes($breakMinutes) }}</td>
                         <td>{{ $formatAttendanceMinutes($actualWorkedMinutes) }}</td>
-                        <td>{{ $formatAttendanceMinutes($regularMinutes) }}</td>
                         <td>{{ $formatAttendanceMinutes($overtimeMinutes) }}</td>
-                        <td>{{ $otStatus }}</td>
                         <td>{{ $formatAttendanceMinutes($payableMinutes) }}</td>
                     </tr>
                 @empty
-                    <tr><td colspan="12" class="text-center">No attendance records found for this period</td></tr>
+                    <tr><td colspan="10" class="text-center">No attendance records found for this period</td></tr>
                 @endforelse
                 </tbody>
             </table>
