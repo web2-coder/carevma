@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Invoice;
 use App\Services\InvoicePdfService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
+use Carbon\Carbon;
 
 class InvoicePdfController extends Controller
 {
@@ -20,9 +22,10 @@ class InvoicePdfController extends Controller
 
         $invoice->loadMissing('client');
 
-        // Download filename must match the invoice number exactly (uppercase).
-        $invoiceNumber = strtoupper(trim((string) $invoice->invoice_number));
-        $filename = $invoiceNumber . '.pdf';
+        $doctor = Str::of($invoice->client?->name ?: 'Doctor')
+            ->ascii()->replaceMatches('/[^A-Za-z0-9]+/', '-')->trim('-')->value() ?: 'Doctor';
+        $monthYear = Carbon::parse($invoice->period_end)->format('F-Y');
+        $filename = $doctor.'-Invoice-'.$monthYear.'.pdf';
 
         $response = $this->documents
             ->make($invoice)

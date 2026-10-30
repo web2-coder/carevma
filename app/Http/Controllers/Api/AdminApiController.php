@@ -146,9 +146,25 @@ class AdminApiController extends Controller
             ];
         });
 
-        $onlineCutoff = now()->subMinutes(5);
-        $onlineEmployees = Employee::query()
-            ->whereHas('user', fn ($query) => $query->whereNotNull('last_seen_at')->where('last_seen_at', '>=', $onlineCutoff));
+        // Dashboard "Live employees" means actively checked in, not merely logged into the portal.
+        $checkedInAttendances = Attendance::query()->whereNull('clock_out');
+        $currentlyWorking = Attendance::query()
+            ->with([
+                'employee:id,first_name,last_name,employee_code,profile_picture,timezone',
+                'client:id,name,business_name,timezone,profile_picture',
+            ])
+            ->whereNull('clock_out')
+            ->latest('clock_in')
+            ->limit(3)
+            ->get()
+            ->map(function (Attendance $attendance) {
+                return [
+                    'id' => $attendance->id,
+                    'employee' => $attendance->employee,
+                    'client' => $attendance->client,
+                    'clock_in' => $attendance->clock_in?->toIso8601String(),
+                ];
+            })->values();
         $pendingOvertime = Schema::hasColumn('attendances', 'overtime_status')
             ? Attendance::where('overtime_status', 'pending')->count()
             : Attendance::where('overtime', '>', 0)->count();
@@ -215,11 +231,10 @@ class AdminApiController extends Controller
             'metrics' => [
                 'employees' => Employee::count(),
                 'clients' => Client::count(),
-                'active' => $onlineEmployees->count(),
+                'active' => (clone $checkedInAttendances)->count(),
                 'today_sessions' => ($attendanceSummaries[$today]['sessions'] ?? 0),
                 'pending_overtime' => $pendingOvertime,
                 'invoices' => Invoice::count(),
-                'hr_team' => User::where('role', 'hr')->count(),
             ],
             'trend' => $trend,
             'recent_attendance' => Attendance::with([
@@ -236,6 +251,7 @@ class AdminApiController extends Controller
                 return $row;
             }),
             'birthdays_today' => $birthdaysToday,
+            'currently_working' => $currentlyWorking,
             'auto_invoice_cycle' => [
                 'period_start' => $cycleStart,
                 'period_end' => $cycleEnd,
@@ -413,9 +429,7 @@ class AdminApiController extends Controller
             ->get(['id','user_id','first_name','last_name','email','employee_code','profile_picture','timezone','location'])
             ->map(function (Employee $employee) use ($serverNow) {
                 $lastSeenAt = $employee->user?->last_seen_at;
-                // Live Workforce follows the work session: once checkout closes the
-                // attendance, the VA is Offline even if the portal remains open.
-                $isOnline = false;
+                $isOnline = $lastSeenAt && Carbon::parse($lastSeenAt)->gt($serverNow->copy()->subMinutes(5));
 
                 return [
                     'id' => 'employee-'.$employee->id,

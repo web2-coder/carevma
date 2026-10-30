@@ -86,22 +86,10 @@ class InvoicesController extends Controller
             'period_end' => 'required|date|after_or_equal:period_start',
         ]);
 
-        // Human-readable CareVMA invoice number: CAREVMA-INV-{Doctor}-{YYYYMM}.
-        $client = Client::findOrFail($request->client_id);
-        $doctorName = Str::of($client->name ?: 'Doctor')
-            ->ascii()
-            ->replaceMatches('/[^A-Za-z0-9]+/', '-')
-            ->trim('-')
-            ->limit(50, '')
-            ->value();
-        $doctorName = $doctorName !== '' ? $doctorName : 'Doctor';
-        $baseInvoiceNumber = 'CAREVMA-INV-'.$doctorName.'-'.Carbon::parse($request->period_end)->format('Ym');
-        $invoiceNumber = $baseInvoiceNumber;
-        $sequence = 2;
-        while (Invoice::where('invoice_number', $invoiceNumber)->exists()) {
-            $invoiceNumber = $baseInvoiceNumber.'-'.str_pad((string) $sequence, 2, '0', STR_PAD_LEFT);
-            $sequence++;
-        }
+        // Persist a plain, unique seven-digit invoice number.
+        do {
+            $invoiceNumber = (string) random_int(1000000, 9999999);
+        } while (Invoice::where('invoice_number', $invoiceNumber)->exists());
 
         // Calculate totals
         $totalHours = 0;
@@ -165,7 +153,9 @@ class InvoicesController extends Controller
         'clientEmployeeRates' => $clientEmployeeRates,
     ]);
 
-    return $pdf->stream("invoice-{$invoice->invoice_number}.pdf");
+    $doctor = Str::of($invoice->client?->name ?: 'Doctor')->ascii()->replaceMatches('/[^A-Za-z0-9]+/', '-')->trim('-')->value() ?: 'Doctor';
+    $monthYear = Carbon::parse($invoice->period_end)->format('F-Y');
+    return $pdf->stream($doctor.'-Invoice-'.$monthYear.'.pdf');
 }
 
     public function edit($id)
