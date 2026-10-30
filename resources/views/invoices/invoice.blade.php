@@ -121,10 +121,6 @@
                 <td class="text-right">${{ number_format($salary->salary_amount, 2) }}</td>
             </tr>
         @endforeach
-            <tr class="subtotal-row">
-                <td colspan="7" class="text-right">Attendance / Salary Subtotal</td>
-                <td class="text-right">${{ number_format($baseSubtotal, 2) }}</td>
-            </tr>
         </tbody>
     </table>
 
@@ -157,6 +153,15 @@
             </tbody>
         </table>
     @endif
+
+    <table style="margin-top:10px;">
+        <tbody>
+            <tr class="subtotal-row">
+                <td class="text-right">Attendance / Salary Subtotal</td>
+                <td class="text-right" style="width:160px;">${{ number_format($baseSubtotal, 2) }}</td>
+            </tr>
+        </tbody>
+    </table>
 </div>
 
 <div class="payment-page">
@@ -187,7 +192,7 @@
 <div class="invoice-box">
     <h2 style="color:#083589;">Attendance Records</h2>
     <p><strong>Period:</strong> {{ \Carbon\Carbon::parse($invoice->period_start)->format('d F Y') }} - {{ \Carbon\Carbon::parse($invoice->period_end)->format('d F Y') }}</p>
-    <p><strong>Timezone:</strong> {{ $clientTimezone }} (Doctor / Client timezone)</p>
+    <p><strong>Timezone:</strong> {{ $clientTimezone }}</p>
 
     @foreach($invoice->salaries as $salary)
         <div class="attendance-section">
@@ -241,7 +246,9 @@
 
                     @if($daySchedules->isEmpty() && $dayAttendances->isEmpty())
                         <tr style="background:#eeeeee;">
-                            <td colspan="10" style="text-align:center;font-weight:700;color:#666;padding:8px 4px;">OFF</td>
+                            <td>{{ $periodCursor->format('d-M-Y') }}</td>
+                            <td>{{ $dayName }}</td>
+                            <td colspan="8" style="text-align:center;font-weight:700;color:#666;padding:8px 4px;">OFF</td>
                         </tr>
                     @elseif($dayAttendances->isEmpty())
                         @php
