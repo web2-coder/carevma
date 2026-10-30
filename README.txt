@@ -1,22 +1,31 @@
-CareVMA Resend Blank Screen Fix - 2026-10-28
+CareVMA - Old Working Direct Mail Restore Patch
+Date: 2026-10-29
 
-Replace only:
-resources/js/pages/Management.jsx
+Purpose
+- Restores the old project's direct Laravel SMTP send pattern: Mail::to(...)->send(...)
+- Applies to VA/Employee activation invitations, Doctor/Client invitations, HR invitations, and invoice PDF email.
+- Preserves the current 24-hour activation/token logic from the newer CareVMA controller.
+- Does NOT include or overwrite .env credentials.
+- Does NOT change database, sessions, timezone calculations, invoices, schedules, birthdays, or frontend.
 
-Fix:
-- Employee Resend Activation no longer toggles the page-wide busy/loading state.
-- Keeps Employees dashboard rendered while the POST request runs.
-- Safely reads activation_url / invitation_sent from the API response.
-- Shows the generated activation link card even when SMTP delivery fails.
-- Does not change SMTP, backend routes, database, sessions, or other project files.
+Replace
+app/Http/Controllers/Api/AdminApiController.php
 
-After replacing locally:
-  npm run build
-  git add resources/js/pages/Management.jsx public/build
-  git commit -m "Fix resend activation blank screen"
-  git push origin main
+After replacing on local project:
+php -l app/Http/Controllers/Api/AdminApiController.php
+git add app/Http/Controllers/Api/AdminApiController.php
+git commit -m "Restore direct Laravel SMTP mail sending"
+git push origin main
 
 On live server:
-  cd /home/u671369435/domains/carevma.com/public_html/app
-  git pull origin main
-  php artisan view:clear
+cd /home/u671369435/domains/carevma.com/public_html/app
+git pull --ff-only origin main
+php artisan config:clear
+php artisan route:clear
+php artisan view:clear
+php artisan config:cache
+php artisan route:cache
+php artisan view:cache
+
+Important
+If SMTP returns 535 authentication failed after this patch, the PHP code is reaching Titan correctly but the current SMTP username/password is rejected. In that case fix the Titan mailbox credentials in .env; do not change application code again.
