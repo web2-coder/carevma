@@ -27,11 +27,14 @@ use Illuminate\Support\Facades\Hash;
 
 class CareVmaRandomAttendanceSeeder extends Seeder
 {
-    private const TAG = 'seed-random-demo';
+    private const EMAIL_DOMAIN = '@carevma-seed.test';
+    private const BREAK_TAG = 'carevma-calculated-demo-v2';
 
     public function run(): void
     {
         DB::transaction(function () {
+            $this->removePreviousDemoData();
+
             $lookups = $this->lookups();
             $employees = $this->employees($lookups);
             $clients = $this->clients($lookups);
@@ -39,14 +42,26 @@ class CareVmaRandomAttendanceSeeder extends Seeder
             $this->seedAttendance($employees, $schedules);
         });
 
-        $this->command?->info('CareVMA random demo data seeded: 5 VAs, 5 Doctors, weekly schedules and 15-30 days of attendance.');
-        $this->command?->warn('Demo logins use Password123! and @carevma-seed.test addresses. Do not use these accounts as real users.');
+        $this->command?->info('CareVMA calculated demo data seeded: 5 VAs, 5 Doctors, repeating schedules and timestamp-derived attendance.');
+        $this->command?->info('Worked minutes are calculated from clock-in/out + breaks. Regular work is capped by the scheduled shift less allowed break; only approved overtime is additionally payable.');
+    }
+
+    private function removePreviousDemoData(): void
+    {
+        $emails = array_merge(
+            array_map(fn ($n) => "seed.va{$n}".self::EMAIL_DOMAIN, range(1, 5)),
+            array_map(fn ($n) => "seed.doctor{$n}".self::EMAIL_DOMAIN, range(1, 5)),
+        );
+
+        // Deleting only the known seed users is intentional. Employee/client children cascade
+        // through the application's existing foreign keys (attendance, schedules, rates, invoices, etc.).
+        User::query()->whereIn('email', $emails)->delete();
     }
 
     private function lookups(): array
     {
         return [
-            'department' => Department::firstOrCreate(['name' => 'Seed Demo Operations'], ['description' => 'CareVMA random demo data']),
+            'department' => Department::firstOrCreate(['name' => 'Seed Demo Operations'], ['description' => 'CareVMA calculated demo data']),
             'role' => Role::firstOrCreate(['name' => 'Virtual Assistant']),
             'employment' => EmploymentType::firstOrCreate(['name' => 'Full Time']),
             'shift' => ShiftType::firstOrCreate(['name' => 'Day Shift']),
@@ -73,36 +88,37 @@ class CareVmaRandomAttendanceSeeder extends Seeder
         $result = [];
 
         foreach ($people as $i => [$first, $last, $timezone, $location, $baseRate]) {
-            $email = 'seed.va'.($i + 1).'@carevma-seed.test';
-            $user = User::updateOrCreate(
-                ['email' => $email],
-                ['name' => "$first $last", 'password' => $password, 'role' => 'employee', 'last_seen_at' => null]
-            );
+            $email = 'seed.va'.($i + 1).self::EMAIL_DOMAIN;
+            $user = User::create([
+                'email' => $email,
+                'name' => "$first $last",
+                'password' => $password,
+                'role' => 'employee',
+                'last_seen_at' => null,
+            ]);
 
-            $employee = Employee::updateOrCreate(
-                ['email' => $email],
-                [
-                    'user_id' => $user->id,
-                    'first_name' => $first,
-                    'last_name' => $last,
-                    'password' => $password,
-                    'phone' => '+1 555 71'.str_pad((string) ($i + 1), 2, '0', STR_PAD_LEFT),
-                    'department_id' => $l['department']->id,
-                    'role_id' => $l['role']->id,
-                    'employment_type_id' => $l['employment']->id,
-                    'shift_type_id' => $l['shift']->id,
-                    'designation_id' => $l['designation']->id,
-                    'employee_status_id' => $l['status']->id,
-                    'expertise_id' => $l['expertise']->id,
-                    'reporting_manager_id' => $l['manager']->id,
-                    'location' => $location,
-                    'timezone' => $timezone,
-                    'break_allowed_hours' => 1,
-                    'profile_completed' => true,
-                    'salary_usd' => $baseRate,
-                    'date_of_joining' => now()->subMonths(6)->toDateString(),
-                ]
-            );
+            $employee = Employee::create([
+                'user_id' => $user->id,
+                'first_name' => $first,
+                'last_name' => $last,
+                'email' => $email,
+                'password' => $password,
+                'phone' => '+1 555 71'.str_pad((string) ($i + 1), 2, '0', STR_PAD_LEFT),
+                'department_id' => $l['department']->id,
+                'role_id' => $l['role']->id,
+                'employment_type_id' => $l['employment']->id,
+                'shift_type_id' => $l['shift']->id,
+                'designation_id' => $l['designation']->id,
+                'employee_status_id' => $l['status']->id,
+                'expertise_id' => $l['expertise']->id,
+                'reporting_manager_id' => $l['manager']->id,
+                'location' => $location,
+                'timezone' => $timezone,
+                'break_allowed_hours' => 1,
+                'profile_completed' => true,
+                'salary_usd' => $baseRate,
+                'date_of_joining' => now()->subMonths(6)->toDateString(),
+            ]);
 
             $result[] = ['model' => $employee, 'base_rate' => $baseRate];
         }
@@ -124,28 +140,29 @@ class CareVmaRandomAttendanceSeeder extends Seeder
         $result = [];
 
         foreach ($doctors as $i => [$name, $business, $timezone, $charge]) {
-            $email = 'seed.doctor'.($i + 1).'@carevma-seed.test';
-            $user = User::updateOrCreate(
-                ['email' => $email],
-                ['name' => $name, 'password' => $password, 'role' => 'client', 'last_seen_at' => null]
-            );
+            $email = 'seed.doctor'.($i + 1).self::EMAIL_DOMAIN;
+            $user = User::create([
+                'email' => $email,
+                'name' => $name,
+                'password' => $password,
+                'role' => 'client',
+                'last_seen_at' => null,
+            ]);
 
-            $result[] = Client::updateOrCreate(
-                ['email' => $email],
-                [
-                    'user_id' => $user->id,
-                    'name' => $name,
-                    'business_name' => $business,
-                    'country' => 'United States',
-                    'phone_number' => '+1 555 81'.str_pad((string) ($i + 1), 2, '0', STR_PAD_LEFT),
-                    'per_hour_charges' => $charge,
-                    'break_allowed_hours' => 1,
-                    'timezone' => $timezone,
-                    'contract_type_id' => $l['contract']->id,
-                    'service_id' => $l['service']->id,
-                    'ring_center' => false,
-                ]
-            );
+            $result[] = Client::create([
+                'user_id' => $user->id,
+                'name' => $name,
+                'email' => $email,
+                'business_name' => $business,
+                'country' => 'United States',
+                'phone_number' => '+1 555 81'.str_pad((string) ($i + 1), 2, '0', STR_PAD_LEFT),
+                'per_hour_charges' => $charge,
+                'break_allowed_hours' => 1,
+                'timezone' => $timezone,
+                'contract_type_id' => $l['contract']->id,
+                'service_id' => $l['service']->id,
+                'ring_center' => false,
+            ]);
         }
 
         return $result;
@@ -158,42 +175,39 @@ class CareVmaRandomAttendanceSeeder extends Seeder
 
         foreach ($employees as $i => $entry) {
             $employee = $entry['model'];
-            // Deterministic "random-looking" assignment: each VA gets 1-2 doctors, spread across all five doctors.
-            $doctorIndexes = array_values(array_unique([$i % 5, ($i * 2 + 1) % 5]));
-            if ($i % 2 === 0) {
-                $doctorIndexes = [($i * 3 + 2) % 5];
-            }
+            // Each VA gets one or two doctors. The pattern is deterministic so reruns are testable.
+            $doctorIndexes = $i % 2 === 0
+                ? [($i * 3 + 2) % 5]
+                : array_values(array_unique([$i % 5, ($i * 2 + 1) % 5]));
 
             foreach ($doctorIndexes as $slot => $doctorIndex) {
                 $client = $clients[$doctorIndex];
                 $rate = round($entry['base_rate'] + ($doctorIndex * 1.35) + ($slot * 0.75), 2);
-                ClientEmployeeRate::updateOrCreate(
-                    ['client_id' => $client->id, 'employee_id' => $employee->id],
-                    ['per_hour_rate' => $rate]
-                );
+
+                ClientEmployeeRate::create([
+                    'client_id' => $client->id,
+                    'employee_id' => $employee->id,
+                    'per_hour_rate' => $rate,
+                ]);
 
                 foreach ($weekdays as $dayIndex => $weekday) {
-                    $startHour = 8 + (($doctorIndex + $i + $dayIndex) % 3); // 08:00, 09:00 or 10:00 doctor-local
+                    $startHour = 8 + (($doctorIndex + $i + $dayIndex) % 3);
                     $start = sprintf('%02d:00:00', $startHour);
-                    $end = sprintf('%02d:00:00', $startHour + 9); // 9h span incl. 1h break => 8 billable
+                    $end = sprintf('%02d:00:00', $startHour + 9); // 9h span, 1h allowed break => max 8h regular
 
-                    $schedule = EmployeeClientSchedule::updateOrCreate(
-                        [
-                            'employee_id' => $employee->id,
-                            'client_id' => $client->id,
-                            'weekday' => $weekday,
-                            'schedule_date' => null,
-                        ],
-                        [
-                            'start_time' => $start,
-                            'end_time' => $end,
-                            'timezone' => $client->timezone,
-                            'no_of_hours' => '8.00',
-                            'break_allowed_hours' => 1.00,
-                            'enabled' => true,
-                            'repeat' => true,
-                        ]
-                    );
+                    $schedule = EmployeeClientSchedule::create([
+                        'employee_id' => $employee->id,
+                        'client_id' => $client->id,
+                        'weekday' => $weekday,
+                        'schedule_date' => null,
+                        'start_time' => $start,
+                        'end_time' => $end,
+                        'timezone' => $client->timezone,
+                        'no_of_hours' => '8.00',
+                        'break_allowed_hours' => 1.00,
+                        'enabled' => true,
+                        'repeat' => true,
+                    ]);
                     $byEmployee[$employee->id][] = $schedule;
                 }
             }
@@ -208,7 +222,7 @@ class CareVmaRandomAttendanceSeeder extends Seeder
 
         foreach ($employees as $employeeIndex => $entry) {
             $employee = $entry['model'];
-            $historyDays = 15 + (($employeeIndex * 4 + 7) % 16); // deterministic 15..30
+            $historyDays = 15 + (($employeeIndex * 4 + 7) % 16); // 15..30 calendar-day history
             $startDate = now()->subDays($historyDays)->startOfDay();
             $endDate = now()->subDay()->startOfDay();
 
@@ -217,80 +231,89 @@ class CareVmaRandomAttendanceSeeder extends Seeder
                     ->filter(fn (EmployeeClientSchedule $s) => $s->weekday === $date->format('l'))
                     ->values();
 
-                foreach ($matching as $scheduleIndex => $schedule) {
+                foreach ($matching as $schedule) {
                     $seed = ($employee->id * 97) + ($schedule->id * 31) + ((int) $date->format('z') * 17);
 
-                    // Roughly 8% scheduled absences; no fake attendance row is created for these days.
+                    // Some scheduled days are absent. No attendance means no payable time.
                     if (($seed % 25) < 2) {
                         continue;
                     }
 
                     $timezone = $schedule->client->timezone ?? $schedule->timezone ?? 'UTC';
-                    $shiftStartLocal = Carbon::parse($date->toDateString().' '.$schedule->start_time, $timezone)->startOfMinute();
-                    $shiftEndLocal = Carbon::parse($date->toDateString().' '.$schedule->end_time, $timezone)->startOfMinute();
-                    if ($shiftEndLocal->lte($shiftStartLocal)) {
-                        $shiftEndLocal->addDay();
+                    $shiftStart = Carbon::parse($date->toDateString().' '.$schedule->start_time, $timezone)->startOfMinute();
+                    $shiftEnd = Carbon::parse($date->toDateString().' '.$schedule->end_time, $timezone)->startOfMinute();
+                    if ($shiftEnd->lte($shiftStart)) {
+                        $shiftEnd->addDay();
                     }
 
-                    $lateMinutes = (($seed % 10) < 3) ? (5 + ($seed % 41)) : 0;
-                    $earlyMinutes = (($seed % 17) === 4) ? (10 + ($seed % 36)) : 0;
-                    $overtimeMinutes = (($seed % 9) < 3) ? (15 + ($seed % 76)) : 0;
-                    $earlyArrival = $lateMinutes === 0 ? ($seed % 11) : 0;
+                    // Random-looking scenarios are created ONLY by timestamps/breaks.
+                    // AttendanceBillingService derives late, regular worked minutes and overtime.
+                    $scenario = $seed % 7;
+                    $lateMinutes = in_array($scenario, [1, 4], true) ? 10 + ($seed % 51) : 0;
+                    $earlyArrivalMinutes = $scenario === 0 ? 5 + ($seed % 11) : 0;
+                    $earlyLeaveMinutes = $scenario === 2 ? 20 + ($seed % 101) : 0;
+                    $afterShiftMinutes = in_array($scenario, [3, 5, 6], true) ? 20 + ($seed % 101) : 0;
 
-                    $clockInLocal = $shiftStartLocal->copy()->addMinutes($lateMinutes)->subMinutes($earlyArrival);
-                    $clockOutLocal = $shiftEndLocal->copy()->subMinutes($earlyMinutes)->addMinutes($overtimeMinutes);
-                    if ($clockOutLocal->lte($clockInLocal)) {
-                        $clockOutLocal = $clockInLocal->copy()->addHours(4);
+                    $clockIn = $shiftStart->copy()->addMinutes($lateMinutes)->subMinutes($earlyArrivalMinutes);
+                    $clockOut = $shiftEnd->copy()->subMinutes($earlyLeaveMinutes)->addMinutes($afterShiftMinutes);
+                    if ($clockOut->lte($clockIn)) {
+                        $clockOut = $clockIn->copy()->addHours(4);
                     }
 
-                    $breakMinutes = 30 + ($seed % 31); // 30..60 min
-                    $breakStartLocal = $shiftStartLocal->copy()->addHours(3)->addMinutes($seed % 45);
-                    if ($breakStartLocal->gte($clockOutLocal->copy()->subMinutes($breakMinutes + 5))) {
-                        $breakStartLocal = $clockInLocal->copy()->addMinutes(90);
+                    // 1h is allowed. Taking less does NOT increase regular billing above the 8h cap.
+                    // Taking more reduces actual worked time because the whole real break is deducted.
+                    $breakMinutes = match ($scenario) {
+                        4 => 75 + ($seed % 31), // long break
+                        6 => 30 + ($seed % 21), // short break; extra post-shift time may become OT
+                        default => 45 + ($seed % 16),
+                    };
+
+                    $breakStart = $clockIn->copy()->addHours(3);
+                    if ($breakStart->copy()->addMinutes($breakMinutes)->gte($clockOut)) {
+                        $breakStart = $clockIn->copy()->addMinutes(60);
                     }
-                    $breakEndLocal = $breakStartLocal->copy()->addMinutes($breakMinutes);
+                    $breakEnd = $breakStart->copy()->addMinutes($breakMinutes);
 
-                    $attendance = Attendance::updateOrCreate(
-                        [
-                            'employee_id' => $employee->id,
-                            'schedule_id' => $schedule->id,
-                            'date' => $date->toDateString(),
-                        ],
-                        [
-                            'client_id' => $schedule->client_id,
-                            'timezone_snapshot' => $timezone,
-                            'shift_start_snapshot' => $shiftStartLocal->copy()->utc(),
-                            'shift_end_snapshot' => $shiftEndLocal->copy()->utc(),
-                            'clock_in' => $clockInLocal->copy()->utc(),
-                            'clock_out' => $clockOutLocal->copy()->utc(),
-                            'break_limit' => '01:00:00',
-                            'break_taken' => $breakMinutes * 60,
-                        ]
-                    );
+                    $attendance = Attendance::create([
+                        'employee_id' => $employee->id,
+                        'client_id' => $schedule->client_id,
+                        'schedule_id' => $schedule->id,
+                        'date' => $date->toDateString(),
+                        'timezone_snapshot' => $timezone,
+                        'shift_start_snapshot' => $shiftStart->copy()->utc(),
+                        'shift_end_snapshot' => $shiftEnd->copy()->utc(),
+                        'clock_in' => $clockIn->copy()->utc(),
+                        'clock_out' => $clockOut->copy()->utc(),
+                        'break_limit' => '01:00:00',
+                        'break_taken' => 0,
+                    ]);
 
-                    EmployeeBreak::updateOrCreate(
-                        ['attendance_id' => $attendance->id, 'notes' => self::TAG],
-                        [
-                            'start_time' => $breakStartLocal->copy()->utc(),
-                            'end_time' => $breakEndLocal->copy()->utc(),
-                        ]
-                    );
+                    EmployeeBreak::create([
+                        'attendance_id' => $attendance->id,
+                        'start_time' => $breakStart->copy()->utc(),
+                        'end_time' => $breakEnd->copy()->utc(),
+                        'notes' => self::BREAK_TAG,
+                    ]);
 
-                    $billing->recalculate($attendance);
+                    // Store actual break seconds, then let the SAME production billing service calculate
+                    // total_minutes, late_minutes and overtime from the timestamps.
+                    $attendance->break_taken = $breakMinutes * 60;
+                    $attendance->save();
+                    $attendance = $billing->recalculate($attendance);
 
-                    // Seed a realistic mixture of overtime workflow states without making unapproved OT billable.
+                    // Only approval state is seeded after calculation. Never invent overtime minutes.
                     if ((int) $attendance->overtime > 0) {
-                        $mode = $seed % 4;
-                        if ($mode === 0) {
-                            $attendance->overtime_status = 'pending';
-                        } elseif ($mode === 1) {
+                        $approvalMode = $seed % 3;
+                        if ($approvalMode === 0) {
                             $attendance->overtime_status = 'approved';
                             $attendance->approved_overtime_minutes = (int) $attendance->overtime;
-                        } elseif ($mode === 2) {
-                            $attendance->overtime_status = 'rejected';
+                            $attendance->overtime_approved_at = now();
+                        } elseif ($approvalMode === 1) {
+                            $attendance->overtime_status = 'review_required';
                             $attendance->approved_overtime_minutes = 0;
                         } else {
-                            $attendance->overtime_status = 'review_required';
+                            $attendance->overtime_status = 'rejected';
+                            $attendance->approved_overtime_minutes = 0;
                         }
                         $attendance->save();
                     }
