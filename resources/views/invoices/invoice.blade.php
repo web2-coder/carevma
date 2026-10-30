@@ -157,7 +157,7 @@
     <table style="margin-top:10px;">
         <tbody>
             <tr class="subtotal-row">
-                <td class="text-right">Attendance / Salary Subtotal</td>
+                <td class="text-right">Subtotal</td>
                 <td class="text-right" style="width:160px;">${{ number_format($baseSubtotal, 2) }}</td>
             </tr>
         </tbody>
@@ -192,7 +192,7 @@
 <div class="invoice-box">
     <h2 style="color:#083589;">Attendance Records</h2>
     <p><strong>Period:</strong> {{ \Carbon\Carbon::parse($invoice->period_start)->format('d F Y') }} - {{ \Carbon\Carbon::parse($invoice->period_end)->format('d F Y') }}</p>
-    <p><strong>Timezone:</strong> {{ $clientTimezone }}</p>
+    {{-- <p><strong>Timezone:</strong> {{ $clientTimezone }}</p> --}}
 
     @foreach($invoice->salaries as $salary)
         <div class="attendance-section">
