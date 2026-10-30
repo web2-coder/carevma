@@ -211,7 +211,7 @@
             <table>
                 <thead>
                     <tr>
-                        <th>Date</th><th>Clock In</th><th>Clock Out</th><th>Worked Time</th>
+                        <th>Date</th><th>Clock In</th><th>Clock Out</th><th>Break</th><th>Worked Time</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -223,6 +223,13 @@
                         $attendanceDate = $clockInLocal ? $clockInLocal->format('d-M-Y') : \Carbon\Carbon::parse($attendance->date)->format('d-M-Y');
                         $clockIn = $clockInLocal ? $clockInLocal->format('h:i A') : '-';
                         $clockOut = $clockOutLocal ? $clockOutLocal->format('h:i A') : '-';
+                        $breakSeconds = max(0, (int) ($attendance->break_taken ?? 0));
+                        $breakMinutes = intdiv($breakSeconds, 60);
+                        $breakLabel = $breakMinutes > 0
+                            ? (intdiv($breakMinutes, 60) > 0
+                                ? intdiv($breakMinutes, 60).'h '.str_pad((string) ($breakMinutes % 60), 2, '0', STR_PAD_LEFT).'m'
+                                : $breakMinutes.'m')
+                            : '0m';
                         $workedHours = '-';
                         if ($attendance->total_minutes !== null) {
                             $minutes = max(0, (int) round($attendance->total_minutes))
@@ -237,10 +244,11 @@
                         <td>{{ $attendanceDate }}</td>
                         <td>{{ $clockIn }}</td>
                         <td>{{ $clockOut }}</td>
+                        <td>{{ $breakLabel }}</td>
                         <td>{{ $workedHours }}</td>
                     </tr>
                 @empty
-                    <tr><td colspan="4" class="text-center">No attendance records found for this period</td></tr>
+                    <tr><td colspan="5" class="text-center">No attendance records found for this period</td></tr>
                 @endforelse
                 </tbody>
             </table>
