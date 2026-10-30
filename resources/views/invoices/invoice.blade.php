@@ -187,7 +187,7 @@
 <div class="invoice-box">
     <h2 style="color:#083589;">Attendance Records</h2>
     <p><strong>Period:</strong> {{ \Carbon\Carbon::parse($invoice->period_start)->format('d F Y') }} - {{ \Carbon\Carbon::parse($invoice->period_end)->format('d F Y') }}</p>
-    <p><strong>Timezone:</strong> {{ $clientTimezone }}</p>
+    <p><strong>Timezone:</strong> {{ $clientTimezone }} (Doctor / Client timezone)</p>
 
     @foreach($invoice->salaries as $salary)
         <div class="attendance-section">
@@ -209,49 +209,96 @@
             <table style="font-size:8px;">
                 <thead>
                     <tr>
-                        <th>Date</th><th>Day</th><th>Status</th><th>Shift(s)</th><th>Clock In</th><th>Clock Out</th><th>Break</th><th>Total Hours Worked</th><th>Overtime</th><th>Payable Hours</th>
+                        <th>Date</th><th>Day</th><th>Status</th><th>Shift(s)</th><th>Clock In</th><th>Clock Out</th><th>Break</th><th>Total Hours</th><th>Overtime</th><th>Payable Hours</th>
                     </tr>
                 </thead>
                 <tbody>
-                @forelse($salary->employee->attendances as $attendance)
+                @php
+                    $periodCursor = \Carbon\Carbon::parse($invoice->period_start)->startOfDay();
+                    $periodLast = \Carbon\Carbon::parse($invoice->period_end)->startOfDay();
+                    $employeeAttendances = $salary->employee->attendances ?? collect();
+                    $employeeSchedules = ($scheduleByEmployee ?? collect())->get($salary->employee_id, collect());
+                    $attendanceByDate = $employeeAttendances->groupBy(function ($item) use ($clientTimezone) {
+                        if ($item->clock_in) {
+                            return \Carbon\Carbon::parse($item->clock_in)->setTimezone($clientTimezone)->format('Y-m-d');
+                        }
+                        return \Carbon\Carbon::parse($item->date)->format('Y-m-d');
+                    });
+                @endphp
+
+                @while($periodCursor->lte($periodLast))
                     @php
-                        $timezone = $clientTimezone;
-                        $clockInLocal = $attendance->clock_in ? \Carbon\Carbon::parse($attendance->clock_in)->setTimezone($timezone) : null;
-                        $clockOutLocal = $attendance->clock_out ? \Carbon\Carbon::parse($attendance->clock_out)->setTimezone($timezone) : null;
-                        $attendanceDate = $clockInLocal ? $clockInLocal->format('d-M-Y') : \Carbon\Carbon::parse($attendance->date)->format('d-M-Y');
-                        $clockIn = $clockInLocal ? $clockInLocal->format('h:i A') : '-';
-                        $clockOut = $clockOutLocal ? $clockOutLocal->format('h:i A') : '-';
-                        $breakMinutes = (int) floor(max(0, (int) ($attendance->break_taken ?? 0)) / 60);
-                        $regularMinutes = max(0, (int) ($attendance->total_minutes ?? 0));
-                        $overtimeMinutes = max(0, (int) ($attendance->overtime ?? 0));
-                        $approvedMinutes = max(0, (int) ($attendance->approved_overtime_minutes ?? 0));
-                        $otStatus = $overtimeMinutes > 0 ? ucfirst(str_replace('_', ' ', (string) ($attendance->overtime_status ?: 'review_required'))) : 'None';
-                        $payableMinutes = $regularMinutes + ($attendance->overtime_status === 'approved' ? $approvedMinutes : 0);
-                        $elapsedMinutes = ($clockInLocal && $clockOutLocal) ? max(0, $clockInLocal->diffInMinutes($clockOutLocal)) : 0;
-                        $actualWorkedMinutes = max(0, $elapsedMinutes - $breakMinutes);
-                        $dayName = $clockInLocal ? $clockInLocal->format('l') : \Carbon\Carbon::parse($attendance->date)->format('l');
-                        $attendanceStatus = ($clockInLocal && $clockOutLocal) ? 'Present' : 'Incomplete';
-                        $shiftStartLocal = $attendance->shift_start_snapshot ? \Carbon\Carbon::parse($attendance->shift_start_snapshot)->setTimezone($timezone) : null;
-                        $shiftEndLocal = $attendance->shift_end_snapshot ? \Carbon\Carbon::parse($attendance->shift_end_snapshot)->setTimezone($timezone) : null;
-                        $shiftLabel = ($shiftStartLocal && $shiftEndLocal)
-                            ? $shiftStartLocal->format('h:i A').' - '.$shiftEndLocal->format('h:i A')
-                            : '-';
+                        $dateKey = $periodCursor->format('Y-m-d');
+                        $dayName = $periodCursor->format('l');
+                        $dayAttendances = $attendanceByDate->get($dateKey, collect());
+                        $daySchedules = $employeeSchedules->filter(function ($schedule) use ($dateKey, $dayName) {
+                            if (!empty($schedule->schedule_date)) {
+                                return \Carbon\Carbon::parse($schedule->schedule_date)->format('Y-m-d') === $dateKey;
+                            }
+                            return strcasecmp((string) $schedule->weekday, $dayName) === 0;
+                        })->values();
                     @endphp
-                    <tr>
-                        <td>{{ $attendanceDate }}</td>
-                        <td>{{ $dayName }}</td>
-                        <td>{{ $attendanceStatus }}</td>
-                        <td>{{ $shiftLabel }}</td>
-                        <td>{{ $clockIn }}</td>
-                        <td>{{ $clockOut }}</td>
-                        <td>{{ $formatAttendanceMinutes($breakMinutes) }}</td>
-                        <td>{{ $formatAttendanceMinutes($actualWorkedMinutes) }}</td>
-                        <td>{{ $formatAttendanceMinutes($overtimeMinutes) }}</td>
-                        <td>{{ $formatAttendanceMinutes($payableMinutes) }}</td>
-                    </tr>
-                @empty
-                    <tr><td colspan="10" class="text-center">No attendance records found for this period</td></tr>
-                @endforelse
+
+                    @if($daySchedules->isEmpty() && $dayAttendances->isEmpty())
+                        <tr style="background:#eeeeee;">
+                            <td colspan="10" style="text-align:center;font-weight:700;color:#666;padding:8px 4px;">OFF</td>
+                        </tr>
+                    @elseif($dayAttendances->isEmpty())
+                        @php
+                            $shiftLabel = $daySchedules->map(function ($schedule) {
+                                $start = \Carbon\Carbon::parse($schedule->start_time)->format('h:i A');
+                                $end = \Carbon\Carbon::parse($schedule->end_time)->format('h:i A');
+                                return $start.' - '.$end;
+                            })->implode(', ');
+                        @endphp
+                        <tr>
+                            <td>{{ $periodCursor->format('d-M-Y') }}</td>
+                            <td>{{ $dayName }}</td>
+                            <td style="font-weight:700;">ABSENT</td>
+                            <td>{{ $shiftLabel ?: '-' }}</td>
+                            <td>-</td><td>-</td><td>-</td><td>0m</td><td>0m</td><td>0m</td>
+                        </tr>
+                    @else
+                        @foreach($dayAttendances as $attendance)
+                            @php
+                                $timezone = $clientTimezone;
+                                $clockInLocal = $attendance->clock_in ? \Carbon\Carbon::parse($attendance->clock_in)->setTimezone($timezone) : null;
+                                $clockOutLocal = $attendance->clock_out ? \Carbon\Carbon::parse($attendance->clock_out)->setTimezone($timezone) : null;
+                                $attendanceDate = $clockInLocal ? $clockInLocal->format('d-M-Y') : $periodCursor->format('d-M-Y');
+                                $clockIn = $clockInLocal ? $clockInLocal->format('h:i A') : '-';
+                                $clockOut = $clockOutLocal ? $clockOutLocal->format('h:i A') : '-';
+                                $breakMinutes = (int) floor(max(0, (int) ($attendance->break_taken ?? 0)) / 60);
+                                $regularMinutes = max(0, (int) ($attendance->total_minutes ?? 0));
+                                $overtimeMinutes = max(0, (int) ($attendance->overtime ?? 0));
+                                $approvedMinutes = max(0, (int) ($attendance->approved_overtime_minutes ?? 0));
+                                $payableMinutes = $regularMinutes + ($attendance->overtime_status === 'approved' ? $approvedMinutes : 0);
+                                $elapsedMinutes = ($clockInLocal && $clockOutLocal) ? max(0, $clockInLocal->diffInMinutes($clockOutLocal)) : 0;
+                                $actualWorkedMinutes = max(0, $elapsedMinutes - $breakMinutes);
+                                $shiftStartLocal = $attendance->shift_start_snapshot ? \Carbon\Carbon::parse($attendance->shift_start_snapshot)->setTimezone($timezone) : null;
+                                $shiftEndLocal = $attendance->shift_end_snapshot ? \Carbon\Carbon::parse($attendance->shift_end_snapshot)->setTimezone($timezone) : null;
+                                $shiftLabel = ($shiftStartLocal && $shiftEndLocal)
+                                    ? $shiftStartLocal->format('h:i A').' - '.$shiftEndLocal->format('h:i A')
+                                    : $daySchedules->map(function ($schedule) {
+                                        return \Carbon\Carbon::parse($schedule->start_time)->format('h:i A').' - '.\Carbon\Carbon::parse($schedule->end_time)->format('h:i A');
+                                    })->implode(', ');
+                            @endphp
+                            <tr>
+                                <td>{{ $attendanceDate }}</td>
+                                <td>{{ $dayName }}</td>
+                                <td>Present</td>
+                                <td>{{ $shiftLabel ?: '-' }}</td>
+                                <td>{{ $clockIn }}</td>
+                                <td>{{ $clockOut }}</td>
+                                <td>{{ $formatAttendanceMinutes($breakMinutes) }}</td>
+                                <td>{{ $formatAttendanceMinutes($actualWorkedMinutes) }}</td>
+                                <td>{{ $formatAttendanceMinutes($overtimeMinutes) }}</td>
+                                <td>{{ $formatAttendanceMinutes($payableMinutes) }}</td>
+                            </tr>
+                        @endforeach
+                    @endif
+
+                    @php $periodCursor->addDay(); @endphp
+                @endwhile
                 </tbody>
             </table>
         </div>

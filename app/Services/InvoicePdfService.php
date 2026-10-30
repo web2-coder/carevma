@@ -7,6 +7,7 @@ use App\Models\ClientEmployeeRate;
 use App\Models\Invoice;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 
 class InvoicePdfService
 {
@@ -49,6 +50,21 @@ class InvoicePdfService
             }
         }
 
+        $scheduleByEmployee = collect();
+        if ($employeeIds->isNotEmpty() && Schema::hasTable('employee_client_schedules')) {
+            $scheduleQuery = DB::table('employee_client_schedules')
+                ->where('client_id', $invoice->client_id)
+                ->whereIn('employee_id', $employeeIds);
+            if (Schema::hasColumn('employee_client_schedules', 'enabled')) {
+                $scheduleQuery->where('enabled', true);
+            }
+            $scheduleByEmployee = $scheduleQuery
+                ->orderBy('employee_id')
+                ->orderBy('start_time')
+                ->get()
+                ->groupBy('employee_id');
+        }
+
         $rates = ClientEmployeeRate::where('client_id', $invoice->client_id)->get()->keyBy('employee_id');
         $clientTimezone = $this->timezones->forClient($invoice->client);
 
@@ -58,6 +74,7 @@ class InvoicePdfService
             'salaries' => $invoice->salaries,
             'clientEmployeeRates' => $rates,
             'clientTimezone' => $clientTimezone,
+            'scheduleByEmployee' => $scheduleByEmployee,
         ]);
     }
 }
