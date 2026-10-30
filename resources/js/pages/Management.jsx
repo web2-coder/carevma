@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   Users, Stethoscope, Clock3, TimerReset, ReceiptText, Plus, Pencil, Trash2, RefreshCw,
-  CalendarDays, UserCheck, CircleDollarSign, Check, X, Bell, Save, KeyRound, Building2, ShieldCheck, Send, Coffee, Activity
+  CalendarDays, UserCheck, CircleDollarSign, Check, X, Bell, Save, KeyRound, Building2,
+  ShieldCheck, Send, Coffee, Activity, ClipboardCopy
 } from 'lucide-react';
 import api, { messageFrom } from '../api';
 import { DEFAULT_TIMEZONE, formatDate, formatDateTime, formatTime as formatTimeInZone, todayInZone, weekdayFromDateOnly } from '../timezone';
