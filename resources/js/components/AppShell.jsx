@@ -11,7 +11,6 @@ import { subscribeToCareVmaNotifications } from '../pusher';
 import BrandLogo from './BrandLogo';
 import LiveNavbarClock from './LiveNavbarClock';
 import BirthdayPopup from './BirthdayPopup';
-import BirthdayBanner from './BirthdayBanner';
 import { AvatarMedia } from './ui';
 import { formatDate } from '../timezone';
 import { emitToast } from '../feedback';
@@ -269,7 +268,7 @@ export default function AppShell() {
     const loadLiveCount = async () => {
       try {
         const { data } = await api.get('/management/live-users');
-        if (alive) setLiveCount(Math.max(0, Number(data?.online) || 0));
+        if (alive) setLiveCount(Math.max(0, Number(data?.checked_in) || 0));
       } catch {}
     };
 
@@ -455,7 +454,6 @@ export default function AppShell() {
       </header>
       <main className="content">
         <BirthdayPopup user={user}/>
-        {location.pathname.endsWith('/dashboard') && <BirthdayBanner user={user}/>}
         {employeeProfileIncomplete && <div className="profile-lock-banner" role="status">
           <FileCheck2 size={20}/>
           <div><strong>Complete your profile to unlock CareVMA</strong><span>Finish the required personal fields below. Dashboard, schedules, attendance, notifications and settings will unlock automatically after you save a complete profile.</span></div>
