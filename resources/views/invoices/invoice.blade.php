@@ -97,7 +97,17 @@
         @foreach($invoice->salaries as $salary)
             @php
                 $rate = isset($clientEmployeeRates[$salary->employee_id]) ? $clientEmployeeRates[$salary->employee_id]->per_hour_rate : 0;
-                $workedMinutes = max(0, (int) round(((float) $salary->total_hours) * 60));
+                // Use exact attendance minutes so the summary, attendance rows and amount reconcile.
+                // Approved overtime is payable only after approval and is included in the displayed worked time.
+                $salaryAttendances = $salary->employee?->attendances ?? collect();
+                $workedMinutes = (int) $salaryAttendances->sum(function ($attendance) {
+                    return max(0, (int) ($attendance->total_minutes ?? 0))
+                        + max(0, (int) ($attendance->approved_overtime_minutes ?? 0));
+                });
+                // Fallback for legacy/manual invoices that do not have attached attendance rows.
+                if ($salaryAttendances->isEmpty()) {
+                    $workedMinutes = max(0, (int) round(((float) $salary->total_hours) * 60));
+                }
                 $formatMinutes = function (int $minutes): string {
                     $minutes = max(0, $minutes);
                     $hours = intdiv($minutes, 60);
@@ -186,7 +196,17 @@
         <div class="attendance-section">
             <h4 style="background:#f2f2f2;padding:8px;margin-top:20px;">
                 {{ $salary->employee->first_name }} {{ $salary->employee->last_name }}
-                (Total Worked: {{ (int) round(((float) $salary->total_hours) * 60) }} min)
+                @php
+                    $attendanceTotalMinutes = (int) ($salary->employee?->attendances ?? collect())->sum(function ($attendance) {
+                        return max(0, (int) ($attendance->total_minutes ?? 0))
+                            + max(0, (int) ($attendance->approved_overtime_minutes ?? 0));
+                    });
+                    if (($salary->employee?->attendances ?? collect())->isEmpty()) {
+                        $attendanceTotalMinutes = max(0, (int) round(((float) $salary->total_hours) * 60));
+                    }
+                    $attendanceTotalLabel = intdiv($attendanceTotalMinutes, 60).'h '.str_pad((string) ($attendanceTotalMinutes % 60), 2, '0', STR_PAD_LEFT).'m';
+                @endphp
+                (Total Worked: {{ $attendanceTotalLabel }})
             </h4>
             <table>
                 <thead>
@@ -205,10 +225,12 @@
                         $clockOut = $clockOutLocal ? $clockOutLocal->format('h:i A') : '-';
                         $workedHours = '-';
                         if ($attendance->total_minutes !== null) {
-                            $workedHours = max(0, (int) round($attendance->total_minutes)) . ' min';
+                            $minutes = max(0, (int) round($attendance->total_minutes))
+                                + max(0, (int) ($attendance->approved_overtime_minutes ?? 0));
+                            $workedHours = intdiv($minutes, 60).'h '.str_pad((string) ($minutes % 60), 2, '0', STR_PAD_LEFT).'m';
                         } elseif ($attendance->clock_in && $attendance->clock_out) {
                             $minutes = max(0, (int) $clockInLocal->copy()->startOfMinute()->diffInMinutes($clockOutLocal->copy()->startOfMinute()));
-                            $workedHours = $minutes . ' min';
+                            $workedHours = intdiv($minutes, 60).'h '.str_pad((string) ($minutes % 60), 2, '0', STR_PAD_LEFT).'m';
                         }
                     @endphp
                     <tr>
