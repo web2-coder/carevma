@@ -42,14 +42,24 @@ class OperationalActivityNotifier
         $payload = method_exists($response, 'getData') ? (array) $response->getData(true) : [];
         $message = $payload['message'] ?? $this->fallbackMessage($request);
         $title = $this->titleFor($request);
-        $recipients = $this->relatedRecipients($request, $payload)
-            ->merge($this->notifier->operationsUsers())
-            ->push($actor)
-            ->filter(fn ($user) => $user instanceof User)
+        $relatedRecipients = $this->relatedRecipients($request, $payload);
+
+        // Intended-user notifications remain recipient-scoped and never echo back
+        // to the actor. Account creation invitations are handled by their dedicated mail flow.
+        if ($request->is('api/management/employees') && $request->isMethod('post')) {
+            $relatedRecipients = $relatedRecipients->reject(fn ($user) => $user?->role === 'employee');
+        }
+        if ($request->is('api/admin/clients') && $request->isMethod('post')) {
+            $relatedRecipients = $relatedRecipients->reject(fn ($user) => $user?->role === 'client');
+        }
+
+        $recipients = $relatedRecipients
+            ->filter(fn ($user) => $user instanceof User && $user->id !== $actor->id)
             ->unique('id')
             ->values();
 
-        // Send per recipient so action links always resolve inside that recipient's own portal.
+        // Send per intended recipient so action links always resolve inside that
+        // recipient's own portal.
         foreach ($recipients as $recipient) {
             $this->notifier->send(
                 $recipient,
@@ -66,6 +76,33 @@ class OperationalActivityNotifier
             );
         }
 
+        // Admin + HR get an in-app operational audit notification for every successful
+        // business mutation (check-in/out, break actions, profile changes, schedule/data
+        // updates, etc.). The actor and already-notified intended recipients are excluded.
+        // Audit notifications intentionally do not send email to avoid SMTP bursts.
+        $recipientIds = $recipients->pluck('id');
+        $operationsRecipients = $this->notifier->operationsUsers()
+            ->reject(fn ($user) => $user->id === $actor->id || $recipientIds->contains($user->id))
+            ->values();
+
+        foreach ($operationsRecipients as $recipient) {
+            $this->notifier->send(
+                $recipient,
+                'Activity: '.$title,
+                $actor->name.' ('.$actor->email.') — '.$message,
+                'OperationalAudit',
+                $this->actionUrlForRecipient($request, $recipient),
+                [
+                    'actor_id' => $actor->id,
+                    'actor_role' => $actor->role,
+                    'method' => $request->method(),
+                    'path' => '/'.$request->path(),
+                    'audit' => true,
+                ],
+                false
+            );
+        }
+
         return $response;
     }
 
@@ -78,13 +115,13 @@ class OperationalActivityNotifier
             if ($parameter instanceof Employee) $users->push($parameter->user);
             if ($parameter instanceof Client) $users->push($parameter->user);
             if ($parameter instanceof EmployeeClientSchedule) {
-                $users->push($parameter->employee?->user, $parameter->client?->user);
+                $users->push($parameter->employee?->user);
             }
             if ($parameter instanceof Attendance) {
-                $users->push($parameter->employee?->user, $parameter->client?->user);
+                $users->push($parameter->employee?->user);
             }
             if ($parameter instanceof AttendanceChangeRequest) {
-                $users->push($parameter->employee?->user, $parameter->attendance?->client?->user);
+                $users->push($parameter->employee?->user);
             }
         }
 
@@ -96,30 +133,30 @@ class OperationalActivityNotifier
             if ($key === 'client' && !empty($item['id'])) $users->push(Client::find($item['id'])?->user);
             if ($key === 'schedule' && !empty($item['id'])) {
                 $schedule = EmployeeClientSchedule::find($item['id']);
-                $users->push($schedule?->employee?->user, $schedule?->client?->user);
+                $users->push($schedule?->employee?->user);
             }
             if ($key === 'attendance' && !empty($item['id'])) {
                 $attendance = Attendance::find($item['id']);
-                $users->push($attendance?->employee?->user, $attendance?->client?->user);
+                $users->push($attendance?->employee?->user);
             }
             if ($key === 'request' && !empty($item['id'])) {
                 $change = AttendanceChangeRequest::find($item['id']);
-                $users->push($change?->employee?->user, $change?->attendance?->client?->user);
+                $users->push($change?->employee?->user);
             }
             if ($key === 'break' && !empty($item['id'])) {
                 $break = EmployeeBreak::find($item['id']);
-                $users->push($break?->attendance?->employee?->user, $break?->attendance?->client?->user);
+                $users->push($break?->attendance?->employee?->user);
             }
         }
 
         // Creation endpoints can identify related records only by submitted IDs.
         if ($request->filled('employee_id')) $users->push(Employee::find($request->integer('employee_id'))?->user);
-        if ($request->filled('client_id') && !str_contains($request->path(), 'invoices')) {
+        if ($request->filled('client_id') && str_contains($request->path(), 'clients') && !str_contains($request->path(), 'invoices')) {
             $users->push(Client::find($request->integer('client_id'))?->user);
         }
         if ($request->filled('schedule_id')) {
             $schedule = EmployeeClientSchedule::find($request->integer('schedule_id'));
-            $users->push($schedule?->employee?->user, $schedule?->client?->user);
+            $users->push($schedule?->employee?->user);
         }
 
         return $users->filter(fn ($user) => $user instanceof User)->unique('id')->values();
@@ -127,11 +164,21 @@ class OperationalActivityNotifier
 
     private function shouldIgnore(Request $request): bool
     {
+        if (($request->is('api/admin/hr-users') && $request->isMethod('post'))
+            || $request->is('api/management/employees/*/resend-invite')
+            || $request->is('api/admin/clients/*/resend-invite')) {
+            return true;
+        }
+
         return $request->is(
             'api/logout',
             'api/notifications/read-all',
             'api/notifications/*/read',
-            'api/management/notifications/read-all'
+            'api/management/notifications/read-all',
+            'api/management/schedules/batch',
+            'api/birthday-popup/seen',
+            'api/admin/invoices/*/send',
+            'api/employee/birthday-wishes/*'
         );
     }
 

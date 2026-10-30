@@ -6,13 +6,15 @@ import AppShell from './components/AppShell';
 import { Loading } from './components/ui';
 import { LoginPage, ForgotPasswordPage, ResetPasswordPage } from './pages/Login';
 import {
-  ManagementDashboard, LiveUsersPage, EmployeesPage, ClientsPage, SchedulesPage, AttendancePage,
+  ManagementDashboard, LiveUsersPage, EmployeeProfileViewPage, EmployeesPage, ClientsPage, SchedulesPage, AttendancePage,
   ChangeRequestsPage, OvertimePage, InvoicesPage, CompanyFinancePage, ReferencePage, NotificationsPage, AccountPage, HrTeamPage
 } from './pages/Management';
 import { EmployeeDashboard, EmployeeSchedule, EmployeeAttendance, EmployeeProfile, EmployeeSettings } from './pages/Employee';
 import { DoctorDashboard, DoctorEmployeeAttendance, DoctorProfile } from './pages/Doctor';
 import EmployeeWizardPage from './pages/EmployeeWizard';
 import ClientProfilePage from './pages/ClientProfile';
+import NotebookPage from './pages/Notebook';
+import SharedDocumentsPage from './pages/SharedDocuments';
 import '../css/app.css';
 import '../css/carevma-professional-theme.css';
 import GlobalFeedbackHost from './components/GlobalFeedbackHost';
@@ -71,9 +73,11 @@ function AppRoutes() {
       <Route path="/hr/dashboard" element={<Protected roles={['hr']}><ManagementDashboard/></Protected>}/>
       <Route path="/hr/live-users" element={<Protected roles={['hr']}><LiveUsersPage/></Protected>}/>
       <Route path="/admin/employees" element={<Protected roles={['admin']}><EmployeesPage/></Protected>}/>
+      <Route path="/admin/employees/:employeeId" element={<Protected roles={['admin']}><EmployeeProfileViewPage/></Protected>}/>
       <Route path="/admin/employees/new" element={<Protected roles={['admin']}><EmployeeWizardPage/></Protected>}/>
       <Route path="/admin/hr-team" element={<Protected roles={['admin']}><HrTeamPage/></Protected>}/>
       <Route path="/hr/employees" element={<Protected roles={['hr']}><EmployeesPage/></Protected>}/>
+      <Route path="/hr/employees/:employeeId" element={<Protected roles={['hr']}><EmployeeProfileViewPage/></Protected>}/>
       <Route path="/hr/employees/new" element={<Protected roles={['hr']}><EmployeeWizardPage/></Protected>}/>
       <Route path="/admin/schedules" element={<Protected roles={['admin']}><SchedulesPage/></Protected>}/>
       <Route path="/hr/schedules" element={<Protected roles={['hr']}><SchedulesPage/></Protected>}/>
@@ -97,6 +101,8 @@ function AppRoutes() {
       <Route path="/admin/client/:clientId/daily-work-report" element={<Protected roles={['admin']}><ClientProfilePage/></Protected>}/>
       <Route path="/admin/invoices" element={<Protected roles={['admin']}><InvoicesPage/></Protected>}/>
       <Route path="/admin/company-finance" element={<Protected roles={['admin']}><CompanyFinancePage/></Protected>}/>
+      <Route path="/admin/notebook" element={<Protected roles={['admin']}><NotebookPage/></Protected>}/>
+      <Route path="/hr/notebook" element={<Protected roles={['hr']}><NotebookPage/></Protected>}/>
     </Route>
 
     <Route element={<Protected roles={['employee']}><AppShell/></Protected>}>
@@ -109,6 +115,8 @@ function AppRoutes() {
       <Route path="/employee/notifications" element={<NotificationsPage/>}/>
       <Route path="/employee/dashboard/profile/edit" element={<Navigate to="/employee/profile" replace/>}/>
       <Route path="/employee/settings" element={<EmployeeSettings/>}/>
+      <Route path="/employee/documents" element={<SharedDocumentsPage/>}/>
+      <Route path="/employee/notebook" element={<Navigate to="/employee/documents" replace/>}/>
     </Route>
 
     <Route element={<Protected roles={['client']}><AppShell/></Protected>}>
@@ -116,6 +124,8 @@ function AppRoutes() {
       <Route path="/doctor/employee/:employeeId/attendance" element={<DoctorEmployeeAttendance/>}/>
       <Route path="/doctor/notifications" element={<NotificationsPage/>}/>
       <Route path="/doctor/profile" element={<DoctorProfile/>}/>
+      <Route path="/doctor/documents" element={<SharedDocumentsPage/>}/>
+      <Route path="/doctor/notebook" element={<Navigate to="/doctor/documents" replace/>}/>
     </Route>
 
     {/* Doctor invoice access is intentionally disabled. Old links return to the doctor dashboard. */}

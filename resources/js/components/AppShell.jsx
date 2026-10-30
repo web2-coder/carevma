@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, UserRoundCog, CalendarDays, Clock3, FileCheck2, TimerReset,
   ReceiptText, SlidersHorizontal, Bell, UserCircle2, Settings, LogOut, Menu, X, BriefcaseBusiness,
-  Stethoscope, ClipboardList, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, Activity, CircleDollarSign
+  Stethoscope, ClipboardList, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, Activity, CircleDollarSign, BookOpenText
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api';
@@ -45,6 +45,7 @@ function navFor(user) {
       { label: 'Overtime Review', to: '/admin/overtime', icon: TimerReset },
       { label: 'Invoices', to: '/admin/invoices', icon: ReceiptText },
       { label: 'Company Finance', to: '/admin/company-finance', icon: CircleDollarSign },
+      { label: 'Notebook', to: '/admin/notebook', icon: BookOpenText },
       {
         label: 'Configuration', icon: SlidersHorizontal, children: [
           ['Departments','departments'], ['Roles','roles'], ['Employment Types','employment-types'],
@@ -65,6 +66,7 @@ function navFor(user) {
       { label: 'Attendance', to: '/hr/attendance', icon: Clock3 },
       { label: 'Change Requests', to: '/hr/change-requests', icon: FileCheck2 },
       { label: 'Overtime Review', to: '/hr/overtime', icon: TimerReset },
+      { label: 'Notebook', to: '/hr/notebook', icon: BookOpenText },
       {
         label: 'HR Configuration', icon: SlidersHorizontal, children: [
           ['Departments','departments'], ['Roles','roles'], ['Employment Types','employment-types'],
@@ -88,6 +90,7 @@ function navFor(user) {
       { label: 'My Schedule', to: '/employee/schedule', icon: CalendarDays },
       { label: 'My Attendance', to: '/employee/attendance', icon: Clock3 },
       { label: 'My Profile', to: '/employee/profile', icon: UserCircle2 },
+      { label: 'Shared Documents', to: '/employee/documents', icon: BookOpenText },
       { label: 'Notifications', to: '/employee/notifications', icon: Bell },
       { label: 'Settings', to: '/employee/settings', icon: Settings },
     ];
@@ -95,6 +98,7 @@ function navFor(user) {
   if (user.role === 'client') {
     return [
       { label: 'Assigned Team', to: '/doctor/dashboard', icon: Users },
+      { label: 'Shared Documents', to: '/doctor/documents', icon: BookOpenText },
       { label: 'Notifications', to: '/doctor/notifications', icon: Bell },
       { label: 'My Profile', to: '/doctor/profile', icon: UserCircle2 },
     ];
@@ -137,6 +141,8 @@ export default function AppShell() {
   const pageLoadFallbackRef = useRef(null);
   const pageLoadFinishRef = useRef(null);
   const notificationMenuRef = useRef(null);
+  const profileMenuRef = useRef(null);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const employeeProfileIncomplete = profileIncomplete(user);
@@ -262,7 +268,7 @@ export default function AppShell() {
     const loadLiveCount = async () => {
       try {
         const { data } = await api.get('/management/live-users');
-        if (alive) setLiveCount(Math.max(0, Number(data?.total) || 0));
+        if (alive) setLiveCount(Math.max(0, Number(data?.checked_in) || 0));
       } catch {}
     };
 
@@ -350,6 +356,27 @@ export default function AppShell() {
     }
   }, [employeeProfileIncomplete, location.pathname, navigate]);
 
+  useEffect(() => {
+    if (!profileMenuOpen) return;
+    const close = event => {
+      if (profileMenuRef.current && !profileMenuRef.current.contains(event.target)) setProfileMenuOpen(false);
+    };
+    const escape = event => { if (event.key === 'Escape') setProfileMenuOpen(false); };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [profileMenuOpen]);
+
+  const profilePath = user?.role === 'employee' ? '/employee/profile'
+    : user?.role === 'client' ? '/doctor/profile'
+    : user?.role === 'hr' ? '/hr/account'
+    : '/admin/account';
+  const settingsPath = user?.role === 'employee' ? '/employee/settings' : profilePath;
+  const openProfilePath = path => { setProfileMenuOpen(false); beginPageLoad(); navigate(path); };
+
   const signOut = async () => { await logout(); navigate('/login', { replace: true }); };
   const roleLabel = user?.role === 'client' ? 'Client / Doctor' : user?.role === 'employee' ? 'Team Member / VA' : user?.role === 'hr' ? 'Human Resources' : 'Administrator';
 
@@ -364,7 +391,6 @@ export default function AppShell() {
       <div className="workspace-chip">{!collapsed && <><span className="workspace-dot"/><div><strong>Operations</strong><small>{roleLabel}</small></div></>}</div>
       <nav className="sidebar-nav">{nav.map(item => <NavItem key={item.label} item={item} collapsed={collapsed} mobileClose={() => setMobileOpen(false)} liveCount={liveCount} beginPageLoad={beginPageLoad}/>)}</nav>
       <div className="sidebar-foot">
-        {!collapsed && <div className="user-mini"><div className="avatar"><AvatarMedia src={user?.employee?.profile_picture || user?.client?.profile_picture} alt={user?.name||'User'} fallback={user?.name?.split(' ').map(x => x[0]).slice(0,2).join('').toUpperCase()}/></div><div><strong>{user?.name}</strong><span>{user?.email}</span></div></div>}
         <button className="nav-link danger-link" onClick={signOut} title="Sign out"><span className="nav-icon"><LogOut size={19}/></span>{!collapsed && <span>Sign out</span>}</button>
       </div>
     </aside>
@@ -410,7 +436,20 @@ export default function AppShell() {
               <button type="button" className="notification-dropdown-footer" onClick={() => { setNotificationOpen(false); beginPageLoad(); navigate(notificationPath); }}>View all notifications <ChevronRight size={15}/></button>
             </div>}
           </div>}
-          <div className="status-pill"><span/>Secure session</div><div className="avatar small"><AvatarMedia src={user?.employee?.profile_picture || user?.client?.profile_picture} alt={user?.name||'User'} fallback={user?.name?.[0]?.toUpperCase()}/></div>
+          <div className="profile-menu-wrap" ref={profileMenuRef}>
+            <button type="button" className={`profile-menu-trigger ${profileMenuOpen ? 'active' : ''}`} onClick={() => setProfileMenuOpen(open => !open)} aria-expanded={profileMenuOpen} aria-haspopup="menu">
+              <span className="avatar small"><AvatarMedia src={user?.profile_picture || user?.employee?.profile_picture || user?.client?.profile_picture} alt={user?.name||'User'} fallback={user?.name?.[0]?.toUpperCase()}/></span>
+              <span className="profile-menu-trigger-copy"><strong>{user?.name}</strong><small>{roleLabel}</small></span>
+              <ChevronDown size={15}/>
+            </button>
+            {profileMenuOpen && <div className="profile-dropdown" role="menu">
+              <div className="profile-dropdown-head"><strong>{user?.name}</strong><span>{user?.email}</span></div>
+              <button type="button" onClick={() => openProfilePath(profilePath)}><UserCircle2 size={16}/><span>Profile</span></button>
+              <button type="button" onClick={() => openProfilePath(settingsPath)}><Settings size={16}/><span>Settings</span></button>
+              <div className="profile-dropdown-divider"/>
+              <button type="button" className="profile-dropdown-logout" onClick={signOut}><LogOut size={16}/><span>Logout</span></button>
+            </div>}
+          </div>
         </div>
       </header>
       <main className="content">

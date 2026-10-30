@@ -231,25 +231,8 @@ public function index()
 
         $field = $request->field;
 
-        if ($field === 'upload_documents' && $request->hasFile('value')) {
-            $path = $request->file('value')->store("employees/documents/{$employee->id}", 'public');
-        
-            $docs = $employee->upload_documents ?? [];
-        
-            if (!is_array($docs)) {
-                $docs = json_decode($docs, true) ?? [];
-            }
-        
-            $docs[] = $path;
-        
-            $employee->upload_documents = $docs;
-            $employee->profile_completed = true;
-            $employee->save();
-        
-            return response()->json([
-                'success' => true,
-                'value'   => asset('storage/' . $path),
-            ]);
+        if ($field === 'upload_documents') {
+            return response()->json(['success' => false, 'message' => 'VA document uploads are disabled. Documents are shared by Admin or HR only.'], 403);
         }
 
         if ($field === 'profile_picture' && $request->hasFile('value')) {
@@ -267,31 +250,6 @@ public function index()
         }
 
         $employee->update([$field => $request->value]);
-
-        return response()->json(['success' => true]);
-    }
-
-    public function delete_document(Request $request)
-    {
-        $employee = Employee::where('user_id', Auth::id())->firstOrFail();
-
-        $path = $request->path;
-
-        $docs = $employee->upload_documents ?? [];
-        if (!is_array($docs)) {
-            $docs = json_decode($docs, true) ?? [];
-        }
-
-        $docs = array_filter($docs, function ($doc) use ($path) {
-            return $doc !== $path;
-        });
-
-        $employee->upload_documents = array_values($docs);
-        $employee->save();
-
-        if (Storage::disk('public')->exists($path)) {
-            Storage::disk('public')->delete($path);
-        }
 
         return response()->json(['success' => true]);
     }

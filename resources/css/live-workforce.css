@@ -197,3 +197,257 @@
   .dual-zone-clockin{min-width:0}
   .live-zone-time-line{grid-template-columns:48px minmax(0,1fr)}
 }
+
+/* Currently Active: card presentation */
+.live-user-card-grid{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:18px;
+}
+.live-user-card{
+  position:relative;
+  min-width:0;
+  border:1px solid var(--border);
+  border-radius:18px;
+  background:var(--surface);
+  padding:18px;
+  box-shadow:0 8px 26px rgba(11,31,42,.06);
+  font-family:Poppins,sans-serif;
+}
+.live-user-card-profile-row{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 46px minmax(0,1fr);
+  gap:10px;
+  align-items:start;
+  padding:2px 0 16px;
+  border-bottom:1px solid var(--border);
+}
+.live-user-profile-block{
+  display:flex;
+  min-width:0;
+  flex-direction:column;
+  align-items:center;
+  text-align:center;
+}
+.live-user-profile-photo{
+  width:72px;
+  height:72px;
+  border-radius:20px;
+  object-fit:cover;
+  display:grid;
+  place-items:center;
+  overflow:hidden;
+  background:linear-gradient(135deg,#d8f2eb,#b6ddd4);
+  border:3px solid #fff;
+  box-shadow:0 6px 18px rgba(11,31,42,.12);
+  color:#155d50;
+  font-size:16px;
+  font-weight:900;
+}
+.live-user-profile-block.doctor .live-user-profile-photo{
+  background:linear-gradient(135deg,#e8f0ff,#d7e5f8);
+  color:#315a78;
+}
+.live-user-profile-block>span{
+  margin-top:8px;
+  color:var(--muted);
+  font-size:8px;
+  font-weight:800;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+.live-user-profile-block>strong{
+  width:100%;
+  margin-top:2px;
+  overflow:hidden;
+  color:var(--text);
+  font-size:11px;
+  font-weight:800;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.live-user-profile-block>small{
+  width:100%;
+  margin-top:2px;
+  overflow:hidden;
+  color:var(--muted);
+  font-size:8.5px;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.live-user-profile-link{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  align-self:center;
+  gap:2px;
+  color:var(--muted);
+  text-align:center;
+}
+.live-user-profile-link span{font-size:7.5px;text-transform:uppercase;letter-spacing:.05em}
+.live-user-profile-link i{font-style:normal;font-size:20px;color:var(--brand)}
+.live-user-card-status{
+  position:absolute;
+  top:12px;
+  right:12px;
+  z-index:2;
+}
+.live-user-card-body{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px;
+  padding:14px 0;
+}
+.live-user-card-body>div{
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+  min-width:0;
+  padding:10px;
+  border-radius:12px;
+  background:var(--surface-2);
+}
+.live-user-card-body>div>span:first-child{
+  color:var(--muted);
+  font-size:8px;
+  font-weight:800;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+}
+.live-user-card-body strong{
+  overflow:hidden;
+  color:var(--text);
+  font-size:10px;
+  text-overflow:ellipsis;
+}
+.live-user-card-body small{color:var(--muted);font-size:8.3px;line-height:1.35}
+.live-user-card-body .live-time-cell{min-width:0}
+.live-user-card-body .live-duration-value{font-size:14px}
+.live-user-card-body .live-break-cell{min-width:0}
+.live-user-card-body .live-break-cell strong{font-size:10px}
+.live-user-card-body .live-break-cell span{font-size:8.3px;white-space:normal}
+.live-user-card-actions{
+  display:flex;
+  gap:8px;
+  justify-content:flex-end;
+  padding-top:12px;
+  border-top:1px solid var(--border);
+}
+.profile-summary{display:flex;align-items:center;gap:14px}
+.profile-summary h2{font:800 18px Poppins,sans-serif;margin:0}
+.profile-summary p{margin:4px 0 0;color:var(--muted)}
+.detail-list{display:grid;gap:0}
+.detail-list>div{display:flex;justify-content:space-between;gap:16px;padding:10px 0;border-bottom:1px solid var(--border)}
+.detail-list>div:last-child{border-bottom:0}
+.detail-list span{color:var(--muted);font-size:10px}
+.detail-list strong{font-size:10.5px;text-align:right}
+.table-subtext{display:block;margin-top:2px;color:var(--muted);font-size:8.5px;font-weight:500}
+
+@media(max-width:1240px){
+  .live-user-card-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:760px){
+  .live-user-card-grid{grid-template-columns:1fr}
+  .live-user-card-actions{flex-direction:column}
+  .live-user-card-actions .btn{width:100%}
+}
+@media(max-width:440px){
+  .live-user-profile-photo{width:62px;height:62px;border-radius:17px}
+  .live-user-card-profile-row{grid-template-columns:minmax(0,1fr) 30px minmax(0,1fr);gap:5px}
+  .live-user-card-body{grid-template-columns:1fr}
+}
+
+/* Admin VA Live Status tabs + advanced presence states */
+.live-status-tabs{display:flex;gap:8px;align-items:center;overflow-x:auto;margin:0 0 18px;padding:6px;border:1px solid var(--border);border-radius:16px;background:var(--surface);box-shadow:0 6px 20px rgba(11,31,42,.04)}
+.live-status-tab{display:inline-flex;align-items:center;gap:7px;min-width:max-content;border:0;border-radius:11px;background:transparent;padding:9px 12px;color:var(--muted);font:700 10px Poppins,sans-serif;cursor:pointer;transition:.2s ease}
+.live-status-tab:hover{background:var(--surface-2);color:var(--text)}
+.live-status-tab.active{background:#eef9f5;color:#0c5f4f;box-shadow:inset 0 0 0 1px rgba(12,95,79,.12)}
+.live-status-tab strong{display:grid;place-items:center;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:#edf2f7;color:#536579;font-size:9px}
+.live-status-tab.active strong{background:#0c5f4f;color:#fff}
+.live-tab-dot{width:8px;height:8px;border-radius:50%;background:#94a3b8}
+.live-tab-dot.online,.live-tab-dot.checked_in{background:#22c55e;box-shadow:0 0 0 4px rgba(34,197,94,.11)}
+.live-tab-dot.break{background:#f59e0b}.live-tab-dot.late{background:#f97316}.live-tab-dot.offline{background:#94a3b8}.live-tab-dot.all{background:#0c5f4f}
+.live-avatar-wrap{position:relative;display:inline-flex}
+.advanced-live-dot{position:absolute;right:-2px;bottom:1px;width:13px;height:13px;border:3px solid #fff;border-radius:50%;z-index:3}
+.advanced-live-dot.online{background:#22c55e;animation:carevma-advanced-live-pulse 1.7s ease-out infinite}
+.advanced-live-dot.offline{background:#94a3b8;box-shadow:none}
+@keyframes carevma-advanced-live-pulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.42)}70%{box-shadow:0 0 0 8px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
+.advanced-status-badge{display:inline-flex;align-items:center;gap:6px;padding:6px 9px;border-radius:999px;background:#f1f5f9;color:#64748b;font:800 8.5px Poppins,sans-serif;text-transform:uppercase;letter-spacing:.04em;border:1px solid rgba(100,116,139,.12)}
+.advanced-status-badge i{width:7px;height:7px;border-radius:50%;background:currentColor}
+.advanced-status-badge.checked_in,.advanced-status-badge.online{background:#ecfdf5;color:#15803d;border-color:#bbf7d0}
+.advanced-status-badge.break{background:#fffbeb;color:#b45309;border-color:#fde68a}
+.advanced-status-badge.late{background:#fff7ed;color:#c2410c;border-color:#fed7aa}
+.advanced-status-badge.offline{background:#f8fafc;color:#64748b;border-color:#e2e8f0}
+.live-user-card.status-offline{opacity:.86;background:#fbfcfd}
+.live-user-card.status-offline .live-user-profile-photo{filter:saturate(.75)}
+.live-user-card.status-break{border-color:rgba(245,158,11,.32)}
+.live-user-card.status-late{border-color:rgba(249,115,22,.32)}
+.live-user-card-body .late-detail{background:#fff7ed;border:1px solid #fed7aa}
+.live-user-card-body .late-detail strong{color:#c2410c}
+@media(max-width:760px){.live-status-tabs{padding:5px}.live-status-tab{padding:8px 10px}}
+
+
+/* Same compact/expand Live Workforce card behavior across every status tab */
+.live-user-card{cursor:pointer;transition:box-shadow .2s ease,border-color .2s ease,transform .2s ease}
+.live-user-card:hover{box-shadow:0 10px 30px rgba(11,31,42,.09)}
+.live-user-card:focus-visible{outline:2px solid var(--brand);outline-offset:3px}
+.live-user-card.is-compact .live-user-card-profile-row{padding-bottom:2px;border-bottom:0}
+.live-user-card.is-expanded .live-user-card-profile-row{padding-bottom:16px;border-bottom:1px solid var(--border)}
+.live-user-card.is-expanded{cursor:default}
+
+/* Multi-doctor live session: keep every active Doctor visible without merging timezones. */
+.live-user-doctor-stack{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(110px,1fr));
+  gap:10px;
+  min-width:0;
+}
+.live-user-doctor-stack .live-user-profile-block{
+  min-width:0;
+}
+.live-user-doctor-stack .live-user-profile-photo{
+  width:58px;
+  height:58px;
+}
+@media (max-width: 720px){
+  .live-user-doctor-stack{grid-template-columns:1fr;}
+}
+
+/* Multi-doctor live session cards: one clear box per active Doctor. */
+.doctor-live-session-section{margin-top:18px;display:grid;gap:12px}
+.doctor-live-session-heading{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.doctor-live-session-heading>div{display:grid;gap:4px}
+.doctor-live-session-heading span,.doctor-live-card span{font-size:12px;color:var(--muted,#64748b)}
+.doctor-live-session-heading strong{font-size:16px;color:var(--text,#0f172a)}
+.doctor-live-session-heading small,.doctor-live-card small{font-size:11px;color:var(--muted,#64748b)}
+.doctor-live-card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.doctor-live-card{border:1px solid rgba(15,23,42,.10);border-radius:16px;background:#fff;padding:16px;box-shadow:0 8px 24px rgba(15,23,42,.05);display:grid;gap:14px}
+.doctor-live-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding-bottom:12px;border-bottom:1px solid rgba(15,23,42,.08)}
+.doctor-live-card-head>div{display:grid;gap:3px}
+.doctor-live-card-head strong{font-size:17px;color:var(--text,#0f172a)}
+.doctor-live-card-grid-inner{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.doctor-live-card-grid-inner>div{min-width:0;display:grid;gap:4px;padding:10px;border-radius:12px;background:rgba(248,250,252,.9)}
+.doctor-live-card-grid-inner strong{font-size:14px;line-height:1.35;word-break:break-word}
+.doctor-segment-timer-value{font-variant-numeric:tabular-nums;font-size:22px!important;letter-spacing:.02em}
+.doctor-live-card .dual-timezone-clock{margin:0;padding:0;background:transparent;border:0;box-shadow:none}
+.doctor-live-card .dual-timezone-clock>div{padding:0}
+.live-doctor-mini-timer{display:grid;gap:2px;margin-top:5px;padding-top:5px;border-top:1px solid rgba(15,23,42,.08)}
+.live-doctor-mini-timer>.live-time-cell{display:block}
+.live-doctor-mini-timer .live-duration-value{font-size:13px}
+.live-doctor-mini-timer .live-time-cell>span{display:none}
+@media(max-width:900px){.doctor-live-card-grid{grid-template-columns:1fr}.doctor-live-card-grid-inner{grid-template-columns:1fr}}
+
+
+/* 2026-10-30 Live Workforce multi-doctor layout repair */
+.live-user-card-grid{grid-template-columns:repeat(2,minmax(340px,1fr))!important}
+.live-user-card-profile-row{grid-template-columns:minmax(120px,.8fr) 52px minmax(0,1.6fr)!important}
+.live-user-doctor-stack{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))!important;align-items:start}
+.live-user-doctor-stack .live-user-profile-block{padding:10px;border:1px solid var(--border);border-radius:12px;background:var(--surface-2)}
+.live-user-doctor-stack .live-doctor-mini-timer{width:100%}
+@media(max-width:980px){.live-user-card-grid{grid-template-columns:1fr!important}}
+@media(max-width:620px){
+  .live-user-card-profile-row{grid-template-columns:1fr!important}
+  .live-user-profile-link{transform:rotate(90deg);margin:0 auto}
+  .live-user-doctor-stack{grid-template-columns:1fr!important;width:100%}
+}

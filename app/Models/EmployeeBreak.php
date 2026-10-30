@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class EmployeeBreak extends Model
 {
-    protected $fillable = ['attendance_id', 'start_time', 'end_time', 'notes'];
+    protected $fillable = ['attendance_id', 'work_session_break_id', 'start_time', 'end_time', 'notes'];
 
     protected function startTime(): Attribute
     {
@@ -43,6 +43,11 @@ class EmployeeBreak extends Model
         if ($value === null || $value === '') return null;
         if ($value instanceof DateTimeInterface) return Carbon::instance($value)->utc()->format($this->getDateFormat());
         return Carbon::parse((string) $value, 'UTC')->utc()->format($this->getDateFormat());
+    }
+
+    public function workSessionBreak()
+    {
+        return $this->belongsTo(WorkSessionBreak::class, 'work_session_break_id');
     }
 
     public function attendance()

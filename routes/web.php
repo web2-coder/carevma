@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\DoctorApiController;
 use App\Http\Controllers\Api\EmployeeApiController;
 use App\Http\Controllers\Api\InvoicePdfController;
 use App\Http\Controllers\Api\NotificationApiController;
+use App\Http\Controllers\Api\NotebookApiController;
 use App\Http\Controllers\Auth\OrgGoogleController;
 use App\Http\Controllers\Admin\Client\ClientAuthController;
 use App\Http\Controllers\EmployeeProfile\CompleteProfileController;
@@ -21,11 +22,26 @@ Route::prefix('api')->group(function () {
     Route::post('/login', [AuthApiController::class, 'login'])->middleware('guest');
     Route::post('/forgot-password', [AuthApiController::class, 'forgot'])->middleware('guest');
     Route::post('/reset-password', [AuthApiController::class, 'reset'])->middleware('guest');
+    Route::get('/csrf-token', function (\Illuminate\Http\Request $request) {
+        return response()
+            ->json(['token' => $request->session()->token()])
+            ->header('Cache-Control', 'no-store, no-cache, must-revalidate, private')
+            ->header('Pragma', 'no-cache');
+    });
 
     Route::middleware(['auth', OperationalActivityNotifier::class])->group(function () {
         Route::get('/me', [AuthApiController::class, 'me']);
         Route::get('/time', [AuthApiController::class, 'time']);
         Route::post('/logout', [AuthApiController::class, 'logout']);
+        Route::post('/birthday-popup/seen', [AuthApiController::class, 'markBirthdayPopupSeen']);
+
+        Route::middleware('role:admin,hr')->group(function () {
+            Route::get('/notebook', [NotebookApiController::class, 'index']);
+            Route::post('/notebook', [NotebookApiController::class, 'store']);
+            Route::delete('/notebook/{document}', [NotebookApiController::class, 'destroy']);
+        });
+        Route::get('/shared-documents', [NotebookApiController::class, 'sharedIndex']);
+        Route::get('/shared-documents/{document}/download', [NotebookApiController::class, 'download']);
 
         Route::middleware('profile.complete')->group(function () {
             Route::get('/notifications', [NotificationApiController::class, 'index']);
@@ -46,12 +62,15 @@ Route::prefix('api')->group(function () {
 
             Route::get('/schedules', [AdminApiController::class, 'schedules']);
             Route::post('/schedules', [AdminApiController::class, 'storeSchedule']);
+            Route::post('/schedules/batch', [AdminApiController::class, 'storeScheduleBatch']);
             Route::put('/schedules/{schedule}', [AdminApiController::class, 'updateSchedule']);
             Route::delete('/schedules/{schedule}', [AdminApiController::class, 'destroySchedule']);
 
             Route::get('/attendance', [AdminApiController::class, 'attendance']);
             Route::get('/change-requests', [AdminApiController::class, 'changeRequests']);
             Route::post('/change-requests/{changeRequest}/review', [AdminApiController::class, 'reviewChangeRequest']);
+            Route::get('/schedule-change-requests', [AdminApiController::class, 'scheduleChangeRequests']);
+            Route::post('/schedule-change-requests/{scheduleChangeRequest}/review', [AdminApiController::class, 'reviewScheduleChangeRequest']);
             Route::get('/overtime', [AdminApiController::class, 'overtime']);
             Route::post('/overtime/{attendance}/review', [AdminApiController::class, 'reviewOvertime']);
 
@@ -65,6 +84,7 @@ Route::prefix('api')->group(function () {
             Route::get('/notifications', [AdminApiController::class, 'notifications']);
             Route::post('/notifications/read-all', [AdminApiController::class, 'markNotificationsRead']);
             Route::put('/account', [AdminApiController::class, 'updateAccount']);
+            Route::post('/account', [AdminApiController::class, 'updateAccount']);
             Route::put('/account/password', [AdminApiController::class, 'changePassword']);
         });
 
@@ -78,10 +98,13 @@ Route::prefix('api')->group(function () {
             Route::get('/clients/{client}', [AdminApiController::class, 'client']);
             Route::put('/clients/{client}', [AdminApiController::class, 'updateClient']);
             Route::delete('/clients/{client}', [AdminApiController::class, 'destroyClient']);
+            Route::post('/clients/{client}/resend-invite', [AdminApiController::class, 'resendClientInvitation']);
             Route::get('/invoices', [AdminApiController::class, 'invoices']);
             Route::post('/invoices/generate', [AdminApiController::class, 'generateInvoice']);
             Route::get('/invoices/{invoice}', [AdminApiController::class, 'invoice']);
             Route::put('/invoices/{invoice}', [AdminApiController::class, 'updateInvoice']);
+            Route::delete('/invoices/{invoice}', [AdminApiController::class, 'destroyInvoice']);
+            Route::post('/invoices/{invoice}/send', [AdminApiController::class, 'sendInvoicePdf']);
             Route::get('/company-finance', [AdminApiController::class, 'companyFinance']);
             Route::post('/company-finance/entries', [AdminApiController::class, 'storeCompanyFinanceEntry']);
             Route::delete('/company-finance/entries/{entry}', [AdminApiController::class, 'destroyCompanyFinanceEntry']);
@@ -91,7 +114,6 @@ Route::prefix('api')->group(function () {
             // Profile endpoints remain available during first-login onboarding.
             Route::get('/profile', [EmployeeApiController::class, 'profile']);
             Route::post('/profile', [EmployeeApiController::class, 'updateProfile']);
-            Route::delete('/profile/document', [EmployeeApiController::class, 'removeDocument']);
 
             Route::middleware('profile.complete')->group(function () {
                 Route::get('/dashboard', [EmployeeApiController::class, 'dashboard']);
@@ -99,11 +121,15 @@ Route::prefix('api')->group(function () {
                 Route::get('/attendance', [EmployeeApiController::class, 'attendance']);
                 Route::get('/change-requests', [EmployeeApiController::class, 'changeRequests']);
                 Route::post('/change-requests', [EmployeeApiController::class, 'requestChange']);
+                Route::get('/schedule-change-requests', [EmployeeApiController::class, 'scheduleChangeRequests']);
+                Route::post('/schedule-change-requests', [EmployeeApiController::class, 'requestScheduleChange']);
                 Route::post('/clock-in', [EmployeeApiController::class, 'clockIn']);
                 Route::post('/clock-out', [EmployeeApiController::class, 'clockOut']);
+                Route::post('/overtime/{attendance}/request', [EmployeeApiController::class, 'requestOvertimeReview']);
                 Route::post('/break/start', [EmployeeApiController::class, 'startBreak']);
                 Route::post('/break/end', [EmployeeApiController::class, 'endBreak']);
                 Route::put('/password', [EmployeeApiController::class, 'changePassword']);
+                Route::post('/birthday-wishes/{employee}', [EmployeeApiController::class, 'sendBirthdayWish']);
             });
         });
 
