@@ -20,7 +20,7 @@
         .subtotal-row td { font-weight: bold; background: #f7f9f9; }
         .page-break { page-break-after: always; }
         .attendance-section { margin-bottom: 24px; page-break-inside: auto; }
-        .payment-page { page-break-before: always; page-break-inside: avoid; }
+        .payment-page { margin-top: 18px; page-break-inside: avoid; }
         .payment-card { border: 1px solid #d7dfdd; padding: 18px; page-break-inside: avoid; }
         .grand-total { background: #083589; color: #fff; padding: 14px 16px; margin-bottom: 18px; page-break-inside: avoid; }
         .grand-total table { margin: 0; }
@@ -180,7 +180,7 @@
 <div class="invoice-box">
     <h2 style="color:#083589;">Attendance Records</h2>
     <p><strong>Period:</strong> {{ \Carbon\Carbon::parse($invoice->period_start)->format('d F Y') }} - {{ \Carbon\Carbon::parse($invoice->period_end)->format('d F Y') }}</p>
-    <p><strong>Timezone:</strong> {{ $clientTimezone }}</p>
+    <p><strong>Timezone:</strong> {{ $clientTimezone }} (Doctor / Client timezone)</p>
 
     @foreach($invoice->salaries as $salary)
         <div class="attendance-section">
