@@ -86,7 +86,9 @@
         <thead>
             <tr>
                 <th>VA Name</th>
-                <th>Worked Time</th>
+                <th>Regular Work</th>
+                <th>Approved OT</th>
+                <th>Payable Time</th>
                 <th>Rate/h</th>
                 <th>From</th>
                 <th>To</th>
@@ -97,17 +99,10 @@
         @foreach($invoice->salaries as $salary)
             @php
                 $rate = isset($clientEmployeeRates[$salary->employee_id]) ? $clientEmployeeRates[$salary->employee_id]->per_hour_rate : 0;
-                // Use exact attendance minutes so the summary, attendance rows and amount reconcile.
-                // Approved overtime is payable only after approval and is included in the displayed worked time.
-                $salaryAttendances = $salary->employee?->attendances ?? collect();
-                $workedMinutes = (int) $salaryAttendances->sum(function ($attendance) {
-                    return max(0, (int) ($attendance->total_minutes ?? 0))
-                        + max(0, (int) ($attendance->approved_overtime_minutes ?? 0));
-                });
-                // Fallback for legacy/manual invoices that do not have attached attendance rows.
-                if ($salaryAttendances->isEmpty()) {
-                    $workedMinutes = max(0, (int) round(((float) $salary->total_hours) * 60));
-                }
+                $attendanceRows = $salary->employee->attendances;
+                $regularMinutes = max(0, (int) $attendanceRows->sum('total_minutes'));
+                $approvedOtMinutes = max(0, (int) $attendanceRows->sum('approved_overtime_minutes'));
+                $payableMinutes = $regularMinutes + $approvedOtMinutes;
                 $formatMinutes = function (int $minutes): string {
                     $minutes = max(0, $minutes);
                     $hours = intdiv($minutes, 60);
@@ -117,7 +112,9 @@
             @endphp
             <tr>
                 <td>{{ $salary->employee->first_name }} {{ $salary->employee->last_name }}</td>
-                <td>{{ $formatMinutes($workedMinutes) }}</td>
+                <td>{{ $formatMinutes($regularMinutes) }}</td>
+                <td>{{ $formatMinutes($approvedOtMinutes) }}</td>
+                <td>{{ $formatMinutes($payableMinutes) }}</td>
                 <td>${{ number_format($rate, 2) }}</td>
                 <td>{{ \Carbon\Carbon::parse($salary->period_start)->format('d-M') }}</td>
                 <td>{{ \Carbon\Carbon::parse($salary->period_end)->format('d-M') }}</td>
@@ -125,7 +122,7 @@
             </tr>
         @endforeach
             <tr class="subtotal-row">
-                <td colspan="5" class="text-right">Attendance / Salary Subtotal</td>
+                <td colspan="7" class="text-right">Attendance / Salary Subtotal</td>
                 <td class="text-right">${{ number_format($baseSubtotal, 2) }}</td>
             </tr>
         </tbody>
@@ -194,24 +191,25 @@
 
     @foreach($invoice->salaries as $salary)
         <div class="attendance-section">
+            @php
+                $formatAttendanceMinutes = function (int $minutes): string {
+                    $minutes = max(0, $minutes);
+                    $hours = intdiv($minutes, 60);
+                    $mins = $minutes % 60;
+                    return $hours > 0 ? sprintf('%dh %02dm', $hours, $mins) : sprintf('%dm', $mins);
+                };
+                $regularTotal = max(0, (int) $salary->employee->attendances->sum('total_minutes'));
+                $approvedOtTotal = max(0, (int) $salary->employee->attendances->sum('approved_overtime_minutes'));
+                $payableTotal = $regularTotal + $approvedOtTotal;
+            @endphp
             <h4 style="background:#f2f2f2;padding:8px;margin-top:20px;">
                 {{ $salary->employee->first_name }} {{ $salary->employee->last_name }}
-                @php
-                    $attendanceTotalMinutes = (int) ($salary->employee?->attendances ?? collect())->sum(function ($attendance) {
-                        return max(0, (int) ($attendance->total_minutes ?? 0))
-                            + max(0, (int) ($attendance->approved_overtime_minutes ?? 0));
-                    });
-                    if (($salary->employee?->attendances ?? collect())->isEmpty()) {
-                        $attendanceTotalMinutes = max(0, (int) round(((float) $salary->total_hours) * 60));
-                    }
-                    $attendanceTotalLabel = intdiv($attendanceTotalMinutes, 60).'h '.str_pad((string) ($attendanceTotalMinutes % 60), 2, '0', STR_PAD_LEFT).'m';
-                @endphp
-                (Total Worked: {{ $attendanceTotalLabel }})
+                (Regular: {{ $formatAttendanceMinutes($regularTotal) }} | Approved OT: {{ $formatAttendanceMinutes($approvedOtTotal) }} | Payable: {{ $formatAttendanceMinutes($payableTotal) }})
             </h4>
-            <table>
+            <table style="font-size:10px;">
                 <thead>
                     <tr>
-                        <th>Date</th><th>Clock In</th><th>Clock Out</th><th>Break</th><th>Worked Time</th>
+                        <th>Date</th><th>Clock In</th><th>Clock Out</th><th>Break</th><th>Regular Work</th><th>Overtime</th><th>OT Status</th><th>Payable</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -223,32 +221,25 @@
                         $attendanceDate = $clockInLocal ? $clockInLocal->format('d-M-Y') : \Carbon\Carbon::parse($attendance->date)->format('d-M-Y');
                         $clockIn = $clockInLocal ? $clockInLocal->format('h:i A') : '-';
                         $clockOut = $clockOutLocal ? $clockOutLocal->format('h:i A') : '-';
-                        $breakSeconds = max(0, (int) ($attendance->break_taken ?? 0));
-                        $breakMinutes = intdiv($breakSeconds, 60);
-                        $breakLabel = $breakMinutes > 0
-                            ? (intdiv($breakMinutes, 60) > 0
-                                ? intdiv($breakMinutes, 60).'h '.str_pad((string) ($breakMinutes % 60), 2, '0', STR_PAD_LEFT).'m'
-                                : $breakMinutes.'m')
-                            : '0m';
-                        $workedHours = '-';
-                        if ($attendance->total_minutes !== null) {
-                            $minutes = max(0, (int) round($attendance->total_minutes))
-                                + max(0, (int) ($attendance->approved_overtime_minutes ?? 0));
-                            $workedHours = intdiv($minutes, 60).'h '.str_pad((string) ($minutes % 60), 2, '0', STR_PAD_LEFT).'m';
-                        } elseif ($attendance->clock_in && $attendance->clock_out) {
-                            $minutes = max(0, (int) $clockInLocal->copy()->startOfMinute()->diffInMinutes($clockOutLocal->copy()->startOfMinute()));
-                            $workedHours = intdiv($minutes, 60).'h '.str_pad((string) ($minutes % 60), 2, '0', STR_PAD_LEFT).'m';
-                        }
+                        $breakMinutes = (int) floor(max(0, (int) ($attendance->break_taken ?? 0)) / 60);
+                        $regularMinutes = max(0, (int) ($attendance->total_minutes ?? 0));
+                        $overtimeMinutes = max(0, (int) ($attendance->overtime ?? 0));
+                        $approvedMinutes = max(0, (int) ($attendance->approved_overtime_minutes ?? 0));
+                        $otStatus = $overtimeMinutes > 0 ? ucfirst(str_replace('_', ' ', (string) ($attendance->overtime_status ?: 'review_required'))) : 'None';
+                        $payableMinutes = $regularMinutes + ($attendance->overtime_status === 'approved' ? $approvedMinutes : 0);
                     @endphp
                     <tr>
                         <td>{{ $attendanceDate }}</td>
                         <td>{{ $clockIn }}</td>
                         <td>{{ $clockOut }}</td>
-                        <td>{{ $breakLabel }}</td>
-                        <td>{{ $workedHours }}</td>
+                        <td>{{ $formatAttendanceMinutes($breakMinutes) }}</td>
+                        <td>{{ $formatAttendanceMinutes($regularMinutes) }}</td>
+                        <td>{{ $formatAttendanceMinutes($overtimeMinutes) }}</td>
+                        <td>{{ $otStatus }}</td>
+                        <td>{{ $formatAttendanceMinutes($payableMinutes) }}</td>
                     </tr>
                 @empty
-                    <tr><td colspan="5" class="text-center">No attendance records found for this period</td></tr>
+                    <tr><td colspan="8" class="text-center">No attendance records found for this period</td></tr>
                 @endforelse
                 </tbody>
             </table>

@@ -38,7 +38,7 @@ class AttendanceBillingService
             return $attendance;
         }
 
-        $attendance->loadMissing(['client', 'schedule']);
+        $attendance->loadMissing(['client', 'schedule', 'breaks']);
         $timezone = $this->timezones->forAttendance($attendance, false);
         $clockIn = $attendance->clock_in->copy()->setTimezone($timezone)->startOfMinute();
         $clockOut = $attendance->clock_out->copy()->setTimezone($timezone)->startOfMinute();
@@ -76,7 +76,31 @@ class AttendanceBillingService
         }
 
         $breakMinutes = (int) floor(max(0, (int) ($attendance->break_taken ?? 0)) / 60);
-        $workedInsideShift = max(0, (int) $regularStart->diffInMinutes($regularEnd) - $breakMinutes);
+
+        // Split breaks by the window where they actually happened.
+        // Regular work is only inside the Doctor shift. Anything after shift end is overtime.
+        $regularBreakMinutes = 0;
+        $overtimeBreakMinutes = 0;
+        $closedBreaks = $attendance->breaks->whereNotNull('end_time');
+
+        if ($closedBreaks->isNotEmpty() && $shiftStart && $shiftEnd) {
+            foreach ($closedBreaks as $break) {
+                $breakStart = $break->start_time->copy()->setTimezone($timezone)->startOfMinute();
+                $breakEnd = $break->end_time->copy()->setTimezone($timezone)->startOfMinute();
+                $regularBreakMinutes += $this->overlapMinutes($breakStart, $breakEnd, $regularStart, $regularEnd);
+                if ($clockOut->gt($shiftEnd)) {
+                    $overtimeBreakMinutes += $this->overlapMinutes($breakStart, $breakEnd, $shiftEnd, $clockOut);
+                }
+            }
+        } else {
+            // Backward-compatible fallback for old attendance rows that only store break_taken.
+            $regularBreakMinutes = $breakMinutes;
+        }
+
+        $workedInsideShift = max(0, (int) $regularStart->diffInMinutes($regularEnd) - $regularBreakMinutes);
+        if ($shiftEnd && $clockOut->gt($shiftEnd)) {
+            $overtime = max(0, (int) $shiftEnd->diffInMinutes($clockOut) - $overtimeBreakMinutes);
+        }
 
         // A scheduled break is part of the shift length but is never billable.
         // Example: 08:00-17:00 (9h) with a 1h break => maximum regular billing is 8h,
@@ -94,16 +118,38 @@ class AttendanceBillingService
         $attendance->overtime = $overtime;
 
         if (Schema::hasColumn('attendances', 'overtime_status')) {
-            // Extra time is not billable until the VA explicitly requests review and HR/Admin approves it.
-            $attendance->overtime_status = $overtime > 0 ? 'review_required' : 'none';
-            $attendance->approved_overtime_minutes = 0;
-            $attendance->overtime_amount = null;
-            $attendance->overtime_approved_by = null;
-            $attendance->overtime_approved_at = null;
+            // Recalculation must not silently erase an HR/Admin decision.
+            // New overtime starts as review_required; approved minutes can never exceed actual OT.
+            if ($overtime <= 0) {
+                $attendance->overtime_status = 'none';
+                $attendance->approved_overtime_minutes = 0;
+                $attendance->overtime_amount = null;
+                $attendance->overtime_approved_by = null;
+                $attendance->overtime_approved_at = null;
+            } elseif (!in_array($attendance->overtime_status, ['pending', 'approved', 'rejected'], true)) {
+                $attendance->overtime_status = 'review_required';
+                $attendance->approved_overtime_minutes = 0;
+                $attendance->overtime_amount = null;
+            } elseif ($attendance->overtime_status === 'approved') {
+                $attendance->approved_overtime_minutes = min(
+                    max(0, (int) ($attendance->approved_overtime_minutes ?? 0)),
+                    $overtime
+                );
+            } else {
+                $attendance->approved_overtime_minutes = 0;
+                $attendance->overtime_amount = null;
+            }
         }
 
         $attendance->save();
         return $attendance->fresh(['client', 'schedule', 'breaks']);
+    }
+
+    private function overlapMinutes(Carbon $aStart, Carbon $aEnd, Carbon $bStart, Carbon $bEnd): int
+    {
+        $start = $aStart->gt($bStart) ? $aStart->copy() : $bStart->copy();
+        $end = $aEnd->lt($bEnd) ? $aEnd->copy() : $bEnd->copy();
+        return $end->gt($start) ? (int) $start->diffInMinutes($end) : 0;
     }
 
     private function hmsToMinutes(mixed $value): int
