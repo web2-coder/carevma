@@ -33,3 +33,6 @@
   font-weight: 800;
   white-space: nowrap;
 }
+
+/* Safe patch: client workspace navigation across the top */
+.client-profile-shell{display:block!important}.client-profile-tabs{display:flex!important;flex-direction:row!important;align-items:center;gap:8px;width:100%!important;margin:0 0 18px!important;padding:8px!important;overflow-x:auto;border:1px solid #dce7f3;border-radius:16px;background:#fff}.client-profile-tabs button{flex:0 0 auto!important;min-height:44px!important;padding:10px 14px!important;border-radius:11px!important}.client-profile-tabs button.active{box-shadow:inset 0 -3px var(--cv-blue-600,#0352f0)!important}.client-profile-content{width:100%!important;min-width:0!important}

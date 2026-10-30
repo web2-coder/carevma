@@ -145,21 +145,6 @@ function LiveSessionCounter({active, serverNow, activeBreak}){
   </div>;
 }
 
-function ShiftEndStatus({active,serverNow}){
-  const endValue=active?.shift_end_utc||active?.doctor_shift_ends_at;
-  const initialNow=Date.parse(serverNow||'');
-  const endMs=Date.parse(endValue||'');
-  const [remaining,setRemaining]=useState(Number.isFinite(endMs)&&Number.isFinite(initialNow)?Math.floor((endMs-initialNow)/1000):0);
-  useEffect(()=>{
-    if(!Number.isFinite(endMs)||!Number.isFinite(initialNow))return undefined;
-    const base=Math.floor((endMs-initialNow)/1000),anchor=performance.now();
-    const tick=()=>setRemaining(base-Math.floor((performance.now()-anchor)/1000));
-    tick();const timer=setInterval(tick,1000);return()=>clearInterval(timer);
-  },[endMs,initialNow]);
-  const doctorTz=active?.client?.timezone||active?.doctor_timezone||'UTC',vaTz=active?.va_timezone||'UTC';
-  return <div className="shift-side-card is-live"><span className="shift-side-icon"><Clock3 size={19}/></span><div><span>Shift ends</span><strong>{formatZoneTime(active?.doctor_shift_ends_at||endValue,doctorTz)} · Doctor</strong><small>My local time: {formatZoneTime(active?.employee_shift_ends_at||endValue,vaTz)} · {vaTz}</small><small>{remaining>0?`${durationText(remaining)} remaining`:`Shift ended ${durationText(Math.abs(remaining))} ago · extra work is overtime`}</small></div></div>;
-}
-
 function clientScheduleContext(schedule,fallbackTimezone){
   if(!enabledValue(schedule.enabled)) return null;
   const timezone=schedule.client_timezone||schedule.client?.timezone||schedule.calculation_timezone||schedule.timezone||fallbackTimezone||'UTC';
@@ -211,10 +196,10 @@ function scheduleRange(start,end,timeZone){
 }
 
 export function EmployeeDashboard(){
-  const [data,setData]=useState(null),[busy,setBusy]=useState(false),[checkoutSummary,setCheckoutSummary]=useState(null);const n=useNotice();
+  const [data,setData]=useState(null),[busy,setBusy]=useState(false);const n=useNotice();
   const load=async()=>{setBusy(true);try{const {data:response}=await api.get('/employee/dashboard');setData({...response,today_schedules:Array.isArray(response.today_schedules)?response.today_schedules:[]})}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
   useEffect(()=>{load();const timer=setInterval(load,30000);const onFocus=()=>load();const onVisibility=()=>{if(document.visibilityState==='visible')load()};window.addEventListener('focus',onFocus);document.addEventListener('visibilitychange',onVisibility);return()=>{clearInterval(timer);window.removeEventListener('focus',onFocus);document.removeEventListener('visibilitychange',onVisibility)}},[]);
-  const action=async(fn,payload={})=>{setBusy(true);try{const {data:r}=await api.post(fn,payload);n.success(r.message);if(fn==='/employee/clock-out'&&r.checkout_summary)setCheckoutSummary(r.checkout_summary);await load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+  const action=async(fn,payload={})=>{setBusy(true);try{const {data:r}=await api.post(fn,payload);n.success(r.message);await load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
   if(!data)return <Loading/>;
   const active=data.active_attendance;const activeBreak=active?.breaks?.find(b=>!b.end_time);const activeClientTimezone=active?.client?.timezone||null;
   return <>
@@ -248,7 +233,6 @@ export function EmployeeDashboard(){
               <span className="shift-side-icon"><Clock3 size={19}/></span>
               <div><span>Doctor timezone</span><strong>{activeClientTimezone||data.today_schedules?.[0]?.client_timezone||data.next_schedules?.[0]?.client_timezone||'Not assigned'}</strong><small>Canonical display and calculation timezone</small></div>
             </div>
-            {active&&<ShiftEndStatus active={active} serverNow={data.now_utc||data.now}/>}
             <div className={`shift-side-card ${data.today_schedules.length?'is-ready':''}`}>
               <span className="shift-side-icon"><CalendarDays size={19}/></span>
               <div><span>Available shifts</span><strong>{data.today_schedules.length}</strong><small>Doctor-local 15-minute window</small></div>
@@ -267,9 +251,6 @@ export function EmployeeDashboard(){
         <div className="agenda">{data.today_schedules.map(s=>{const doctorTz=s.client_timezone||s.client?.timezone;const vaTz=s.employee_timezone||data.timezone;return <div className="agenda-row" key={s.id}><div className="agenda-time">{formatZoneTime(s.client_shift_starts_at,doctorTz)}</div><div><strong>{s.client?.name}</strong><span>Doctor: {scheduleRange(s.client_shift_starts_at,s.client_shift_ends_at,doctorTz)} · {doctorTz}</span><span>My local shift: {scheduleRange(s.shift_starts_at,s.shift_ends_at,vaTz)} · {vaTz}</span><span>Doctor break: {breakCodeText(s.break_allowed_hours)}</span></div><Badge tone="success">Ready</Badge></div>})}{!data.today_schedules.length&&<div className="empty-compact">No shift is inside its check-in window right now.</div>}</div>
       </Card>}
     </div>
-    <Modal open={!!checkoutSummary} onClose={()=>setCheckoutSummary(null)} title="Today's work summary" footer={<Button onClick={()=>setCheckoutSummary(null)}>Done</Button>}>
-      {checkoutSummary&&<div className="form-grid"><div><strong>Doctor / Client</strong><p>{checkoutSummary.client_name||'—'}</p></div><div><strong>Clock in</strong><p>{dateTime(checkoutSummary.clock_in,checkoutSummary.doctor_timezone||'UTC')}</p></div><div><strong>Clock out</strong><p>{dateTime(checkoutSummary.clock_out,checkoutSummary.doctor_timezone||'UTC')}</p></div><div><strong>Break</strong><p>{durationText(checkoutSummary.break_seconds||0)}</p></div><div><strong>Regular work</strong><p>{mins(checkoutSummary.regular_minutes||0)}</p></div><div><strong>Overtime</strong><p>{mins(checkoutSummary.overtime_minutes||0)} · {String(checkoutSummary.overtime_status||'none').replaceAll('_',' ')}</p></div><div><strong>Approved OT</strong><p>{mins(checkoutSummary.approved_overtime_minutes||0)}</p></div><div><strong>Payable time</strong><p>{mins(checkoutSummary.payable_minutes||0)}</p></div></div>}
-    </Modal>
   </>;
 }
 
@@ -333,7 +314,7 @@ export function EmployeeProfile(){
     </div>
    </Card>
    <div className="stack">
-    <Card title="Work profile" subtitle="Administrative fields are read-only in self service."><div className="detail-list"><div><span>Employee #</span><strong>{employee.employee_code}</strong></div><div><span>Department</span><strong>{employee.department?.name||'—'}</strong></div><div><span>Designation</span><strong>{employee.designation?.name||'—'}</strong></div><div><span>Status</span><strong>{employee.employee_status?.name||'—'}</strong></div><div><span>Doctor timezone</span><strong>{employee.assigned_doctor_timezone||'Not assigned'}</strong></div></div></Card>
+    <Card title="Work & HR profile" subtitle="Administrative fields are read-only in self service and stay synced with Admin."><div className="detail-list"><div><span>Employee #</span><strong>{employee.employee_code||'—'}</strong></div><div><span>Department</span><strong>{employee.department?.name||'—'}</strong></div><div><span>Designation</span><strong>{employee.designation?.name||'—'}</strong></div><div><span>Employment type</span><strong>{employee.employment_type?.name||employee.employmentType?.name||'—'}</strong></div><div><span>Shift type</span><strong>{employee.shift_type?.name||employee.shiftType?.name||'—'}</strong></div><div><span>Status</span><strong>{employee.employee_status?.name||'—'}</strong></div><div><span>Expertise</span><strong>{employee.expertise?.name||'—'}</strong></div><div><span>Reporting manager</span><strong>{employee.reporting_manager?.name||employee.reportingManager?.name||'—'}</strong></div><div><span>Location</span><strong>{employee.location||'—'}</strong></div><div><span>Timezone</span><strong>{employee.timezone||'—'}</strong></div><div><span>Doctor timezone</span><strong>{employee.assigned_doctor_timezone||'Not assigned'}</strong></div><div><span>Joining date</span><strong>{String(employee.date_of_joining||'').slice(0,10)||'—'}</strong></div><div><span>Regularisation date</span><strong>{String(employee.date_of_regularisation||'').slice(0,10)||'—'}</strong></div><div><span>Source of hire</span><strong>{employee.source_of_hire||'—'}</strong></div><div><span>Salary PKR</span><strong>{employee.salary_pkr||'—'}</strong></div><div><span>Salary USD</span><strong>{employee.salary_usd||'—'}</strong></div></div></Card>
     <Card title="Shared Documents" subtitle="VA accounts are read-only for documents. Only files specifically shared by Admin or HR are available."><div className="detail-list"><div><span>Document access</span><strong>View only</strong></div><div><span>Upload permission</span><strong>Admin / HR only</strong></div></div><a className="btn btn-secondary btn-link" href="/employee/documents">Open Shared Documents</a></Card>
    </div>
   </div>

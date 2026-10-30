@@ -1764,12 +1764,5 @@ html, body, button, input, select, textarea, .app-shell {
   font-family: Poppins, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
 }
 
-
-/* CareVMA dashboard - checked-in workforce preview */
-.currently-working-dashboard-list{display:grid;gap:10px}
-.currently-working-dashboard-person{display:grid;grid-template-columns:42px minmax(0,1fr) auto;gap:11px;align-items:center;padding:11px 12px;border:1px solid #e2e8ee;border-radius:14px;background:#fff}
-.currently-working-avatar{width:42px;height:42px;border-radius:50%;object-fit:cover}
-.currently-working-dashboard-person strong,.currently-working-dashboard-person span{display:block}
-.currently-working-dashboard-person span{margin-top:2px;color:#7a8da2;font-size:12px}
-.currently-working-dashboard-footer{display:flex;justify-content:flex-end;margin-top:14px}
-@media(max-width:600px){.currently-working-dashboard-person{grid-template-columns:42px minmax(0,1fr)}.currently-working-dashboard-person .badge{grid-column:2;justify-self:start}}
+/* Employee full profile + bulk invoice safe patch */
+.employee-profile-link{text-decoration:none;color:inherit}.employee-profile-link:hover strong{text-decoration:underline}.employee-profile-hero{display:flex;align-items:center;gap:18px;padding:22px;margin-bottom:18px;border:1px solid #dfe8f1;border-radius:20px;background:linear-gradient(135deg,#fff,#f7fbff)}.employee-profile-hero h2{margin:2px 0 4px}.employee-profile-hero .badge{margin-left:auto}.employee-profile-grid .detail-list{grid-template-columns:repeat(2,minmax(0,1fr))}.employee-document-list{display:flex;flex-direction:column;gap:9px}.invoice-bulk-grid{align-items:end}.bulk-client-picker{max-height:180px;overflow:auto;border:1px solid #dfe7ef;border-radius:12px;padding:8px;background:#fff}.bulk-client-picker label{display:flex;gap:9px;align-items:center;padding:8px;border-radius:8px}.bulk-client-picker label:hover{background:#f5f8fb}.bulk-invoice-actions{display:flex;gap:10px;flex-wrap:wrap}@media(max-width:760px){.employee-profile-hero{align-items:flex-start;flex-direction:column}.employee-profile-hero .badge{margin-left:0}.employee-profile-grid .detail-list{grid-template-columns:1fr}}
