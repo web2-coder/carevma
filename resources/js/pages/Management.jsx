@@ -534,18 +534,23 @@ export function InvoicesPage(){
   const [busy,setBusy]=useState(false);
   const [createForm,setCreateForm]=useState(()=>({client_id:'',...latestCompletedBillingCycle()}));
   const [editForm,setEditForm]=useState(null);
+  const [filters,setFilters]=useState({month:'',year:'',date_from:'',date_to:'',client_id:'',invoice_number:'',status:''});
   const n=useNotice();
 
   const load=async(nextPage=page)=>{
     setBusy(true);
     try{
-      const [r,o]=await Promise.all([api.get('/admin/invoices',{params:{page:nextPage}}),api.get('/management/options')]);
+      const params={page:nextPage,...Object.fromEntries(Object.entries(filters).filter(([,value])=>value!==''&&value!=null))};
+      const [r,o]=await Promise.all([api.get('/admin/invoices',{params}),api.get('/management/options')]);
       setRows(r.data.data||[]);
       setMeta(r.data);
       setOptions(o.data);
     }catch(e){n.error(messageFrom(e))}finally{setBusy(false)}
   };
   useEffect(()=>{load(page)},[page]);
+  useEffect(()=>{const timer=setTimeout(()=>{if(page!==1)setPage(1);else load(1)},250);return()=>clearTimeout(timer)},[filters.month,filters.year,filters.date_from,filters.date_to,filters.client_id,filters.invoice_number,filters.status]);
+  const clearFilters=()=>setFilters({month:'',year:'',date_from:'',date_to:'',client_id:'',invoice_number:'',status:''});
+  const filterYears=Array.from({length:9},(_,i)=>String(new Date().getFullYear()+2-i));
 
   const generate=async()=>{
     setBusy(true);
@@ -655,7 +660,7 @@ export function InvoicesPage(){
     {key:'status',label:'Status',render:r=><Badge tone={r.status==='paid'?'success':r.status==='void'?'danger':r.status==='issued'?'info':'warning'}>{r.status||'draft'}</Badge>},
     {key:'hours',label:'Hours',render:r=>Number(r.total_hours||0).toFixed(2)},
     {key:'amount',label:'Amount',render:r=>money(r.total_amount)},
-    {key:'action',label:'Actions',render:r=><div className="row-actions"><button onClick={()=>openEdit(r)} title="Edit invoice"><Pencil size={16}/></button><a className="btn btn-secondary btn-link" href={`/invoices/${r.id}/pdf?v=${encodeURIComponent(r.updated_at||Date.now())}`} target="_blank" rel="noreferrer">View PDF</a><Button variant="secondary" icon={Send} onClick={()=>sendInvoice(r)}>Send PDF</Button><button className="danger" onClick={()=>removeInvoice(r)} title="Delete invoice"><Trash2 size={16}/></button></div>}
+    {key:'action',label:'Actions',render:r=><div className="row-actions"><button onClick={()=>openEdit(r)} title="Edit invoice"><Pencil size={16}/></button><a className="btn btn-secondary btn-link" href={`/invoices/${r.id}/pdf?v=${encodeURIComponent(r.updated_at||Date.now())}`} target="_blank" rel="noreferrer">View PDF</a><button type="button" className="btn btn-secondary invoice-send-icon" title="Send PDF" aria-label="Send PDF" onClick={()=>sendInvoice(r)} disabled={busy}><Send size={16}/></button><button className="danger" onClick={()=>removeInvoice(r)} title="Delete invoice"><Trash2 size={16}/></button></div>}
   ];
 
   return <>
@@ -666,7 +671,19 @@ export function InvoicesPage(){
       actions={<Button icon={Plus} onClick={()=>{setCreateForm({client_id:'',...latestCompletedBillingCycle()});setCreateOpen(true)}}>Generate invoice</Button>}
     />
     <NoticeBar notice={n.notice} clear={n.clear}/>
-    <Card><Table columns={columns} rows={rows} emptyTitle="No invoices yet"/><Pagination meta={meta} onPage={setPage}/></Card>
+    <Card title="Invoice filters" subtitle="Filter invoices by month, year, custom date range, Doctor / Client, invoice number or status. Filters can be combined.">
+      <div className="form-grid invoice-filter-grid">
+        <Input label="Month" type="month" value={filters.month} onChange={e=>setFilters({...filters,month:e.target.value})}/>
+        <Select label="Year" value={filters.year} onChange={e=>setFilters({...filters,year:e.target.value})}><option value="">All years</option>{filterYears.map(year=><option key={year} value={year}>{year}</option>)}</Select>
+        <Input label="From date" type="date" value={filters.date_from} onChange={e=>setFilters({...filters,date_from:e.target.value})}/>
+        <Input label="To date" type="date" min={filters.date_from||undefined} value={filters.date_to} onChange={e=>setFilters({...filters,date_to:e.target.value})}/>
+        <SearchableSelect label="Doctor / Client" value={filters.client_id} onChange={value=>setFilters({...filters,client_id:value})} placeholder="All Doctors / Clients" searchPlaceholder="Search Doctor or Client…" options={(options.clients||[]).map(x=>({value:String(x.id),label:x.name||x.business_name||x.email,meta:x.timezone||'',searchText:`${x.business_name||''} ${x.email||''}`}))}/>
+        <Input label="Invoice #" value={filters.invoice_number} onChange={e=>setFilters({...filters,invoice_number:e.target.value})} placeholder="e.g. 3284724"/>
+        <Select label="Status" value={filters.status} onChange={e=>setFilters({...filters,status:e.target.value})}><option value="">All statuses</option><option value="draft">Draft</option><option value="issued">Issued</option><option value="paid">Paid</option><option value="void">Void</option></Select>
+        <div className="field"><span className="field-label">Reset</span><Button variant="secondary" onClick={clearFilters}>Clear filters</Button></div>
+      </div>
+    </Card>
+    <Card><Table columns={columns} rows={rows} emptyTitle="No invoices match these filters"/><Pagination meta={meta} onPage={setPage}/></Card>
 
     <Modal open={createOpen} onClose={()=>setCreateOpen(false)} title="Generate invoice" footer={<><Button variant="ghost" onClick={()=>setCreateOpen(false)}>Cancel</Button><Button loading={busy} onClick={generate}>Generate draft</Button></>}>
       <div className="form-grid one-col">

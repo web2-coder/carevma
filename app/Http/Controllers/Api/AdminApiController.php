@@ -1249,7 +1249,43 @@ class AdminApiController extends Controller
 
     public function invoices(Request $request)
     {
-        return response()->json(Invoice::with(['client:id,name,business_name,timezone,service_id,contract_type_id', 'client.service:id,name', 'client.contractType:id,name'])->latest('id')->paginate(min((int) $request->query('per_page', 10), 100)));
+        $query = Invoice::with([
+            'client:id,name,business_name,timezone,service_id,contract_type_id',
+            'client.service:id,name',
+            'client.contractType:id,name',
+        ]);
+
+        if ($invoiceNumber = trim((string) $request->query('invoice_number', ''))) {
+            $query->where('invoice_number', 'like', '%' . $invoiceNumber . '%');
+        }
+
+        if ($clientId = $request->query('client_id')) {
+            $query->where('client_id', $clientId);
+        }
+
+        if ($status = trim((string) $request->query('status', ''))) {
+            $query->where('status', $status);
+        }
+
+        if ($month = trim((string) $request->query('month', ''))) {
+            $query->whereRaw("DATE_FORMAT(COALESCE(billing_cycle_month, period_end), '%Y-%m') = ?", [$month]);
+        }
+
+        if ($year = (int) $request->query('year', 0)) {
+            $query->whereYear('period_end', $year);
+        }
+
+        if ($from = $request->query('date_from')) {
+            $query->whereDate('period_end', '>=', $from);
+        }
+
+        if ($to = $request->query('date_to')) {
+            $query->whereDate('period_start', '<=', $to);
+        }
+
+        return response()->json(
+            $query->latest('id')->paginate(min(max((int) $request->query('per_page', 10), 1), 100))->withQueryString()
+        );
     }
 
     public function generateInvoice(Request $request, InvoiceGenerator $generator)
