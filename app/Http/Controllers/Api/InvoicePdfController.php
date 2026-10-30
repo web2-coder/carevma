@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\Invoice;
 use App\Services\InvoicePdfService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 
 class InvoicePdfController extends Controller
 {
@@ -21,9 +20,9 @@ class InvoicePdfController extends Controller
 
         $invoice->loadMissing('client');
 
-        $doctorName = Str::slug((string) ($invoice->client?->name ?: 'client'));
-        $invoiceReference = Str::slug((string) $invoice->invoice_number);
-        $filename = "carevma-{$doctorName}-{$invoiceReference}.pdf";
+        // Download filename must match the invoice number exactly (uppercase).
+        $invoiceNumber = strtoupper(trim((string) $invoice->invoice_number));
+        $filename = $invoiceNumber . '.pdf';
 
         $response = $this->documents
             ->make($invoice)

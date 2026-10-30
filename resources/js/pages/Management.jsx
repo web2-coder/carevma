@@ -190,47 +190,71 @@ function ZoneTimeLine({label,time,timezone,tone=''}){
 
 export function LiveUsersPage(){
   const {user}=useAuth();
-  const [data,setData]=useState({server_now:null,total:0,working:0,on_break:0,sessions:[]});
+  const [data,setData]=useState({server_now:null,total:0,online:0,checked_in:0,working:0,on_break:0,late:0,offline:0,sessions:[]});
   const [loading,setLoading]=useState(true);
+  const [tab,setTab]=useState('all');
   const n=useNotice();
   const load=async(silent=false)=>{if(!silent)setLoading(true);try{setData((await api.get('/management/live-users')).data)}catch(e){n.error(messageFrom(e))}finally{if(!silent)setLoading(false)}};
   useEffect(()=>{load();const poll=setInterval(()=>load(true),15000);const realtime=()=>load(true);window.addEventListener('carevma:notification',realtime);window.addEventListener('focus',realtime);return()=>{clearInterval(poll);window.removeEventListener('carevma:notification',realtime);window.removeEventListener('focus',realtime)}},[]);
   if(loading&&!data.sessions.length)return <Loading/>;
   const base=roleBase(user?.role);
+  const tabs=[
+    ['all','All',data.total],['online','Online',data.online],['checked_in','Checked In',data.checked_in],
+    ['break','On Break',data.on_break],['late','Late',data.late],['offline','Offline',data.offline],
+  ];
+  const rows=(data.sessions||[]).filter(r=>{
+    if(tab==='all')return true;
+    if(tab==='online')return !!r.is_online;
+    if(tab==='checked_in')return r.attendance_status==='Checked in';
+    return r.status_key===tab;
+  });
+  const relativeLastSeen=value=>{
+    if(!value)return 'No recent activity';
+    const seconds=Math.max(0,Math.floor((Date.now()-new Date(value).getTime())/1000));
+    if(seconds<60)return 'Active now';
+    const mins=Math.floor(seconds/60);if(mins<60)return `${mins} min ago`;
+    const hours=Math.floor(mins/60);if(hours<24)return `${hours} hr ago`;
+    return `${Math.floor(hours/24)} day ago`;
+  };
 
-  return <><PageHeader eyebrow="Real-time workforce" title="Live workforce" description="Currently active VAs are displayed as profile cards. All shift and clock information uses the assigned Doctor timezone." actions={<Button variant="secondary" icon={RefreshCw} onClick={()=>load()}>Refresh</Button>}/><NoticeBar notice={n.notice} clear={n.clear}/>
-    <div className="metrics-grid live-workforce-metrics"><MetricCard label="Live employees" value={data.total} icon={Activity} hint="Open attendance sessions" live/><MetricCard label="Working" value={data.working} icon={UserCheck} hint="Actively working"/><MetricCard label="On break" value={data.on_break} icon={Coffee} hint="Currently on break"/></div>
-    <Card title="Currently active" subtitle="Open a card to view the VA profile. Admins can jump directly to edit from the card.">
-      {data.sessions.length?<div className="live-user-card-grid">{data.sessions.map(r=>{
+  return <><PageHeader eyebrow="Real-time workforce" title="VA Live Status" description="One admin view for online, checked-in, break, late and offline VAs. Attendance and shift calculations continue to use the assigned Doctor timezone." actions={<Button variant="secondary" icon={RefreshCw} onClick={()=>load()}>Refresh</Button>}/><NoticeBar notice={n.notice} clear={n.clear}/>
+    <div className="metrics-grid live-workforce-metrics"><MetricCard label="Online" value={data.online} icon={Activity} hint="Active in the last 5 minutes" live/><MetricCard label="Checked In" value={data.checked_in} icon={UserCheck} hint="Open attendance sessions"/><MetricCard label="On Break" value={data.on_break} icon={Coffee} hint="Break active now"/><MetricCard label="Late" value={data.late} icon={Clock3} hint="Late arrivals today/session"/></div>
+    <div className="live-status-tabs" role="tablist">{tabs.map(([key,label,count])=><button key={key} type="button" className={`live-status-tab ${tab===key?'active':''}`} onClick={()=>setTab(key)}><span className={`live-tab-dot ${key}`}/>{label}<strong>{count||0}</strong></button>)}</div>
+    <Card title={`${tabs.find(x=>x[0]===tab)?.[1]||'All'} VAs`} subtitle="Offline VAs stay at the end of the All view. Status refreshes automatically every 15 seconds.">
+      {rows.length?<div className="live-user-card-grid">{rows.map(r=>{
         const employee=r.employee||{};
         const name=`${employee.first_name||''} ${employee.last_name||''}`.trim()||'Unknown employee';
-        const doctorName=r.client?.name||r.client?.business_name||'Unallocated';
+        const doctorName=r.client?.name||r.client?.business_name||'No active Doctor session';
         const doctorFallback=String(doctorName||'D').split(/\s+/).filter(Boolean).slice(0,2).map(part=>part[0]).join('').toUpperCase()||'D';
         const vaFallback=`${employee.first_name?.[0]||''}${employee.last_name?.[0]||''}`.toUpperCase()||'VA';
         const totalBreakSeconds=Math.max(0,Number(r.total_break_seconds||0));
         const workedSeconds=Math.max(0,Number(r.elapsed_seconds||0)-totalBreakSeconds);
-        return <article className="live-user-card" key={r.id}>
+        const statusKey=r.status_key||'offline';
+        const statusLabel=r.status_label||'Offline';
+        return <article className={`live-user-card status-${statusKey}`} key={r.id}>
           <div className="live-user-card-profile-row">
             <div className="live-user-profile-block">
-              <AvatarMedia className="live-user-profile-photo" src={employee.profile_picture} alt={name} fallback={vaFallback}/>
+              <div className="live-avatar-wrap"><AvatarMedia className="live-user-profile-photo" src={employee.profile_picture} alt={name} fallback={vaFallback}/><span className={`advanced-live-dot ${r.is_online?'online':'offline'}`}/></div>
               <span>VA</span><strong>{name}</strong><small>{employee.employee_code||employee.email||'—'}</small>
             </div>
-            <div className="live-user-profile-link"><span>working with</span><i>→</i></div>
+            <div className="live-user-profile-link"><span>{r.client?'working with':'status'}</span><i>→</i></div>
             <div className="live-user-profile-block doctor">
               <AvatarMedia className="live-user-profile-photo" src={r.client?.profile_picture} alt={doctorName} fallback={doctorFallback}/>
-              <span>Doctor</span><strong>{doctorName}</strong><small>{r.doctor_timezone||'Timezone not assigned'}</small>
+              <span>{r.client?'Doctor':'Presence'}</span><strong>{r.client?doctorName:(r.is_online?'Portal Online':'Portal Offline')}</strong><small>{r.doctor_timezone||relativeLastSeen(r.last_seen_at)}</small>
             </div>
           </div>
-          <div className="live-user-card-status"><Badge tone={r.is_on_break?'warning':'success'}>{r.is_on_break?'On break':'Working'}</Badge></div>
+          <div className="live-user-card-status"><span className={`advanced-status-badge ${statusKey}`}><i/>{statusLabel}</span></div>
           <div className="live-user-card-body">
-            <div><span>Doctor shift</span><strong>{r.schedule_doctor_label||'Legacy session'}</strong><small>{r.schedule?`Break: ${breakCodeText(r.schedule.break_allowed_hours)}`:'No schedule snapshot'}</small></div>
-            <div><span>Clocked in</span><strong>{r.clock_in_doctor_label||'—'}</strong><small>Doctor local time</small></div>
-            <div><span>Work + Break</span><LiveDuration baseSeconds={r.elapsed_seconds}/><small>Work {durationLabel(workedSeconds)} · Break {durationLabel(totalBreakSeconds)}</small></div>
-            <div><span>Break time</span><LiveBreakDuration row={r}/><small>{r.is_on_break?'Break is active now':'Current break status'}</small></div>
+            <div><span>Attendance</span><strong>{r.attendance_status||'Not checked in'}</strong><small>{r.is_online?'Portal active':'Portal inactive'} · {relativeLastSeen(r.last_seen_at)}</small></div>
+            <div><span>Doctor shift</span><strong>{r.schedule_doctor_label||'No active shift'}</strong><small>{r.schedule?`Break: ${breakCodeText(r.schedule.break_allowed_hours)}`:'No open attendance session'}</small></div>
+            <div><span>Clocked in</span><strong>{r.clock_in_doctor_label||'—'}</strong><small>{r.doctor_timezone?'Doctor local time':'Not checked in'}</small></div>
+            {r.clock_in?<div><span>Work + Break</span><LiveDuration baseSeconds={r.elapsed_seconds}/><small>Work {durationLabel(workedSeconds)} · Break {durationLabel(totalBreakSeconds)}</small></div>:<div><span>Last Active</span><strong>{relativeLastSeen(r.last_seen_at)}</strong><small>{employee.location||'Location not set'}</small></div>}
+            {r.clock_in&&<div><span>Break time</span><LiveBreakDuration row={r}/><small>{r.is_on_break?'Break is active now':'Current break status'}</small></div>}
+            {Number(r.late_minutes||0)>0&&<div className="late-detail"><span>Late arrival</span><strong>{Number(r.late_minutes)} min late</strong><small>Based on assigned Doctor shift</small></div>}
           </div>
           <div className="live-user-card-actions"><Link className="btn btn-secondary btn-link" to={`${base}/employees/${employee.id}`}>View full profile</Link>{user?.role==='admin'&&<Link className="btn btn-primary btn-link" to={`/admin/employees?edit=${employee.id}`}>Edit user</Link>}</div>
         </article>;
-      })}</div>:<EmptyState title="No one is live right now" description="Employees will appear here as soon as they clock in."/>}
+      })}</div>:<EmptyState title={`No ${String(tabs.find(x=>x[0]===tab)?.[1]||'matching').toLowerCase()} VAs`} description="This list will update automatically when workforce status changes."/>}
     </Card>
   </>;
 }

@@ -357,3 +357,32 @@
   .live-user-card-profile-row{grid-template-columns:minmax(0,1fr) 30px minmax(0,1fr);gap:5px}
   .live-user-card-body{grid-template-columns:1fr}
 }
+
+/* Admin VA Live Status tabs + advanced presence states */
+.live-status-tabs{display:flex;gap:8px;align-items:center;overflow-x:auto;margin:0 0 18px;padding:6px;border:1px solid var(--border);border-radius:16px;background:var(--surface);box-shadow:0 6px 20px rgba(11,31,42,.04)}
+.live-status-tab{display:inline-flex;align-items:center;gap:7px;min-width:max-content;border:0;border-radius:11px;background:transparent;padding:9px 12px;color:var(--muted);font:700 10px Poppins,sans-serif;cursor:pointer;transition:.2s ease}
+.live-status-tab:hover{background:var(--surface-2);color:var(--text)}
+.live-status-tab.active{background:#eef9f5;color:#0c5f4f;box-shadow:inset 0 0 0 1px rgba(12,95,79,.12)}
+.live-status-tab strong{display:grid;place-items:center;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:#edf2f7;color:#536579;font-size:9px}
+.live-status-tab.active strong{background:#0c5f4f;color:#fff}
+.live-tab-dot{width:8px;height:8px;border-radius:50%;background:#94a3b8}
+.live-tab-dot.online,.live-tab-dot.checked_in{background:#22c55e;box-shadow:0 0 0 4px rgba(34,197,94,.11)}
+.live-tab-dot.break{background:#f59e0b}.live-tab-dot.late{background:#f97316}.live-tab-dot.offline{background:#94a3b8}.live-tab-dot.all{background:#0c5f4f}
+.live-avatar-wrap{position:relative;display:inline-flex}
+.advanced-live-dot{position:absolute;right:-2px;bottom:1px;width:13px;height:13px;border:3px solid #fff;border-radius:50%;z-index:3}
+.advanced-live-dot.online{background:#22c55e;animation:carevma-advanced-live-pulse 1.7s ease-out infinite}
+.advanced-live-dot.offline{background:#94a3b8;box-shadow:none}
+@keyframes carevma-advanced-live-pulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.42)}70%{box-shadow:0 0 0 8px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
+.advanced-status-badge{display:inline-flex;align-items:center;gap:6px;padding:6px 9px;border-radius:999px;background:#f1f5f9;color:#64748b;font:800 8.5px Poppins,sans-serif;text-transform:uppercase;letter-spacing:.04em;border:1px solid rgba(100,116,139,.12)}
+.advanced-status-badge i{width:7px;height:7px;border-radius:50%;background:currentColor}
+.advanced-status-badge.checked_in,.advanced-status-badge.online{background:#ecfdf5;color:#15803d;border-color:#bbf7d0}
+.advanced-status-badge.break{background:#fffbeb;color:#b45309;border-color:#fde68a}
+.advanced-status-badge.late{background:#fff7ed;color:#c2410c;border-color:#fed7aa}
+.advanced-status-badge.offline{background:#f8fafc;color:#64748b;border-color:#e2e8f0}
+.live-user-card.status-offline{opacity:.86;background:#fbfcfd}
+.live-user-card.status-offline .live-user-profile-photo{filter:saturate(.75)}
+.live-user-card.status-break{border-color:rgba(245,158,11,.32)}
+.live-user-card.status-late{border-color:rgba(249,115,22,.32)}
+.live-user-card-body .late-detail{background:#fff7ed;border:1px solid #fed7aa}
+.live-user-card-body .late-detail strong{color:#c2410c}
+@media(max-width:760px){.live-status-tabs{padding:5px}.live-status-tab{padding:8px 10px}}

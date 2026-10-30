@@ -386,13 +386,84 @@ class AdminApiController extends Controller
             })
             ->values();
 
+        $sessionEmployeeIds = $sessions->pluck('employee.id')->filter()->map(fn ($id) => (int) $id)->all();
+
+        $sessions = $sessions->map(function (array $row) use ($serverNow) {
+            $lastSeenAt = $row['employee']?->user?->last_seen_at;
+            $isOnline = $lastSeenAt && Carbon::parse($lastSeenAt)->gt($serverNow->copy()->subMinutes(5));
+            $lateMinutes = (int) ($row['late_minutes'] ?? 0);
+
+            $row['is_online'] = (bool) $isOnline;
+            $row['last_seen_at'] = $lastSeenAt?->toIso8601String();
+            $row['attendance_status'] = 'Checked in';
+            $row['status_key'] = $row['is_on_break'] ? 'break' : ($lateMinutes > 0 ? 'late' : 'checked_in');
+            $row['status_label'] = $row['is_on_break'] ? 'On Break' : ($lateMinutes > 0 ? 'Late' : 'Checked In');
+
+            return $row;
+        });
+
+        $offlineRows = Employee::query()
+            ->with(['user:id,name,email,last_seen_at'])
+            ->whereNotIn('id', $sessionEmployeeIds ?: [0])
+            ->orderBy('first_name')
+            ->orderBy('last_name')
+            ->get(['id','user_id','first_name','last_name','email','employee_code','profile_picture','timezone','location'])
+            ->map(function (Employee $employee) use ($serverNow) {
+                $lastSeenAt = $employee->user?->last_seen_at;
+                $isOnline = $lastSeenAt && Carbon::parse($lastSeenAt)->gt($serverNow->copy()->subMinutes(5));
+
+                return [
+                    'id' => 'employee-'.$employee->id,
+                    'employee' => $employee,
+                    'client' => null,
+                    'schedule' => null,
+                    'clock_in' => null,
+                    'clock_in_utc' => null,
+                    'clock_in_va_label' => null,
+                    'clock_in_doctor_label' => null,
+                    'elapsed_seconds' => 0,
+                    'timezone' => $employee->timezone ?: 'UTC',
+                    'va_timezone' => $employee->timezone ?: 'UTC',
+                    'doctor_timezone' => null,
+                    'calculation_timezone' => null,
+                    'schedule_doctor_label' => null,
+                    'schedule_va_label' => null,
+                    'late_minutes' => 0,
+                    'break_limit' => null,
+                    'completed_break_seconds' => 0,
+                    'current_break_seconds' => 0,
+                    'total_break_seconds' => 0,
+                    'is_on_break' => false,
+                    'is_online' => (bool) $isOnline,
+                    'last_seen_at' => $lastSeenAt?->toIso8601String(),
+                    'attendance_status' => 'Not checked in',
+                    'status' => $isOnline ? 'online' : 'offline',
+                    'status_key' => $isOnline ? 'online' : 'offline',
+                    'status_label' => $isOnline ? 'Online' : 'Offline',
+                ];
+            });
+
+        $people = $sessions->concat($offlineRows)->sortBy(function (array $row) {
+            return match ($row['status_key'] ?? 'offline') {
+                'break' => 10,
+                'late' => 20,
+                'checked_in' => 30,
+                'online' => 40,
+                default => 90,
+            };
+        })->values();
+
         return response()->json([
             'server_now' => $serverNow->toIso8601ZuluString(),
             'time_source' => $this->clock->source(),
-            'total' => $sessions->count(),
-            'working' => $sessions->where('status', 'working')->count(),
-            'on_break' => $sessions->where('status', 'break')->count(),
-            'sessions' => $sessions,
+            'total' => $people->count(),
+            'online' => $people->where('is_online', true)->count(),
+            'checked_in' => $sessions->count(),
+            'working' => $sessions->where('is_on_break', false)->count(),
+            'on_break' => $sessions->where('is_on_break', true)->count(),
+            'late' => $sessions->where('late_minutes', '>', 0)->count(),
+            'offline' => $people->where('status_key', 'offline')->count(),
+            'sessions' => $people,
         ]);
     }
 

@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Invoice {{ $invoice->invoice_number }}</title>
+    <title>Invoice {{ strtoupper($invoice->invoice_number) }}</title>
     <style>
         @page { margin: 28px 30px; }
         body { font-family: DejaVu Sans, sans-serif; font-size: 12px; margin: 0; padding: 0; color: #333; }
@@ -42,9 +42,9 @@
     $serviceName = $invoice->client?->service?->name ?: 'Medical VA Service';
     $doctorType = $invoice->client?->contractType?->name ?: 'Not specified';
     $generatedLocal = \Carbon\Carbon::parse($invoice->generated_at ?: $invoice->created_at)->setTimezone($clientTimezone);
-    $billingMonthDate = $invoice->billing_cycle_month
-        ? \Carbon\Carbon::parse($invoice->billing_cycle_month)
-        : ($generatedLocal->day > 20 ? $generatedLocal->copy()->addMonthNoOverflow()->startOfMonth() : $generatedLocal->copy()->startOfMonth());
+    // Bill month follows the billing cycle end date.
+    // Example: 25 Sep 2026 - 29 Oct 2026 => OCTOBER 2026.
+    $billingMonthDate = \Carbon\Carbon::parse($invoice->period_end)->setTimezone($clientTimezone);
     $baseSubtotal = (float) $invoice->salaries->sum('salary_amount');
     $adjustmentNet = $invoice->adjustments->sum(function ($item) {
         return $item->direction === 'deduction' ? -((float) $item->amount) : (float) $item->amount;
@@ -65,14 +65,14 @@
 
     <div class="flex">
         <div>
-            <p class="meta-line"><strong>INVOICE #:</strong> {{ $invoice->invoice_number }}</p>
+            <p class="meta-line"><strong>INVOICE #:</strong> {{ strtoupper($invoice->invoice_number) }}</p>
             <p class="meta-line"><strong>Date:</strong> {{ $generatedLocal->format('d F Y') }}</p>
             <p class="meta-line"><strong>Cycle:</strong> {{ \Carbon\Carbon::parse($invoice->period_start)->format('d M Y') }} - {{ \Carbon\Carbon::parse($invoice->period_end)->format('d M Y') }}</p>
         </div>
         <div style="text-align:right;">
             <p class="meta-line"><strong>FOR:</strong> {{ $serviceName }}</p>
             <p class="meta-line"><strong>DOCTOR TYPE:</strong> {{ $doctorType }}</p>
-            <p class="meta-line"><strong>BILL MONTH:</strong> {{ $billingMonthDate->format('F Y') }}</p>
+            <p class="meta-line"><strong>BILL MONTH:</strong> {{ strtoupper($billingMonthDate->format('F Y')) }}</p>
         </div>
     </div>
 
