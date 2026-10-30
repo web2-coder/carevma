@@ -2541,3 +2541,327 @@ html, body, button, input, select, textarea, .app-shell {
     }
 
 }
+/* =========================================================
+   EMPLOYEE PROFILE - SCREENSHOT FIX
+   MUST STAY AT VERY END OF CSS FILE
+   ========================================================= */
+
+
+/* ---------- MAIN 8 / 4 LAYOUT ---------- */
+
+.employee-profile-grid.employee-profile-grid-8-4 {
+    display: grid !important;
+    grid-template-columns: minmax(0, 2fr) minmax(330px, 1fr) !important;
+    gap: 22px !important;
+    align-items: start !important;
+    width: 100% !important;
+    min-width: 0 !important;
+}
+
+
+/* =========================================================
+   LEFT: COMPLETE EMPLOYEE INFORMATION
+   One field per row, 2 fields side-by-side
+   ========================================================= */
+
+.employee-profile-information-card {
+    min-width: 0 !important;
+    width: 100% !important;
+}
+
+
+/* Two field columns */
+
+.employee-profile-information-card .employee-profile-detail-grid {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    column-gap: 36px !important;
+    row-gap: 0 !important;
+    width: 100% !important;
+    min-width: 0 !important;
+}
+
+
+/* Each label/value pair */
+
+.employee-profile-information-card
+.employee-profile-detail-grid > div {
+    display: grid !important;
+
+    grid-template-columns:
+        minmax(120px, 42%)
+        minmax(0, 58%) !important;
+
+    align-items: center !important;
+
+    gap: 12px !important;
+
+    width: 100% !important;
+    min-width: 0 !important;
+
+    padding: 14px 0 !important;
+
+    border-bottom: 1px solid #dbe5ef !important;
+}
+
+
+/* labels */
+
+.employee-profile-information-card
+.employee-profile-detail-grid > div > span {
+    display: block !important;
+
+    min-width: 0 !important;
+
+    font-size: 13px !important;
+    line-height: 1.4 !important;
+
+    color: #667a96 !important;
+}
+
+
+/* values */
+
+.employee-profile-information-card
+.employee-profile-detail-grid > div > strong {
+    display: block !important;
+
+    min-width: 0 !important;
+    max-width: 100% !important;
+
+    text-align: right !important;
+
+    font-size: 13px !important;
+    line-height: 1.4 !important;
+
+    white-space: normal !important;
+
+    overflow: visible !important;
+    text-overflow: unset !important;
+
+    overflow-wrap: anywhere !important;
+    word-break: normal !important;
+}
+
+
+/* About employee takes complete row */
+
+.employee-profile-information-card
+.employee-profile-detail-grid
+.employee-profile-detail-full {
+    grid-column: 1 / -1 !important;
+
+    grid-template-columns:
+        150px minmax(0, 1fr) !important;
+}
+
+
+.employee-profile-information-card
+.employee-profile-detail-grid
+.employee-profile-detail-full > strong {
+    text-align: left !important;
+}
+
+
+/* =========================================================
+   RIGHT COLUMN
+   ========================================================= */
+
+.employee-profile-right-column {
+    display: flex !important;
+    flex-direction: column !important;
+
+    gap: 22px !important;
+
+    width: 100% !important;
+    min-width: 0 !important;
+}
+
+
+.employee-profile-right-column > * {
+    width: 100% !important;
+    min-width: 0 !important;
+}
+
+
+/* =========================================================
+   DOCUMENTS
+   Don't make empty documents card unnecessarily huge
+   ========================================================= */
+
+.employee-profile-documents-card {
+    min-height: 230px !important;
+    height: auto !important;
+}
+
+
+.employee-profile-documents-card .empty-state {
+    min-height: 130px !important;
+}
+
+
+/* =========================================================
+   PROFILE STATUS
+   IMPORTANT: force ONE ROW PER FIELD
+   ========================================================= */
+
+.employee-profile-status-card .employee-profile-status-list {
+    display: block !important;
+
+    width: 100% !important;
+    min-width: 0 !important;
+}
+
+
+.employee-profile-status-card
+.employee-profile-status-list > div {
+    display: grid !important;
+
+    grid-template-columns:
+        minmax(120px, 42%)
+        minmax(0, 58%) !important;
+
+    width: 100% !important;
+    min-width: 0 !important;
+
+    align-items: center !important;
+
+    gap: 12px !important;
+
+    padding: 13px 0 !important;
+
+    border-bottom: 1px solid #dbe5ef !important;
+}
+
+
+.employee-profile-status-card
+.employee-profile-status-list > div:last-child {
+    border-bottom: 0 !important;
+}
+
+
+.employee-profile-status-card
+.employee-profile-status-list > div > span {
+    min-width: 0 !important;
+
+    font-size: 13px !important;
+
+    color: #667a96 !important;
+}
+
+
+.employee-profile-status-card
+.employee-profile-status-list > div > strong {
+    display: block !important;
+
+    min-width: 0 !important;
+
+    text-align: right !important;
+
+    font-size: 13px !important;
+
+    overflow-wrap: anywhere !important;
+}
+
+
+/* =========================================================
+   PREVENT OLD .detail-list RULES FROM BREAKING PROFILE
+   ========================================================= */
+
+.employee-profile-grid-8-4
+.detail-list.employee-profile-detail-grid {
+    grid-template-columns:
+        repeat(2, minmax(0, 1fr)) !important;
+}
+
+
+.employee-profile-grid-8-4
+.detail-list.employee-profile-status-list {
+    display: block !important;
+}
+
+
+/* =========================================================
+   TABLET
+   ========================================================= */
+
+@media (max-width: 1200px) {
+
+    .employee-profile-grid.employee-profile-grid-8-4 {
+        grid-template-columns: 1fr !important;
+    }
+
+
+    .employee-profile-right-column {
+        display: grid !important;
+
+        grid-template-columns:
+            repeat(2, minmax(0, 1fr)) !important;
+    }
+
+}
+
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media (max-width: 768px) {
+
+    .employee-profile-grid.employee-profile-grid-8-4 {
+        display: block !important;
+    }
+
+
+    .employee-profile-information-card {
+        margin-bottom: 20px !important;
+    }
+
+
+    .employee-profile-right-column {
+        display: flex !important;
+        flex-direction: column !important;
+    }
+
+
+    .employee-profile-information-card
+    .employee-profile-detail-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+
+    .employee-profile-information-card
+    .employee-profile-detail-grid > div,
+
+    .employee-profile-information-card
+    .employee-profile-detail-grid
+    .employee-profile-detail-full {
+
+        grid-column: auto !important;
+
+        grid-template-columns: 1fr !important;
+
+        gap: 5px !important;
+    }
+
+
+    .employee-profile-information-card
+    .employee-profile-detail-grid > div > strong {
+        text-align: left !important;
+    }
+
+
+    .employee-profile-status-card
+    .employee-profile-status-list > div {
+        grid-template-columns: 1fr !important;
+
+        gap: 5px !important;
+    }
+
+
+    .employee-profile-status-card
+    .employee-profile-status-list > div > strong {
+        text-align: left !important;
+    }
+
+}
