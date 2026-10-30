@@ -30,7 +30,6 @@ use App\Services\TrustedTimeService;
 use App\Services\ClientTimezoneService;
 use App\Services\AttendanceBillingService;
 use App\Services\InvoicePdfService;
-use App\Services\MailDeliveryService;
 use DateTimeZone;
 use App\Mail\EmployeeInvitationMail;
 use App\Mail\ClientSetPasswordMail;
@@ -530,11 +529,14 @@ class AdminApiController extends Controller
             'email' => $user->email,
         ]);
 
-        $mail = app(MailDeliveryService::class)->sendNow(
-            $user->email,
-            new HrInvitationMail($user, $setupUrl),
-            'HR invitation'
-        );
+        $mail = ['sent' => false, 'error' => null];
+        try {
+            Mail::to($user->email)->send(new HrInvitationMail($user, $setupUrl));
+            $mail['sent'] = true;
+        } catch (\Throwable $e) {
+            $mail['error'] = $e->getMessage();
+            report($e);
+        }
 
         return response()->json([
             'message' => $mail['sent']
@@ -1208,11 +1210,10 @@ class AdminApiController extends Controller
 
         try {
             $pdfContent = $documents->make($invoice)->output();
-            $mail = app(MailDeliveryService::class)->sendNow(
-                $invoice->client->email,
-                new InvoiceNotificationMail($invoice, $pdfContent),
-                'invoice PDF'
+            Mail::to($invoice->client->email)->send(
+                new InvoiceNotificationMail($invoice, $pdfContent)
             );
+            $mail = ['sent' => true, 'error' => null];
         } catch (\Throwable $e) {
             report($e);
             return response()->json(['message' => 'Invoice email could not be prepared. Check the Laravel mail log and try again.'], 422);
@@ -1506,13 +1507,17 @@ class AdminApiController extends Controller
             ['email' => $user->email, 'token' => $token]
         );
 
-        $mail = app(MailDeliveryService::class)->sendNow(
-            $user->email,
-            new ClientSetPasswordMail($client, $url),
-            'Doctor / Client invitation'
-        );
+        $sent = false;
+        $error = null;
+        try {
+            Mail::to($user->email)->send(new ClientSetPasswordMail($client, $url));
+            $sent = true;
+        } catch (\Throwable $e) {
+            $error = $e->getMessage();
+            report($e);
+        }
 
-        return ['sent' => $mail['sent'], 'url' => $url, 'error' => $mail['error'] ?? null];
+        return ['sent' => $sent, 'url' => $url, 'error' => $error];
     }
 
     private function storeEmployeeMedia(Request $request): array
@@ -1539,13 +1544,17 @@ class AdminApiController extends Controller
     {
         $token = Password::broker()->createToken($user);
         $url = url('/reset-password/'.$token).'?email='.urlencode($user->email).'&invite=1';
-        $mail = app(MailDeliveryService::class)->sendNow(
-            $user->email,
-            new EmployeeInvitationMail($employee, $url),
-            'VA / Employee invitation'
-        );
+        $sent = false;
+        $error = null;
+        try {
+            Mail::to($user->email)->send(new EmployeeInvitationMail($employee, $url));
+            $sent = true;
+        } catch (\Throwable $e) {
+            $error = $e->getMessage();
+            report($e);
+        }
 
-        return ['sent' => $mail['sent'], 'url' => $url, 'error' => $mail['error'] ?? null];
+        return ['sent' => $sent, 'url' => $url, 'error' => $error];
     }
 
     private function normalizeScheduleRecurrence(array $data, ?EmployeeClientSchedule $existing = null): array
