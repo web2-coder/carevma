@@ -219,6 +219,7 @@ class AdminApiController extends Controller
                 'today_sessions' => ($attendanceSummaries[$today]['sessions'] ?? 0),
                 'pending_overtime' => $pendingOvertime,
                 'invoices' => Invoice::count(),
+                'hr_team' => User::where('role', 'hr')->count(),
             ],
             'trend' => $trend,
             'recent_attendance' => Attendance::with([

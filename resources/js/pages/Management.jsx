@@ -72,12 +72,13 @@ export function ManagementDashboard(){
     <PageHeader eyebrow={user.role==='hr'?'Human Resources':'Administration'} title="Operations dashboard" description="Live workforce activity, attendance throughput, birthday awareness and monthly billing status in one view." actions={<Button variant="secondary" icon={RefreshCw} onClick={()=>load()}>Refresh</Button>}/>
     <NoticeBar notice={n.notice} clear={n.clear}/>
 
-    <div className="metrics-grid">
+    <div className="metrics-grid dashboard-summary-metrics">
       <MetricCard label="Employees" value={m.employees} icon={Users} hint="Workforce profiles"/>
       <MetricCard label="Clients" value={m.clients} icon={Stethoscope} hint="Active client records"/>
       <MetricCard label="Live employees" value={m.active||0} icon={Activity} hint="Realtime · updates without reload" live/>
       <MetricCard label="Pending overtime" value={m.pending_overtime} icon={TimerReset} hint="Needs review"/>
       {user.role!=='hr'&&<MetricCard label="Invoices" value={m.invoices} icon={ReceiptText} hint="Billing records"/>}
+      {user.role!=='hr'&&<MetricCard label="HR Team" value={m.hr_team||0} icon={ShieldCheck} hint="HR team members"/>}
     </div>
 
     <div className="dashboard-notice-grid">
@@ -643,7 +644,7 @@ export function InvoicesPage(){
     <PageHeader
       eyebrow="Client billing"
       title="Invoices"
-      description="Billing periods run from the 26th through the 25th of the following month. Drafts auto-generate after the cycle closes. The invoice month follows the selected period end date."
+      description="Billing periods run from the 26th through the 25th of the following month. Drafts auto-generate on the 26th after the cycle closes; invoices generated after the 20th are assigned to the next invoice month."
       actions={<Button icon={Plus} onClick={()=>{setCreateForm({client_id:'',...latestCompletedBillingCycle()});setCreateOpen(true)}}>Generate invoice</Button>}
     />
     <NoticeBar notice={n.notice} clear={n.clear}/>
@@ -654,7 +655,7 @@ export function InvoicesPage(){
         <SearchableSelect label="Client / Doctor *" value={createForm.client_id} onChange={value=>setCreateForm({...createForm,client_id:value})} placeholder="Search and select Doctor" searchPlaceholder="Search Doctor name, business or timezone…" options={(options.clients||[]).map(x=>({value:String(x.id),label:x.name||x.business_name||x.email,meta:x.timezone||'',searchText:`${x.business_name||''} ${x.email||''}`}))}/>
         <Input label="Start date *" type="date" value={createForm.period_start} onChange={e=>setCreateForm({...createForm,period_start:e.target.value})}/>
         <Input label="End date *" type="date" min={createForm.period_start||undefined} value={createForm.period_end} onChange={e=>setCreateForm({...createForm,period_end:e.target.value})}/>
-        <div className="invoice-cycle-hint">Manual invoices can use any custom date range. Automatic billing runs on the 26th → next month 25th cycle. The invoice month follows the selected period end date.</div>
+        <div className="invoice-cycle-hint">Manual invoices can use any custom date range. Automatic billing runs on the 26th → next month 25th cycle. Any invoice generated after the 20th is assigned to the next invoice month.</div>
       </div>
     </Modal>
 
