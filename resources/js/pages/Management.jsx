@@ -193,7 +193,6 @@ export function LiveUsersPage(){
   const [data,setData]=useState({server_now:null,total:0,online:0,checked_in:0,working:0,on_break:0,late:0,offline:0,sessions:[]});
   const [loading,setLoading]=useState(true);
   const [tab,setTab]=useState('all');
-  const [expandedCards,setExpandedCards]=useState(()=>new Set());
   const n=useNotice();
   const load=async(silent=false)=>{if(!silent)setLoading(true);try{setData((await api.get('/management/live-users')).data)}catch(e){n.error(messageFrom(e))}finally{if(!silent)setLoading(false)}};
   useEffect(()=>{load();const poll=setInterval(()=>load(true),15000);const realtime=()=>load(true);window.addEventListener('carevma:notification',realtime);window.addEventListener('focus',realtime);return()=>{clearInterval(poll);window.removeEventListener('carevma:notification',realtime);window.removeEventListener('focus',realtime)}},[]);
@@ -209,7 +208,6 @@ export function LiveUsersPage(){
     if(tab==='checked_in')return r.attendance_status==='Checked in';
     return r.status_key===tab;
   });
-  const toggleCard=id=>setExpandedCards(current=>{const next=new Set(current);next.has(id)?next.delete(id):next.add(id);return next;});
   const relativeLastSeen=value=>{
     if(!value)return 'No recent activity';
     const seconds=Math.max(0,Math.floor((Date.now()-new Date(value).getTime())/1000));
@@ -233,8 +231,7 @@ export function LiveUsersPage(){
         const workedSeconds=Math.max(0,Number(r.elapsed_seconds||0)-totalBreakSeconds);
         const statusKey=r.status_key||'offline';
         const statusLabel=r.status_label||'Offline';
-        const isExpanded=expandedCards.has(r.id);
-        return <article className={`live-user-card status-${statusKey} ${isExpanded?'is-expanded':'is-collapsed'}`} key={r.id} role="button" tabIndex={0} aria-expanded={isExpanded} onClick={()=>toggleCard(r.id)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleCard(r.id)}}}>
+        return <article className={`live-user-card status-${statusKey}`} key={r.id}>
           <div className="live-user-card-profile-row">
             <div className="live-user-profile-block">
               <div className="live-avatar-wrap"><AvatarMedia className="live-user-profile-photo" src={employee.profile_picture} alt={name} fallback={vaFallback}/><span className={`advanced-live-dot ${r.is_online?'online':'offline'}`}/></div>
@@ -247,16 +244,15 @@ export function LiveUsersPage(){
             </div>
           </div>
           <div className="live-user-card-status"><span className={`advanced-status-badge ${statusKey}`}><i/>{statusLabel}</span></div>
-          {isExpanded&&<div className="live-user-card-body">
+          <div className="live-user-card-body">
             <div><span>Attendance</span><strong>{r.attendance_status||'Not checked in'}</strong><small>{r.is_online?'Portal active':'Portal inactive'} · {relativeLastSeen(r.last_seen_at)}</small></div>
             <div><span>Doctor shift</span><strong>{r.schedule_doctor_label||'No active shift'}</strong><small>{r.schedule?`Break: ${breakCodeText(r.schedule.break_allowed_hours)}`:'No open attendance session'}</small></div>
             <div><span>Clocked in</span><strong>{r.clock_in_doctor_label||'—'}</strong><small>{r.doctor_timezone?'Doctor local time':'Not checked in'}</small></div>
             {r.clock_in?<div><span>Work + Break</span><LiveDuration baseSeconds={r.elapsed_seconds}/><small>Work {durationLabel(workedSeconds)} · Break {durationLabel(totalBreakSeconds)}</small></div>:<div><span>Last Active</span><strong>{relativeLastSeen(r.last_seen_at)}</strong><small>{employee.location||'Location not set'}</small></div>}
             {r.clock_in&&<div><span>Break time</span><LiveBreakDuration row={r}/><small>{r.is_on_break?'Break is active now':'Current break status'}</small></div>}
             {Number(r.late_minutes||0)>0&&<div className="late-detail"><span>Late arrival</span><strong>{Number(r.late_minutes)} min late</strong><small>Based on assigned Doctor shift</small></div>}
-          </div>}
-          {isExpanded&&<div className="live-user-card-actions" onClick={e=>e.stopPropagation()}><Link className="btn btn-secondary btn-link" to={`${base}/employees/${employee.id}`}>View full profile</Link>{user?.role==='admin'&&<Link className="btn btn-primary btn-link" to={`/admin/employees?edit=${employee.id}`}>Edit user</Link>}</div>}
-          <div className="live-card-expand-hint" aria-hidden="true">{isExpanded?'Click card to collapse':'Click for details'}</div>
+          </div>
+          <div className="live-user-card-actions"><Link className="btn btn-secondary btn-link" to={`${base}/employees/${employee.id}`}>View full profile</Link>{user?.role==='admin'&&<Link className="btn btn-primary btn-link" to={`/admin/employees?edit=${employee.id}`}>Edit user</Link>}</div>
         </article>;
       })}</div>:<EmptyState title={`No ${String(tabs.find(x=>x[0]===tab)?.[1]||'matching').toLowerCase()} VAs`} description="This list will update automatically when workforce status changes."/>}
     </Card>
@@ -647,7 +643,7 @@ export function InvoicesPage(){
     <PageHeader
       eyebrow="Client billing"
       title="Invoices"
-      description="Billing periods run from the 26th through the 25th of the following month. Drafts auto-generate on the 26th after the cycle closes; invoices generated after the 20th are assigned to the next invoice month."
+      description="Billing periods run from the 26th through the 25th of the following month. Drafts auto-generate after the cycle closes. The invoice month follows the selected period end date."
       actions={<Button icon={Plus} onClick={()=>{setCreateForm({client_id:'',...latestCompletedBillingCycle()});setCreateOpen(true)}}>Generate invoice</Button>}
     />
     <NoticeBar notice={n.notice} clear={n.clear}/>
@@ -658,7 +654,7 @@ export function InvoicesPage(){
         <SearchableSelect label="Client / Doctor *" value={createForm.client_id} onChange={value=>setCreateForm({...createForm,client_id:value})} placeholder="Search and select Doctor" searchPlaceholder="Search Doctor name, business or timezone…" options={(options.clients||[]).map(x=>({value:String(x.id),label:x.name||x.business_name||x.email,meta:x.timezone||'',searchText:`${x.business_name||''} ${x.email||''}`}))}/>
         <Input label="Start date *" type="date" value={createForm.period_start} onChange={e=>setCreateForm({...createForm,period_start:e.target.value})}/>
         <Input label="End date *" type="date" min={createForm.period_start||undefined} value={createForm.period_end} onChange={e=>setCreateForm({...createForm,period_end:e.target.value})}/>
-        <div className="invoice-cycle-hint">Manual invoices can use any custom date range. Automatic billing runs on the 26th → next month 25th cycle. Any invoice generated after the 20th is assigned to the next invoice month.</div>
+        <div className="invoice-cycle-hint">Manual invoices can use any custom date range. Automatic billing runs on the 26th → next month 25th cycle. The invoice month follows the selected period end date.</div>
       </div>
     </Modal>
 

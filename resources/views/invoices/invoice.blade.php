@@ -206,10 +206,10 @@
                 {{ $salary->employee->first_name }} {{ $salary->employee->last_name }}
                 (Regular: {{ $formatAttendanceMinutes($regularTotal) }} | Approved OT: {{ $formatAttendanceMinutes($approvedOtTotal) }} | Payable: {{ $formatAttendanceMinutes($payableTotal) }})
             </h4>
-            <table style="font-size:10px;">
+            <table style="font-size:8px;">
                 <thead>
                     <tr>
-                        <th>Date</th><th>Clock In</th><th>Clock Out</th><th>Break</th><th>Regular Work</th><th>Overtime</th><th>OT Status</th><th>Payable</th>
+                        <th>Date</th><th>Day</th><th>Status</th><th>Shift(s)</th><th>Clock In</th><th>Clock Out</th><th>Break</th><th>Total Hours Worked</th><th>Regular Work</th><th>Overtime</th><th>OT Status</th><th>Payable Hours</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -227,19 +227,32 @@
                         $approvedMinutes = max(0, (int) ($attendance->approved_overtime_minutes ?? 0));
                         $otStatus = $overtimeMinutes > 0 ? ucfirst(str_replace('_', ' ', (string) ($attendance->overtime_status ?: 'review_required'))) : 'None';
                         $payableMinutes = $regularMinutes + ($attendance->overtime_status === 'approved' ? $approvedMinutes : 0);
+                        $elapsedMinutes = ($clockInLocal && $clockOutLocal) ? max(0, $clockInLocal->diffInMinutes($clockOutLocal)) : 0;
+                        $actualWorkedMinutes = max(0, $elapsedMinutes - $breakMinutes);
+                        $dayName = $clockInLocal ? $clockInLocal->format('l') : \Carbon\Carbon::parse($attendance->date)->format('l');
+                        $attendanceStatus = ($clockInLocal && $clockOutLocal) ? 'Present' : 'Incomplete';
+                        $shiftStartLocal = $attendance->shift_start_snapshot ? \Carbon\Carbon::parse($attendance->shift_start_snapshot)->setTimezone($timezone) : null;
+                        $shiftEndLocal = $attendance->shift_end_snapshot ? \Carbon\Carbon::parse($attendance->shift_end_snapshot)->setTimezone($timezone) : null;
+                        $shiftLabel = ($shiftStartLocal && $shiftEndLocal)
+                            ? $shiftStartLocal->format('h:i A').' - '.$shiftEndLocal->format('h:i A')
+                            : '-';
                     @endphp
                     <tr>
                         <td>{{ $attendanceDate }}</td>
+                        <td>{{ $dayName }}</td>
+                        <td>{{ $attendanceStatus }}</td>
+                        <td>{{ $shiftLabel }}</td>
                         <td>{{ $clockIn }}</td>
                         <td>{{ $clockOut }}</td>
                         <td>{{ $formatAttendanceMinutes($breakMinutes) }}</td>
+                        <td>{{ $formatAttendanceMinutes($actualWorkedMinutes) }}</td>
                         <td>{{ $formatAttendanceMinutes($regularMinutes) }}</td>
                         <td>{{ $formatAttendanceMinutes($overtimeMinutes) }}</td>
                         <td>{{ $otStatus }}</td>
                         <td>{{ $formatAttendanceMinutes($payableMinutes) }}</td>
                     </tr>
                 @empty
-                    <tr><td colspan="8" class="text-center">No attendance records found for this period</td></tr>
+                    <tr><td colspan="12" class="text-center">No attendance records found for this period</td></tr>
                 @endforelse
                 </tbody>
             </table>
