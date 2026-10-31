@@ -86,9 +86,7 @@
         <thead>
             <tr>
                 <th>VA Name</th>
-                <th>Regular Work</th>
-                <th>Approved OT</th>
-                <th>Payable Time</th>
+                <th>Working Hours</th>
                 <th>Rate/h</th>
                 <th>From</th>
                 <th>To</th>
@@ -112,8 +110,6 @@
             @endphp
             <tr>
                 <td>{{ $salary->employee->first_name }} {{ $salary->employee->last_name }}</td>
-                <td>{{ $formatMinutes($regularMinutes) }}</td>
-                <td>{{ $formatMinutes($approvedOtMinutes) }}</td>
                 <td>{{ $formatMinutes($payableMinutes) }}</td>
                 <td>${{ number_format($rate, 2) }}</td>
                 <td>{{ \Carbon\Carbon::parse($salary->period_start)->format('d-M') }}</td>
@@ -209,7 +205,7 @@
             @endphp
             <h4 style="background:#f2f2f2;padding:8px;margin-top:20px;">
                 {{ $salary->employee->first_name }} {{ $salary->employee->last_name }}
-                (Regular: {{ $formatAttendanceMinutes($regularTotal) }} | Approved OT: {{ $formatAttendanceMinutes($approvedOtTotal) }} | Payable: {{ $formatAttendanceMinutes($payableTotal) }})
+                (Working Hours: {{ $formatAttendanceMinutes($payableTotal) }})
             </h4>
             <table style="font-size:8px;">
                 <thead>
@@ -219,7 +215,7 @@
                 </thead>
                 <tbody>
                 @php
-                    $periodCursor = \Carbon\Carbon::parse($invoice->period_start)->startOfDay();
+                    $periodCursor = \Carbon\Carbon::parse($salary->period_start ?: $invoice->period_start)->startOfDay();
                     $periodLast = \Carbon\Carbon::parse($invoice->period_end)->startOfDay();
                     $employeeAttendances = $salary->employee->attendances ?? collect();
                     $employeeSchedules = ($scheduleByEmployee ?? collect())->get($salary->employee_id, collect());
@@ -297,7 +293,7 @@
                                 <td>{{ $clockIn }}</td>
                                 <td>{{ $clockOut }}</td>
                                 <td>{{ $formatAttendanceMinutes($breakMinutes) }}</td>
-                                <td>{{ $formatAttendanceMinutes($actualWorkedMinutes) }}</td>
+                                <td>{{ $formatAttendanceMinutes($regularMinutes) }}</td>
                                 <td>{{ $formatAttendanceMinutes($overtimeMinutes) }}</td>
                                 <td>{{ $formatAttendanceMinutes($payableMinutes) }}</td>
                             </tr>

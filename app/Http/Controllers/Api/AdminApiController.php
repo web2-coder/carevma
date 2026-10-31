@@ -13,6 +13,8 @@ use App\Models\Department;
 use App\Models\Designation;
 use App\Models\Employee;
 use App\Models\EmployeeClientSchedule;
+use App\Models\ScheduleChangeRequest;
+use App\Models\WorkSession;
 use App\Models\EmployeeSalary;
 use App\Models\EmployeeStatus;
 use App\Models\EmploymentType;
@@ -29,6 +31,7 @@ use App\Services\FxRateService;
 use App\Services\TrustedTimeService;
 use App\Services\ClientTimezoneService;
 use App\Services\AttendanceBillingService;
+use App\Services\WorkSessionService;
 use App\Services\InvoicePdfService;
 use DateTimeZone;
 use App\Mail\EmployeeInvitationMail;
@@ -54,6 +57,7 @@ class AdminApiController extends Controller
         private TrustedTimeService $clock,
         private ClientTimezoneService $timezones,
         private AttendanceBillingService $attendanceBilling,
+        private WorkSessionService $workSessions,
     ) {
     }
 
@@ -146,25 +150,26 @@ class AdminApiController extends Controller
             ];
         });
 
-        // Dashboard "Live employees" means actively checked in, not merely logged into the portal.
-        $checkedInAttendances = Attendance::query()->whereNull('clock_out');
-        $currentlyWorking = Attendance::query()
-            ->with([
-                'employee:id,first_name,last_name,employee_code,profile_picture,timezone',
-                'client:id,name,business_name,timezone,profile_picture',
-            ])
-            ->whereNull('clock_out')
-            ->latest('clock_in')
-            ->limit(3)
-            ->get()
-            ->map(function (Attendance $attendance) {
+        // Dashboard live count is one VA work session, even when multiple Doctor segments overlap.
+        if ($this->workSessions->supported()) {
+            $openWorkSessions = WorkSession::query()->with('employee:id,first_name,last_name,employee_code,profile_picture,timezone')->whereNull('clock_out')->latest('clock_in')->get()
+                ->map(fn (WorkSession $session) => $this->workSessions->reconcile($session));
+            $checkedInCount = $openWorkSessions->count();
+            $currentlyWorking = $openWorkSessions->take(3)->map(function (WorkSession $session) {
+                $activeSegments = $session->attendances->whereNull('clock_out')->values();
+                $primary = $activeSegments->first() ?: $session->attendances->last();
                 return [
-                    'id' => $attendance->id,
-                    'employee' => $attendance->employee,
-                    'client' => $attendance->client,
-                    'clock_in' => $attendance->clock_in?->toIso8601String(),
+                    'id' => 'work-session-'.$session->id,
+                    'employee' => $session->employee,
+                    'client' => $primary?->client,
+                    'doctor_names' => $activeSegments->map(fn (Attendance $row) => $row->client?->name ?: $row->client?->business_name)->filter()->unique()->values(),
+                    'clock_in' => $session->clock_in?->toIso8601String(),
                 ];
             })->values();
+        } else {
+            $checkedInCount = Attendance::query()->whereNull('clock_out')->count();
+            $currentlyWorking = Attendance::query()->with(['employee:id,first_name,last_name,employee_code,profile_picture,timezone','client:id,name,business_name,timezone,profile_picture'])->whereNull('clock_out')->latest('clock_in')->limit(3)->get()->map(fn (Attendance $attendance) => ['id'=>$attendance->id,'employee'=>$attendance->employee,'client'=>$attendance->client,'doctor_names'=>collect([$attendance->client?->name ?: $attendance->client?->business_name])->filter()->values(),'clock_in'=>$attendance->clock_in?->toIso8601String()])->values();
+        }
         $pendingOvertime = Schema::hasColumn('attendances', 'overtime_status')
             ? Attendance::where('overtime_status', 'pending')->count()
             : Attendance::where('overtime', '>', 0)->count();
@@ -231,7 +236,7 @@ class AdminApiController extends Controller
             'metrics' => [
                 'employees' => Employee::count(),
                 'clients' => Client::count(),
-                'active' => (clone $checkedInAttendances)->count(),
+                'active' => $checkedInCount,
                 'today_sessions' => ($attendanceSummaries[$today]['sessions'] ?? 0),
                 'pending_overtime' => $pendingOvertime,
                 'invoices' => Invoice::count(),
@@ -270,13 +275,13 @@ class AdminApiController extends Controller
 
     public function liveCount(Request $request)
     {
-        return response()->json([
-            'total' => Attendance::query()->whereNull('clock_out')->count(),
-        ]);
+        $total = $this->workSessions->supported() ? WorkSession::query()->whereNull('clock_out')->count() : Attendance::query()->whereNull('clock_out')->count();
+        return response()->json(['total' => $total]);
     }
 
     public function liveUsers(Request $request)
     {
+        if ($this->workSessions->supported()) return $this->liveUsersFromWorkSessions();
         $serverNow = $this->clock->now('UTC');
 
         $sessions = Attendance::query()
@@ -1026,6 +1031,28 @@ class AdminApiController extends Controller
         });
     }
 
+    private function liveUsersFromWorkSessions()
+    {
+        $serverNow=$this->clock->now('UTC');
+        $open=WorkSession::query()->with('employee.user:id,name,email,last_seen_at')->whereNull('clock_out')->latest('clock_in')->get()->map(fn(WorkSession $session)=>$this->workSessions->reconcile($session,$serverNow));
+        $sessions=$open->map(function(WorkSession $session) use($serverNow){
+            $employee=$session->employee; $active=$session->attendances->whereNull('clock_out')->values(); $all=$session->attendances->values();
+            $primary=$active->sortByDesc(fn($a)=>$a->shift_end_snapshot?->timestamp??0)->first() ?: $all->last();
+            $doctorNames=$active->map(fn($a)=>$a->client?->name?:$a->client?->business_name)->filter()->unique()->values();
+            $openBreak=$session->breaks->whereNull('end_time')->sortByDesc('id')->first();
+            $completed=(int)$session->breaks->whereNotNull('end_time')->sum(fn($b)=>max(0,$b->end_time->timestamp-$b->start_time->timestamp));
+            $current=$openBreak?max(0,$serverNow->timestamp-$openBreak->start_time->timestamp):0; $elapsed=max(0,$serverNow->timestamp-$session->clock_in->timestamp);
+            $lastSeen=$employee?->user?->last_seen_at; $online=$lastSeen&&Carbon::parse($lastSeen)->gt($serverNow->copy()->subMinutes(5));
+            $late=(int)$active->max(fn($a)=>(int)($a->late_minutes??0)); $zone=$primary?$this->timezones->forAttendance($primary,false):null;
+            $scheduleLabel=null; if($primary?->shift_start_snapshot&&$primary?->shift_end_snapshot){$st=$primary->shift_start_snapshot->copy()->setTimezone($zone?:'UTC');$en=$primary->shift_end_snapshot->copy()->setTimezone($zone?:'UTC');$scheduleLabel=$st->format('D, M d, g:i A').' – '.$en->format('D, M d, g:i A');}
+            return ['id'=>'work-session-'.$session->id,'work_session_id'=>$session->id,'employee'=>$employee,'client'=>$primary?->client,'clients'=>$active->pluck('client')->filter()->values(),'doctor_names'=>$doctorNames,'schedule'=>$primary?->schedule,'clock_in'=>$session->clock_in->toIso8601ZuluString(),'clock_in_utc'=>$session->clock_in->toIso8601ZuluString(),'clock_in_doctor_label'=>$zone?$session->clock_in->copy()->setTimezone($zone)->format('M d, Y, g:i A'):null,'elapsed_seconds'=>$elapsed,'doctor_timezone'=>$zone,'schedule_doctor_label'=>$scheduleLabel,'late_minutes'=>$late,'break_limit'=>$primary?->break_limit,'completed_break_seconds'=>$completed,'current_break_seconds'=>$current,'total_break_seconds'=>$completed+$current,'is_on_break'=>(bool)$openBreak,'is_online'=>(bool)$online,'last_seen_at'=>$lastSeen?->toIso8601String(),'attendance_status'=>'Checked in','status_key'=>$openBreak?'break':($late>0?'late':'checked_in'),'status_label'=>$openBreak?'On Break':($late>0?'Late':'Checked In')];
+        })->values();
+        $activeIds=$open->pluck('employee_id')->map(fn($id)=>(int)$id)->all();
+        $offline=Employee::query()->with('user:id,name,email,last_seen_at')->whereNotIn('id',$activeIds?:[0])->orderBy('first_name')->get(['id','user_id','first_name','last_name','email','employee_code','profile_picture','timezone','location'])->map(function(Employee $employee) use($serverNow){$last=$employee->user?->last_seen_at;$online=$last&&Carbon::parse($last)->gt($serverNow->copy()->subMinutes(5));return ['id'=>'employee-'.$employee->id,'employee'=>$employee,'client'=>null,'clients'=>[],'doctor_names'=>[],'schedule'=>null,'clock_in'=>null,'elapsed_seconds'=>0,'doctor_timezone'=>null,'schedule_doctor_label'=>null,'late_minutes'=>0,'completed_break_seconds'=>0,'current_break_seconds'=>0,'total_break_seconds'=>0,'is_on_break'=>false,'is_online'=>(bool)$online,'last_seen_at'=>$last?->toIso8601String(),'attendance_status'=>'Not checked in','status_key'=>$online?'online':'offline','status_label'=>$online?'Online':'Offline'];});
+        $people=$sessions->concat($offline)->values();
+        return response()->json(['server_now'=>$serverNow->toIso8601ZuluString(),'total'=>$people->count(),'online'=>$people->where('is_online',true)->count(),'checked_in'=>$sessions->count(),'working'=>$sessions->where('is_on_break',false)->count(),'on_break'=>$sessions->where('is_on_break',true)->count(),'late'=>$sessions->where('late_minutes','>',0)->count(),'offline'=>$people->where('status_key','offline')->count(),'sessions'=>$people]);
+    }
+
     public function changeRequests(Request $request)
     {
         $query = AttendanceChangeRequest::with(['employee:id,first_name,last_name,employee_code', 'attendance']);
@@ -1035,29 +1062,26 @@ class AdminApiController extends Controller
 
     public function reviewChangeRequest(Request $request, AttendanceChangeRequest $changeRequest)
     {
-        $data = $request->validate(['decision' => ['required', Rule::in(['approved', 'rejected'])], 'note' => ['nullable', 'string', 'max:1000']]);
-        if ($changeRequest->status !== 'pending') return response()->json(['message' => 'This request has already been reviewed.'], 422);
-
-        DB::transaction(function () use ($changeRequest, $data, $request) {
-            if ($data['decision'] === 'approved') {
-                $attendance = $changeRequest->attendance;
-                $date = Carbon::parse($changeRequest->date)->toDateString();
-                $timezone = $this->timezones->forAttendance($attendance, false);
-                $requestedIn = Carbon::parse($date.' '.$changeRequest->requested_clock_in, $timezone);
-                $requestedOut = Carbon::parse($date.' '.$changeRequest->requested_clock_out, $timezone);
-                if ($requestedOut->lte($requestedIn)) $requestedOut->addDay();
-                $attendance->clock_in = $requestedIn->utc();
-                $attendance->clock_out = $requestedOut->utc();
-                $attendance->save();
-                $this->recalculateAttendance($attendance);
-            }
-            $update = ['status' => $data['decision']];
-            if (Schema::hasColumn('attendance_change_requests', 'reviewed_by')) {
-                $update += ['reviewed_by' => $request->user()->id, 'reviewed_at' => $this->clock->now('UTC'), 'review_note' => $data['note'] ?? null];
-            }
-            $changeRequest->update($update);
+        $data=$request->validate(['decision'=>['required',Rule::in(['approved','rejected'])],'note'=>['nullable','string','max:1000'],'approved_clock_in'=>['nullable','date_format:H:i'],'approved_clock_out'=>['nullable','date_format:H:i']]);
+        if($changeRequest->status!=='pending')return response()->json(['message'=>'This request has already been reviewed.'],422);
+        DB::transaction(function() use($changeRequest,$data,$request){
+            $approvedIn=$data['approved_clock_in']??substr((string)$changeRequest->requested_clock_in,0,5); $approvedOut=$data['approved_clock_out']??substr((string)$changeRequest->requested_clock_out,0,5);
+            if($data['decision']==='approved'){$attendance=$changeRequest->attendance()->lockForUpdate()->firstOrFail();$date=Carbon::parse($changeRequest->date)->toDateString();$zone=$this->timezones->forAttendance($attendance,false);$in=Carbon::parse($date.' '.$approvedIn,$zone);$out=Carbon::parse($date.' '.$approvedOut,$zone);if($out->lte($in))$out->addDay();$attendance->clock_in=$in->utc();$attendance->clock_out=$out->utc();$attendance->save();$this->recalculateAttendance($attendance);}
+            $update=['status'=>$data['decision'],'reviewed_by'=>$request->user()->id,'reviewed_at'=>$this->clock->now('UTC'),'review_note'=>$data['note']??null]; if(Schema::hasColumn('attendance_change_requests','approved_clock_in')){$update['approved_clock_in']=$data['decision']==='approved'?$approvedIn:null;$update['approved_clock_out']=$data['decision']==='approved'?$approvedOut:null;} $changeRequest->update($update);
         });
-        return response()->json(['message' => 'Change request '.$data['decision'].'.']);
+        return response()->json(['message'=>'Change request '.$data['decision'].'.']);
+    }
+
+    public function scheduleChangeRequests(Request $request)
+    {
+        if(!Schema::hasTable('schedule_change_requests'))return response()->json(['data'=>[],'total'=>0,'current_page'=>1,'last_page'=>1,'per_page'=>10]);
+        $query=ScheduleChangeRequest::with(['employee:id,first_name,last_name,employee_code','schedule.client:id,name,business_name,timezone']); if($request->filled('status'))$query->where('status',$request->input('status')); return response()->json($query->latest('id')->paginate(min((int)$request->query('per_page',10),100)));
+    }
+
+    public function reviewScheduleChangeRequest(Request $request, ScheduleChangeRequest $scheduleChangeRequest)
+    {
+        $data=$request->validate(['decision'=>['required',Rule::in(['approved','rejected'])],'note'=>['nullable','string','max:1000'],'approved_date'=>['nullable','date'],'approved_start_time'=>['nullable','date_format:H:i'],'approved_end_time'=>['nullable','date_format:H:i']]); if($scheduleChangeRequest->status!=='pending')return response()->json(['message'=>'This schedule change request has already been reviewed.'],422);
+        DB::transaction(function() use($scheduleChangeRequest,$data,$request){$date=$data['approved_date']??$scheduleChangeRequest->requested_date?->toDateString();$start=$data['approved_start_time']??substr((string)$scheduleChangeRequest->requested_start_time,0,5);$end=$data['approved_end_time']??substr((string)$scheduleChangeRequest->requested_end_time,0,5);if($data['decision']==='approved'){$schedule=$scheduleChangeRequest->schedule()->lockForUpdate()->firstOrFail();$payload=['start_time'=>$start,'end_time'=>$end];if(!$schedule->repeat&&$date)$payload['schedule_date']=$date;$payload['no_of_hours']=$this->hoursBetween($start,$end);$schedule->update($payload);} $scheduleChangeRequest->update(['status'=>$data['decision'],'approved_date'=>$data['decision']==='approved'?$date:null,'approved_start_time'=>$data['decision']==='approved'?$start:null,'approved_end_time'=>$data['decision']==='approved'?$end:null,'reviewed_by'=>$request->user()->id,'reviewed_at'=>$this->clock->now('UTC'),'review_note'=>$data['note']??null]);}); return response()->json(['message'=>'Schedule change request '.$data['decision'].'.']);
     }
 
     public function overtime(Request $request)

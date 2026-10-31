@@ -67,6 +67,8 @@ class DoctorApiController extends Controller
                 : ($latestAttendance->clock_out ? 'Checked out' : 'Checked in'));
             $employee->setAttribute('current_clock_in', $latestAttendance?->clock_in?->toIso8601String());
             $employee->setAttribute('current_clock_out', $latestAttendance?->clock_out?->toIso8601String());
+            // Doctor portal must not expose the VA's location.
+            $employee->makeHidden(['location']);
         });
 
         $schedules = $client->employeeSchedules()
@@ -124,12 +126,11 @@ class DoctorApiController extends Controller
 
         return response()->json([
             'client' => $client->only(['id', 'name', 'business_name', 'timezone']),
-            'employee' => $employee->loadMissing('user:id,last_seen_at'),
+            'employee' => $employee->loadMissing('user:id,last_seen_at')->makeHidden(['location']),
             'presence' => [
                 'is_online' => (bool) $isOnline,
                 'login_status' => $isOnline ? 'Online' : 'Offline',
                 'last_seen_at' => $lastSeenAt?->toIso8601String(),
-                'location' => $employee->location ?: null,
                 'attendance_status' => !$latestAttendance
                     ? 'Not checked in'
                     : ($latestAttendance->clock_out ? 'Checked out' : 'Checked in'),

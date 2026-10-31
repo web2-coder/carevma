@@ -46,7 +46,16 @@ class InvoicePdfService
 
         foreach ($invoice->salaries as $salary) {
             if ($salary->employee) {
-                $salary->employee->setRelation('attendances', $attendanceByEmployee->get($salary->employee_id, collect()));
+                $salaryStart = $salary->period_start?->toDateString() ?: $invoice->period_start->toDateString();
+                $salaryEnd = $salary->period_end?->toDateString() ?: $invoice->period_end->toDateString();
+                $rows = $attendanceByEmployee->get($salary->employee_id, collect())->filter(function (Attendance $attendance) use ($invoice, $salaryStart, $salaryEnd) {
+                    if (! $attendance->clock_in) {
+                        return false;
+                    }
+                    $localDate = $this->timezones->localDate($attendance->clock_in, $invoice->client);
+                    return $localDate >= $salaryStart && $localDate <= $salaryEnd;
+                })->values();
+                $salary->employee->setRelation('attendances', $rows);
             }
         }
 

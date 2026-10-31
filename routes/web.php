@@ -69,6 +69,8 @@ Route::prefix('api')->group(function () {
             Route::get('/attendance', [AdminApiController::class, 'attendance']);
             Route::get('/change-requests', [AdminApiController::class, 'changeRequests']);
             Route::post('/change-requests/{changeRequest}/review', [AdminApiController::class, 'reviewChangeRequest']);
+            Route::get('/schedule-change-requests', [AdminApiController::class, 'scheduleChangeRequests']);
+            Route::post('/schedule-change-requests/{scheduleChangeRequest}/review', [AdminApiController::class, 'reviewScheduleChangeRequest']);
             Route::get('/overtime', [AdminApiController::class, 'overtime']);
             Route::post('/overtime/{attendance}/review', [AdminApiController::class, 'reviewOvertime']);
 
@@ -119,6 +121,8 @@ Route::prefix('api')->group(function () {
                 Route::get('/attendance', [EmployeeApiController::class, 'attendance']);
                 Route::get('/change-requests', [EmployeeApiController::class, 'changeRequests']);
                 Route::post('/change-requests', [EmployeeApiController::class, 'requestChange']);
+                Route::get('/schedule-change-requests', [EmployeeApiController::class, 'scheduleChangeRequests']);
+                Route::post('/schedule-change-requests', [EmployeeApiController::class, 'requestScheduleChange']);
                 Route::post('/clock-in', [EmployeeApiController::class, 'clockIn']);
                 Route::post('/clock-out', [EmployeeApiController::class, 'clockOut']);
                 Route::post('/overtime/{attendance}/request', [EmployeeApiController::class, 'requestOvertimeReview']);

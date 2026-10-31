@@ -12,6 +12,8 @@ use App\Services\OperationalNotifier;
 use App\Services\TrustedTimeService;
 use App\Services\AttendanceBillingService;
 use App\Services\ClientTimezoneService;
+use App\Services\WorkSessionService;
+use Illuminate\Support\Facades\Schema;
 use Carbon\Carbon;
 
 Artisan::command('inspire', function () {
@@ -53,6 +55,11 @@ Schedule::command('invoices:generate-monthly')
     ->name('carevma-monthly-invoice-generation')
     ->withoutOverlapping(120);
 
+/* Reconcile one VA work session into Doctor-specific segments every minute. */
+Schedule::call(function () {
+    app(WorkSessionService::class)->autoCheckoutDueSessions();
+})->everyMinute()->name('carevma-work-session-reconcile')->withoutOverlapping(60);
+
 /* Auto-checkout: if a VA forgets to check out, close the session exactly two hours after the Doctor-local scheduled shift end. */
 Schedule::call(function () {
     $clock = app(TrustedTimeService::class);
@@ -61,10 +68,13 @@ Schedule::call(function () {
     $notifier = app(OperationalNotifier::class);
     $nowUtc = $clock->now('UTC');
 
-    Attendance::query()
+    $legacyAttendance = Attendance::query()
         ->with(['employee.user', 'client:id,timezone', 'schedule', 'breaks'])
-        ->whereNull('clock_out')
-        ->chunkById(100, function ($rows) use ($nowUtc, $timezones, $billing, $notifier) {
+        ->whereNull('clock_out');
+    if (Schema::hasColumn('attendances', 'work_session_id')) {
+        $legacyAttendance->whereNull('work_session_id');
+    }
+    $legacyAttendance->chunkById(100, function ($rows) use ($nowUtc, $timezones, $billing, $notifier) {
             foreach ($rows as $attendance) {
                 $deadlineUtc = null;
                 if ($attendance->shift_end_snapshot) {

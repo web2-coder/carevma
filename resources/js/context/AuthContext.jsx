@@ -23,8 +23,13 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     refresh();
     const onUnauthorized = () => setUser(null);
+    const onTimezoneUpdated = () => refresh();
     window.addEventListener('carevma:unauthorized', onUnauthorized);
-    return () => window.removeEventListener('carevma:unauthorized', onUnauthorized);
+    window.addEventListener('carevma:timezone-updated', onTimezoneUpdated);
+    return () => {
+      window.removeEventListener('carevma:unauthorized', onUnauthorized);
+      window.removeEventListener('carevma:timezone-updated', onTimezoneUpdated);
+    };
   }, []);
 
   const login = async values => {

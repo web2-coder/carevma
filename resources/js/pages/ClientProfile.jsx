@@ -420,6 +420,7 @@ export default function ClientProfilePage() {
       const response = await api.put(`/admin/clients/${clientId}`, clientPayload(form));
       notify('success', response.data?.message || 'Client updated.');
       await loadCore(true);
+      window.dispatchEvent(new CustomEvent('carevma:timezone-updated',{detail:{clientId,timezone:form.timezone,source:'admin-client-profile'}}));
     } catch (error) {
       notify('error', messageFrom(error));
     } finally {

@@ -2865,3 +2865,60 @@ html, body, button, input, select, textarea, .app-shell {
     }
 
 }
+/* =========================================================
+   CAREVMA SAFE SIDEBAR GRID SYNC - 2026-10-30
+   Keep the single AppShell sidebar aligned with the page grid.
+   ========================================================= */
+@media (min-width: 901px) {
+  .app-shell:not(.sidebar-collapsed) {
+    grid-template-columns: 300px minmax(0, 1fr) !important;
+  }
+
+  .app-shell:not(.sidebar-collapsed) > .sidebar {
+    width: 300px !important;
+    min-width: 300px !important;
+    max-width: 300px !important;
+    flex-basis: 300px !important;
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+  }
+
+  .app-shell.sidebar-collapsed {
+    grid-template-columns: 84px minmax(0, 1fr) !important;
+  }
+
+  .app-shell.sidebar-collapsed > .sidebar {
+    width: 84px !important;
+    min-width: 84px !important;
+    max-width: 84px !important;
+    flex-basis: 84px !important;
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+  }
+
+  .app-shell > .app-main {
+    grid-column: 2 !important;
+    grid-row: 1 !important;
+    min-width: 0 !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .app-shell,
+  .app-shell.sidebar-collapsed {
+    grid-template-columns: 1fr !important;
+  }
+
+  .app-shell > .sidebar,
+  .app-shell.sidebar-collapsed > .sidebar {
+    width: 270px !important;
+    min-width: 270px !important;
+    max-width: 270px !important;
+    flex-basis: 270px !important;
+  }
+
+  .app-shell > .app-main {
+    grid-column: 1 !important;
+    min-width: 0 !important;
+  }
+}

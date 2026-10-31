@@ -13,6 +13,7 @@ class Attendance extends Model
      * Fields that can be mass assigned.
      */
     protected $fillable = [
+        'work_session_id',
         'employee_id',
         'client_id',
         'schedule_id',
@@ -21,6 +22,7 @@ class Attendance extends Model
         'shift_start_snapshot',
         'shift_end_snapshot',
         'clock_in',
+        'check_in_comment',
         'clock_out',
         'break_limit',
         'break_taken',
@@ -130,6 +132,11 @@ class Attendance extends Model
     /**
      * Employee / VA belonging to this attendance record.
      */
+    public function workSession()
+    {
+        return $this->belongsTo(WorkSession::class, 'work_session_id');
+    }
+
     public function employee()
     {
         return $this->belongsTo(
