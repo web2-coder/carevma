@@ -437,3 +437,17 @@
 .live-doctor-mini-timer .live-duration-value{font-size:13px}
 .live-doctor-mini-timer .live-time-cell>span{display:none}
 @media(max-width:900px){.doctor-live-card-grid{grid-template-columns:1fr}.doctor-live-card-grid-inner{grid-template-columns:1fr}}
+
+
+/* 2026-10-30 Live Workforce multi-doctor layout repair */
+.live-user-card-grid{grid-template-columns:repeat(2,minmax(340px,1fr))!important}
+.live-user-card-profile-row{grid-template-columns:minmax(120px,.8fr) 52px minmax(0,1.6fr)!important}
+.live-user-doctor-stack{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))!important;align-items:start}
+.live-user-doctor-stack .live-user-profile-block{padding:10px;border:1px solid var(--border);border-radius:12px;background:var(--surface-2)}
+.live-user-doctor-stack .live-doctor-mini-timer{width:100%}
+@media(max-width:980px){.live-user-card-grid{grid-template-columns:1fr!important}}
+@media(max-width:620px){
+  .live-user-card-profile-row{grid-template-columns:1fr!important}
+  .live-user-profile-link{transform:rotate(90deg);margin:0 auto}
+  .live-user-doctor-stack{grid-template-columns:1fr!important;width:100%}
+}

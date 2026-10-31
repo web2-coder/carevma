@@ -282,7 +282,10 @@ class AdminApiController extends Controller
 
     public function liveUsers(Request $request)
     {
-        if ($this->workSessions->supported()) return $this->liveUsersFromWorkSessions();
+        if ($this->workSessions->supported()) {
+            try { return $this->liveUsersFromWorkSessions(); }
+            catch (\Throwable $e) {\Log::error('Live Workforce work-session feed failed; using legacy attendance fallback.', ['error'=>$e->getMessage(),'file'=>$e->getFile(),'line'=>$e->getLine()]);}
+        }
         $serverNow = $this->clock->now('UTC');
 
         $sessions = Attendance::query()
@@ -1035,7 +1038,13 @@ class AdminApiController extends Controller
     private function liveUsersFromWorkSessions()
     {
         $serverNow=$this->clock->now('UTC');
-        $open=WorkSession::query()->with('employee.user:id,name,email,last_seen_at')->whereNull('clock_out')->latest('clock_in')->get()->map(fn(WorkSession $session)=>$this->workSessions->reconcile($session,$serverNow));
+        $open=WorkSession::query()->with(['employee.user:id,name,email,last_seen_at','attendances.client','attendances.schedule','attendances.breaks','breaks'])->whereNull('clock_out')->latest('clock_in')->get()->map(function(WorkSession $session) use($serverNow){
+            try { return $this->workSessions->reconcile($session,$serverNow); }
+            catch (\Throwable $e) {
+                \Log::error('Live Workforce reconcile skipped for one session.', ['work_session_id'=>$session->id,'error'=>$e->getMessage()]);
+                return $session->fresh(['employee.user:id,name,email,last_seen_at','attendances.client','attendances.schedule','attendances.breaks','breaks']);
+            }
+        });
         $sessions=$open->map(function(WorkSession $session) use($serverNow){
             $employee=$session->employee; $active=$session->attendances->whereNull('clock_out')->values(); $all=$session->attendances->values();
             $primary=$active->sortByDesc(fn($a)=>$a->shift_end_snapshot?->timestamp??0)->first() ?: $all->last();
@@ -1051,9 +1060,9 @@ class AdminApiController extends Controller
                     'profile_picture'=>$attendance->client?->profile_picture,
                     'timezone'=>$segmentZone,
                     'shift_label'=>($segmentStart&&$segmentEnd)?$segmentStart->format('D, M d, g:i A').' – '.$segmentEnd->format('D, M d, g:i A'):null,
-                    'clock_in_utc'=>$attendance->clock_in?->copy()->utc()->toIso8601ZuluString(),
-                    'elapsed_seconds'=>$attendance->clock_in?max(0,$serverNow->timestamp-$attendance->clock_in->copy()->utc()->timestamp):0,
                     'late_minutes'=>(int)($attendance->late_minutes??0),
+                    'clock_in_utc'=>$attendance->clock_in?->copy()->utc()->toIso8601ZuluString(),
+                    'elapsed_seconds'=>$attendance->clock_in?max(0,$this->clock->now('UTC')->timestamp-$attendance->clock_in->copy()->utc()->timestamp):0,
                     'status'=>'active',
                 ];
             })->values();

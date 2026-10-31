@@ -591,10 +591,6 @@ table tbody tr:hover,
   backdrop-filter: blur(5px);
 }
 
-.client-schedule-drawer-backdrop {
-  z-index: 1001 !important;
-}
-
 .modal-head,
 .modal-foot {
   border-color: #e4ebf4;
@@ -2939,3 +2935,56 @@ html, body, button, input, select, textarea, .app-shell {
 .searchable-multi-footer button{border:0;background:transparent;font:inherit;font-weight:700;cursor:pointer;padding:5px 7px;border-radius:7px}
 .searchable-multi-footer button:hover{background:#f1f5f9}
 .invoice-bulk-grid .searchable-multi-select-field{align-self:end}
+
+
+/* 2026-10-30 multi-doctor live layout repair */
+.employee-dashboard-pro .shift-control-pro-grid{
+  grid-template-columns:minmax(0,1fr)!important;
+  gap:20px!important;
+}
+.employee-dashboard-pro .shift-control-side{
+  display:grid!important;
+  grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  gap:14px!important;
+  min-width:0!important;
+}
+.employee-dashboard-pro .doctor-live-session-section{
+  grid-column:1/-1!important;
+  width:100%!important;
+  min-width:0!important;
+}
+.employee-dashboard-pro .doctor-live-card-grid{
+  display:grid!important;
+  grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  gap:16px!important;
+  width:100%!important;
+}
+.employee-dashboard-pro .doctor-live-card{
+  min-width:0!important;
+  overflow:hidden!important;
+}
+.employee-dashboard-pro .doctor-live-card-grid-inner{
+  grid-template-columns:repeat(2,minmax(220px,1fr))!important;
+}
+.employee-dashboard-pro .doctor-live-card-grid-inner>div{
+  min-width:0!important;
+  overflow:hidden!important;
+}
+.employee-dashboard-pro .doctor-live-card .dual-timezone-clock,
+.employee-dashboard-pro .doctor-live-card .dual-timezone-clock>div{
+  width:100%!important;
+  min-width:0!important;
+}
+.employee-dashboard-pro .doctor-live-card strong,
+.employee-dashboard-pro .doctor-live-card small,
+.employee-dashboard-pro .doctor-live-card span{
+  overflow-wrap:anywhere;
+  word-break:normal!important;
+}
+@media(max-width:1100px){
+  .employee-dashboard-pro .doctor-live-card-grid{grid-template-columns:1fr!important}
+}
+@media(max-width:820px){
+  .employee-dashboard-pro .shift-control-side{grid-template-columns:1fr!important}
+  .employee-dashboard-pro .doctor-live-card-grid-inner{grid-template-columns:1fr!important}
+}
