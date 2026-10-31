@@ -1051,6 +1051,8 @@ class AdminApiController extends Controller
                     'profile_picture'=>$attendance->client?->profile_picture,
                     'timezone'=>$segmentZone,
                     'shift_label'=>($segmentStart&&$segmentEnd)?$segmentStart->format('D, M d, g:i A').' – '.$segmentEnd->format('D, M d, g:i A'):null,
+                    'clock_in_utc'=>$attendance->clock_in?->copy()->utc()->toIso8601ZuluString(),
+                    'elapsed_seconds'=>$attendance->clock_in?max(0,$serverNow->timestamp-$attendance->clock_in->copy()->utc()->timestamp):0,
                     'late_minutes'=>(int)($attendance->late_minutes??0),
                     'status'=>'active',
                 ];

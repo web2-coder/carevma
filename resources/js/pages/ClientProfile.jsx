@@ -165,6 +165,10 @@ export default function ClientProfilePage() {
     break_allowed_hours: '0.30',
     days: makeWeeklyDays(),
   });
+  const [assignmentMode, setAssignmentMode] = useState('weekly');
+  const [specificDates, setSpecificDates] = useState([
+    { date: '', start_time: '09:00', end_time: '17:00' },
+  ]);
 
   const [reportRows, setReportRows] = useState([]);
   const [reportMeta, setReportMeta] = useState(null);
@@ -184,6 +188,8 @@ export default function ClientProfilePage() {
         break_allowed_hours: '0.30',
         days: makeWeeklyDays(),
       });
+      setAssignmentMode('weekly');
+      setSpecificDates([{ date: '', start_time: '09:00', end_time: '17:00' }]);
     }
     navigate(`/admin/client/${clientId}/${tab.suffix}`);
   };
@@ -327,6 +333,21 @@ export default function ClientProfilePage() {
     [weeklyAssignHours, weeklyAssign.per_hour_rate],
   );
 
+  const validSpecificDates = useMemo(
+    () => specificDates.filter(row => row.date && row.start_time && row.end_time),
+    [specificDates],
+  );
+
+  const specificAssignHours = useMemo(
+    () => validSpecificDates.reduce((total, row) => total + scheduleHours(row.start_time, row.end_time), 0),
+    [validSpecificDates],
+  );
+
+  const specificAssignAmount = useMemo(
+    () => specificAssignHours * Math.max(0, Number(weeklyAssign.per_hour_rate || 0)),
+    [specificAssignHours, weeklyAssign.per_hour_rate],
+  );
+
   const setClientField = (key, value) => setForm(current => ({ ...current, [key]: value }));
   const setScheduleField = (key, value) => setScheduleForm(current => ({ ...current, [key]: value }));
 
@@ -358,6 +379,69 @@ export default function ClientProfilePage() {
         return days;
       }, {}),
     }));
+  };
+
+  const setSpecificDateRow = (index, patch) => {
+    setSpecificDates(current => current.map((row, rowIndex) => rowIndex === index ? { ...row, ...patch } : row));
+  };
+
+  const addSpecificDateRow = () => {
+    setSpecificDates(current => [...current, { date: '', start_time: '09:00', end_time: '17:00' }]);
+  };
+
+  const removeSpecificDateRow = index => {
+    setSpecificDates(current => current.length <= 1 ? current : current.filter((_, rowIndex) => rowIndex !== index));
+  };
+
+  const assignSpecificDateSchedules = async () => {
+    if (!weeklyAssign.employee_id) {
+      notify('error', 'Select a VA / Employee first.');
+      return;
+    }
+    if (!validSpecificDates.length || validSpecificDates.length !== specificDates.length) {
+      notify('error', 'Select a date, start time and end time for every specific-date shift.');
+      return;
+    }
+    const uniqueDates = new Set(validSpecificDates.map(row => row.date));
+    if (uniqueDates.size !== validSpecificDates.length) {
+      notify('error', 'Each specific assignment date can only be added once.');
+      return;
+    }
+    if (weeklyAssign.per_hour_rate === '' || Number(weeklyAssign.per_hour_rate) < 0) {
+      notify('error', 'Enter a valid VA per-hour rate.');
+      return;
+    }
+    const breakCode = String(weeklyAssign.break_allowed_hours ?? '0.00');
+    const breakParts = Number(breakCode).toFixed(2).split('.');
+    if (Number(breakCode) < 0 || Number(breakCode) > 12.59 || Number(breakParts[1] || 0) > 59) {
+      notify('error', 'Enter break time in H.MM format, for example 0.30 = 30 minutes.');
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await api.post('/management/schedules/batch', {
+        employee_id: weeklyAssign.employee_id,
+        client_id: clientId,
+        per_hour_rate: weeklyAssign.per_hour_rate,
+        break_allowed_hours: weeklyAssign.break_allowed_hours || '0.00',
+        schedules: validSpecificDates.map(row => ({
+          weekday: weekdayFromDate(row.date) || 'Monday',
+          schedule_date: row.date,
+          start_time: row.start_time,
+          end_time: row.end_time,
+          enabled: true,
+          repeat: false,
+        })),
+      });
+      notify('success', `${selectedAssignEmployee?.first_name || 'VA'} assigned for ${validSpecificDates.length} specific date(s). Only those dates are scheduled for this Doctor.`);
+      await loadCore(true);
+      navigate(`/admin/client/${clientId}/schedule`);
+    } catch (error) {
+      notify('error', messageFrom(error));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const assignWeeklySchedules = async () => {
@@ -673,7 +757,7 @@ export default function ClientProfilePage() {
             <div className="client-schedule-list">
               {group.schedules.map(schedule => (
                 <div className="client-schedule-row" key={schedule.id}>
-                  <div className="client-schedule-cell" data-label="Doctor day"><strong className="schedule-day">{schedule.weekday}</strong></div>
+                  <div className="client-schedule-cell" data-label="Doctor day"><strong className="schedule-day">{schedule.schedule_date ? String(schedule.schedule_date).slice(0,10) : schedule.weekday}</strong><small>{schedule.schedule_date ? 'Specific date' : 'Weekly'}</small></div>
                   <div className="client-schedule-cell schedule-time" data-label="Doctor local time"><Clock3 size={15} /><span>{formatTime12(schedule.start_time)} – {formatTime12(schedule.end_time)}</span><small>{schedule.client_timezone || client?.timezone || schedule.timezone || 'Doctor timezone'}</small></div>
                   <div className="client-schedule-cell schedule-time" data-label="Doctor timezone"><span>{schedule.client_timezone || client?.timezone || schedule.timezone || 'Not set'}</span><small>Canonical schedule timezone</small></div>
                   <div className="client-schedule-cell" data-label="Duration"><span className="schedule-hours">{hoursText(schedule.no_of_hours)}</span></div>
@@ -703,9 +787,9 @@ export default function ClientProfilePage() {
             <p>Select a VA and enter every shift directly in the Client / Doctor timezone. This timezone is used for display, check-in, attendance and billing.</p>
           </div>
           <div className="assign-va-rate-summary">
-            <span>Estimated weekly cost</span>
-            <strong>{money(weeklyAssignAmount)}</strong>
-            <small>{weeklyAssignHours.toFixed(2)} hrs × {money(weeklyAssign.per_hour_rate || 0)}/hr</small>
+            <span>{assignmentMode === 'weekly' ? 'Estimated weekly cost' : 'Estimated selected-date cost'}</span>
+            <strong>{money(assignmentMode === 'weekly' ? weeklyAssignAmount : specificAssignAmount)}</strong>
+            <small>{(assignmentMode === 'weekly' ? weeklyAssignHours : specificAssignHours).toFixed(2)} hrs × {money(weeklyAssign.per_hour_rate || 0)}/hr</small>
           </div>
         </section>
 
@@ -738,46 +822,51 @@ export default function ClientProfilePage() {
 
           <div className="assign-va-section-title">
             <div>
-              <strong>Weekdays Schedule</strong>
-              <span>Select one or more days. Hours calculate automatically.</span>
+              <strong>Assignment Type</strong>
+              <span>Use Weekly for recurring shifts, or Specific Dates for one-off coverage such as 15 Oct and 24 Oct only.</span>
             </div>
-            <label className="assign-va-all-days">
-              <input type="checkbox" checked={allSelected} onChange={event => toggleAllAssignDays(event.target.checked)} />
-              <span>All Days</span>
-            </label>
+            <div className="assign-va-mode-switch">
+              <button type="button" className={assignmentMode === 'weekly' ? 'active' : ''} onClick={() => setAssignmentMode('weekly')}>Weekly</button>
+              <button type="button" className={assignmentMode === 'specific' ? 'active' : ''} onClick={() => setAssignmentMode('specific')}>Specific Dates</button>
+            </div>
           </div>
 
-          <div className="assign-va-grid assign-va-grid-head" aria-hidden="true">
-            <span>Day</span>
-            <span>Start Time</span>
-            <span>End Time</span>
-            <span>Timezone</span>
-            <span>Duration (H.MM)</span>
-            <span>Repeat</span>
-          </div>
-
-          <div className="assign-va-week-list">
-            {WEEKDAYS.map(day => {
-              const row = weeklyAssign.days[day];
-              const hours = scheduleHours(row.start_time, row.end_time);
-              return (
-                <div className={`assign-va-grid assign-va-day-row ${row.selected ? 'is-selected' : ''}`} key={day}>
-                  <label className="assign-va-day-check">
-                    <input type="checkbox" checked={!!row.selected} onChange={event => setAssignDay(day, { selected: event.target.checked })} />
-                    <strong>{day}</strong>
-                  </label>
+          {assignmentMode === 'weekly' ? <>
+            <div className="assign-va-section-title">
+              <div><strong>Weekdays Schedule</strong><span>Select one or more recurring weekdays. Hours calculate automatically.</span></div>
+              <label className="assign-va-all-days"><input type="checkbox" checked={allSelected} onChange={event => toggleAllAssignDays(event.target.checked)} /><span>All Days</span></label>
+            </div>
+            <div className="assign-va-grid assign-va-grid-head" aria-hidden="true"><span>Day</span><span>Start Time</span><span>End Time</span><span>Timezone</span><span>Duration (H.MM)</span><span>Repeat</span></div>
+            <div className="assign-va-week-list">
+              {WEEKDAYS.map(day => {
+                const row = weeklyAssign.days[day];
+                const hours = scheduleHours(row.start_time, row.end_time);
+                return <div className={`assign-va-grid assign-va-day-row ${row.selected ? 'is-selected' : ''}`} key={day}>
+                  <label className="assign-va-day-check"><input type="checkbox" checked={!!row.selected} onChange={event => setAssignDay(day, { selected: event.target.checked })} /><strong>{day}</strong></label>
                   <Input type="time" value={row.start_time} onChange={event => setAssignDay(day, { start_time: event.target.value })} disabled={!row.selected} />
                   <Input type="time" value={row.end_time} onChange={event => setAssignDay(day, { end_time: event.target.value })} disabled={!row.selected} />
                   <div className="assign-va-timezone-field">{client?.timezone || 'Set doctor timezone'}</div>
                   <div className="assign-va-hours-field">{row.selected ? `${durationHM(hours)} H.MM` : '—'}</div>
-                  <label className="assign-va-repeat">
-                    <input type="checkbox" checked={!!row.repeat} onChange={event => setAssignDay(day, { repeat: event.target.checked })} disabled={!row.selected} />
-                    <span>{row.repeat ? 'Weekly' : 'Once'}</span>
-                  </label>
-                </div>
-              );
-            })}
-          </div>
+                  <label className="assign-va-repeat"><input type="checkbox" checked={!!row.repeat} onChange={event => setAssignDay(day, { repeat: event.target.checked })} disabled={!row.selected} /><span>{row.repeat ? 'Weekly' : 'Once'}</span></label>
+                </div>;
+              })}
+            </div>
+          </> : <>
+            <div className="assign-va-section-title">
+              <div><strong>Specific Date Schedule</strong><span>Only these exact Doctor-local dates are assigned. Other dates are not considered absences for this assignment.</span></div>
+              <Button variant="secondary" icon={Plus} onClick={addSpecificDateRow}>Add Date</Button>
+            </div>
+            <div className="assign-va-specific-list">
+              {specificDates.map((row, index) => <div className="assign-va-specific-row" key={`specific-${index}`}>
+                <Input label={index === 0 ? 'Specific date *' : ''} type="date" value={row.date} onChange={event => setSpecificDateRow(index, { date: event.target.value })} />
+                <Input label={index === 0 ? 'Start time *' : ''} type="time" value={row.start_time} onChange={event => setSpecificDateRow(index, { start_time: event.target.value })} />
+                <Input label={index === 0 ? 'End time *' : ''} type="time" value={row.end_time} onChange={event => setSpecificDateRow(index, { end_time: event.target.value })} />
+                <div className="assign-va-timezone-field"><span>{index === 0 ? 'Doctor timezone' : ''}</span><strong>{client?.timezone || 'Not set'}</strong></div>
+                <div className="assign-va-hours-field"><span>{index === 0 ? 'Duration' : ''}</span><strong>{row.date ? `${durationHM(scheduleHours(row.start_time, row.end_time))} H.MM` : '—'}</strong></div>
+                <button type="button" className="assign-va-specific-remove" onClick={() => removeSpecificDateRow(index)} disabled={specificDates.length <= 1} title="Remove date"><Trash2 size={17}/></button>
+              </div>)}
+            </div>
+          </>}
 
           <div className="assign-va-footer">
             <div className="assign-va-rate-box">
@@ -808,14 +897,14 @@ export default function ClientProfilePage() {
             </div>
 
             <div className="assign-va-totals">
-              <div><span>Selected days</span><strong>{selectedAssignDays.length}</strong></div>
-              <div><span>Weekly duration</span><strong>{durationHM(weeklyAssignHours)} H.MM</strong></div>
-              <div><span>Weekly amount</span><strong>{money(weeklyAssignAmount)}</strong></div>
+              <div><span>{assignmentMode === 'weekly' ? 'Selected days' : 'Specific dates'}</span><strong>{assignmentMode === 'weekly' ? selectedAssignDays.length : validSpecificDates.length}</strong></div>
+              <div><span>{assignmentMode === 'weekly' ? 'Weekly duration' : 'Selected duration'}</span><strong>{durationHM(assignmentMode === 'weekly' ? weeklyAssignHours : specificAssignHours)} H.MM</strong></div>
+              <div><span>Estimated amount</span><strong>{money(assignmentMode === 'weekly' ? weeklyAssignAmount : specificAssignAmount)}</strong></div>
             </div>
 
             <div className="assign-va-actions">
               <Button variant="ghost" onClick={() => goTab('schedule')}>Cancel</Button>
-              <Button icon={UsersRound} loading={busy} onClick={assignWeeklySchedules} disabled={!weeklyAssign.employee_id || !selectedAssignDays.length}>Assign Employee</Button>
+              <Button icon={UsersRound} loading={busy} onClick={assignmentMode === 'weekly' ? assignWeeklySchedules : assignSpecificDateSchedules} disabled={!weeklyAssign.employee_id || (assignmentMode === 'weekly' ? !selectedAssignDays.length : !validSpecificDates.length)}>Assign Employee</Button>
             </div>
           </div>
         </Card>

@@ -70,6 +70,46 @@ class InvoiceGenerator
             return null;
         }
 
+        // Scope billing to the VA's actual assignment dates for this Doctor.
+        // One-time schedules (schedule_date) bill only that exact Doctor-local date;
+        // recurring schedules bill only their configured weekday(s).
+        $scheduleByEmployee = collect();
+        if (Schema::hasTable('employee_client_schedules')) {
+            $scheduleQuery = DB::table('employee_client_schedules')
+                ->where('client_id', $client->id)
+                ->whereIn('employee_id', $attendance->keys());
+            if (Schema::hasColumn('employee_client_schedules', 'enabled')) {
+                $scheduleQuery->where('enabled', true);
+            }
+            $scheduleByEmployee = $scheduleQuery->get()->groupBy('employee_id');
+        }
+
+        $attendance = $attendance->map(function ($records, $employeeId) use ($scheduleByEmployee, $client) {
+            $schedules = $scheduleByEmployee->get($employeeId, collect());
+            if ($schedules->isEmpty()) {
+                return $records;
+            }
+
+            return $records->filter(function (Attendance $record) use ($schedules, $client) {
+                if (! $record->clock_in) {
+                    return false;
+                }
+                $localDate = $this->timezones->localDate($record->clock_in, $client);
+                $dayName = Carbon::parse($localDate)->format('l');
+
+                return $schedules->contains(function ($schedule) use ($localDate, $dayName) {
+                    if (!empty($schedule->schedule_date)) {
+                        return Carbon::parse($schedule->schedule_date)->toDateString() === $localDate;
+                    }
+                    return strcasecmp((string) ($schedule->weekday ?? ''), $dayName) === 0;
+                });
+            })->values();
+        })->filter(fn ($records) => $records->isNotEmpty());
+
+        if ($attendance->isEmpty()) {
+            return null;
+        }
+
         $employeeColumns = ['id'];
         if (Schema::hasColumn('employees', 'date_of_joining')) {
             $employeeColumns[] = 'date_of_joining';

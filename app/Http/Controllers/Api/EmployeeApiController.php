@@ -100,6 +100,11 @@ class EmployeeApiController extends Controller
                         'doctor_timezone' => $zone,
                         'shift_starts_at' => $start?->copy()->setTimezone($zone)->toIso8601String(),
                         'shift_ends_at' => $end?->copy()->setTimezone($zone)->toIso8601String(),
+                        'clock_in_utc' => $segment->clock_in?->copy()->utc()->toIso8601ZuluString(),
+                        'clock_out_utc' => $segment->clock_out?->copy()->utc()->toIso8601ZuluString(),
+                        'elapsed_seconds' => $segment->clock_in
+                            ? max(0, (($segment->clock_out?->copy()->utc() ?? $nowUtc)->timestamp - $segment->clock_in->copy()->utc()->timestamp))
+                            : 0,
                         'status' => $segment->clock_out ? 'completed' : (($start && $nowUtc->lt($start)) ? 'upcoming' : 'active'),
                         'late_minutes' => (int) ($segment->late_minutes ?? 0),
                     ];
@@ -437,7 +442,6 @@ class EmployeeApiController extends Controller
         $employee = $this->employee($request);
         $data = $request->validate([
             'first_name' => ['required', 'string', 'max:120'], 'last_name' => ['required', 'string', 'max:120'],
-            'email' => ['required', 'email', Rule::unique('users', 'email')->ignore($request->user()->id)],
             'phone' => ['required', 'string', 'max:60'], 'date_of_birth' => ['required', 'date', 'before_or_equal:today'], 'gender' => ['required', Rule::in(['male','female','other'])],
             'marital_status' => ['required', 'string', 'max:60'], 'about_me_notes' => ['nullable', 'string', 'max:3000'],
             'profile_picture' => ['nullable', 'image', 'mimes:jpg,jpeg,png', 'max:800'],
@@ -452,7 +456,8 @@ class EmployeeApiController extends Controller
         $employee->profile_completed = $employee->hasCompleteSelfServiceProfile();
         $employee->save();
 
-        $request->user()->update(['name' => trim($employee->first_name.' '.$employee->last_name), 'email' => $employee->email]);
+        // VA self-service must never change the login/email identity. Email is Admin-managed.
+        $request->user()->update(['name' => trim($employee->first_name.' '.$employee->last_name)]);
 
         return response()->json([
             'message' => $employee->profile_completed ? 'Profile completed. Your CareVMA workspace is now unlocked.' : 'Profile saved.',

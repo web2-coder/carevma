@@ -66,6 +66,30 @@ function durationText(total) {
     String(seconds).padStart(2, '0'),
   ].join(':');
 }
+function DoctorSegmentTimer({segment,serverNow}){
+  const initial=Math.max(0,Number(segment?.elapsed_seconds||0));
+  const [elapsed,setElapsed]=useState(initial);
+
+  useEffect(()=>{
+    if(!segment||segment.status==='upcoming'){setElapsed(0);return undefined}
+    let base=Math.max(0,Number(segment.elapsed_seconds||0));
+    if(base===0&&segment.clock_in_utc){
+      const nowMs=Date.parse(serverNow||'');
+      const startMs=Date.parse(segment.clock_in_utc||'');
+      if(Number.isFinite(nowMs)&&Number.isFinite(startMs)&&nowMs>=startMs)base=Math.floor((nowMs-startMs)/1000);
+    }
+    setElapsed(base);
+    if(segment.status!=='active')return undefined;
+    const anchor=performance.now();
+    const tick=()=>setElapsed(base+Math.max(0,Math.floor((performance.now()-anchor)/1000)));
+    tick();
+    const id=setInterval(tick,1000);
+    return()=>clearInterval(id);
+  },[segment?.attendance_id,segment?.status,segment?.clock_in_utc,segment?.elapsed_seconds,serverNow]);
+
+  return <strong className="doctor-segment-timer-value">{durationText(elapsed)}</strong>;
+}
+
 function BreakUsagePanel({active,activeBreak,serverNow}){
   const initialCurrent=Math.max(0,Number(active?.current_break_elapsed_seconds||0));
   const [current,setCurrent]=useState(initialCurrent);
@@ -217,7 +241,26 @@ export function EmployeeDashboard(){
             {doctorSegments.length>0&&<Card title={`Doctor shifts in this session (${doctorSegments.length})`} subtitle="Later assigned Doctor shifts join automatically; completed Doctor segments stop independently."><div className="agenda">{doctorSegments.map(segment=><div className="agenda-row" key={`${segment.schedule_id}-${segment.client_id}-${segment.status}`}><div className="agenda-time">{segment.shift_starts_at?formatZoneTime(segment.shift_starts_at,segment.doctor_timezone):'—'}</div><div><strong>{segment.client_name||'Doctor'}</strong><span>Doctor: {scheduleRange(segment.shift_starts_at,segment.shift_ends_at,segment.doctor_timezone)} · {segment.doctor_timezone||'UTC'}</span><span>Your time: {scheduleRange(segment.shift_starts_at,segment.shift_ends_at,employeeTimezone)} · {employeeTimezone}</span>{Number(segment.late_minutes||0)>0&&<span>Late: {segment.late_minutes} min</span>}</div><Badge tone={segment.status==='active'?'success':segment.status==='upcoming'?'warning':'neutral'}>{segment.status||'Active'}</Badge></div>)}</div></Card>}
           </div>:<div className="schedule-picker">{data.today_schedules.length?data.today_schedules.map(s=>{const doctorTz=s.client_timezone||s.client?.timezone;return <div className="schedule-choice-card" key={s.id}><div className="schedule-choice-copy"><span>{s.client?.name||'Client'}</span><strong>{scheduleRange(s.client_shift_starts_at,s.client_shift_ends_at,doctorTz)}</strong><small>Doctor time · {doctorTz||'Not set'}</small><small>My local shift: {scheduleRange(s.shift_starts_at,s.shift_ends_at,s.employee_timezone||data.timezone)} · {s.employee_timezone||data.timezone}</small><small>Doctor break: {breakCodeText(s.break_allowed_hours)}</small><small>Check-in opens: {formatZone(s.doctor_check_in_opens_at||s.client_shift_starts_at,doctorTz)}</small></div><Button loading={busy} icon={LogIn} onClick={()=>{setCheckInTarget(s);setCheckInComment('')}}>Check in</Button></div>}):<div className="empty-compact"><strong>No shift open right now</strong><span>Your next check-in option appears 15 minutes before the Doctor-local start time.</span></div>}</div>}
         </div><aside className="shift-control-side" aria-label="Workday status">
-          {active&&<div className="shift-live-summary-card"><div className="shift-live-summary-head"><span className="pulse-dot"/><div><span>Live VA work session</span><strong>{doctorNames.length?doctorNames.join(', '):(active.client?.name||'Assigned Doctor')}</strong><small>Started {dateTime(active.clock_in_utc||active.clock_in,activeClientTimezone||'UTC')}</small></div></div><DualTimezoneClock serverNow={data.now_utc||data.now} timezone={employeeTimezone} label="Your live time"/></div>}
+          {active&&<div className="doctor-live-session-section">
+            <div className="doctor-live-session-heading">
+              <div><span>Live VA work session</span><strong>{doctorNames.length?`${doctorNames.length} active Doctor${doctorNames.length===1?'':'s'}`:(active.client?.name||'Assigned Doctor')}</strong><small>Your main work-session timer stays above. Each Doctor timer starts from that Doctor segment's actual start.</small></div>
+            </div>
+            <div className="doctor-live-card-grid">
+              {(activeDoctors.length?activeDoctors:doctorSegments.filter(x=>x.status==='active')).map(segment=>{
+                const doctorTz=segment.doctor_timezone||'UTC';
+                return <article className="doctor-live-card" key={`live-${segment.attendance_id||segment.schedule_id||segment.client_id}`}>
+                  <div className="doctor-live-card-head"><div><span>Active Doctor</span><strong>{segment.client_name||'Doctor'}</strong><small>{doctorTz}</small></div><Badge tone="success">Active</Badge></div>
+                  <div className="doctor-live-card-grid-inner">
+                    <div><span>Doctor current time</span><DualTimezoneClock serverNow={data.now_utc||data.now} timezone={doctorTz} label="Doctor live time"/></div>
+                    <div><span>Doctor session timer</span><DoctorSegmentTimer segment={segment} serverNow={data.now_utc||data.now}/><small>Starts from this Doctor segment</small></div>
+                    <div><span>Doctor shift</span><strong>{scheduleRange(segment.shift_starts_at,segment.shift_ends_at,doctorTz)}</strong><small>{doctorTz}</small></div>
+                    <div><span>Your local equivalent</span><strong>{scheduleRange(segment.shift_starts_at,segment.shift_ends_at,employeeTimezone)}</strong><small>{employeeTimezone}</small></div>
+                    <div><span>Late</span><strong>{Math.max(0,Number(segment.late_minutes||0))} min</strong><small>Calculated for this Doctor only</small></div>
+                  </div>
+                </article>;
+              })}
+            </div>
+          </div>}
           <div className="shift-side-card"><span className="shift-side-icon"><Clock3 size={19}/></span><div><span>Your timezone</span><strong>{employeeTimezone}</strong><small>Doctor timezones are shown separately on each shift card</small></div></div>
           <div className={`shift-side-card ${data.today_schedules.length?'is-ready':''}`}><span className="shift-side-icon"><CalendarDays size={19}/></span><div><span>Available shifts</span><strong>{data.today_schedules.length}</strong><small>Doctor-local 15-minute window</small></div></div>
           <div className={`shift-side-card ${active?'is-live':''}`}><span className="shift-side-icon"><TimerReset size={19}/></span><div><span>Session</span><strong>{active?'Live':data.today_schedules.length?'Ready':data.completed_today?'Completed':'Not started'}</strong><small>{active?'One VA session is running':data.today_schedules.length?'A shift is ready':'Current work state'}</small></div></div>
