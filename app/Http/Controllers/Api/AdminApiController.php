@@ -164,12 +164,34 @@ class AdminApiController extends Controller
                     'employee' => $session->employee,
                     'client' => $primary?->client,
                     'doctor_names' => $activeSegments->map(fn (Attendance $row) => $row->client?->name ?: $row->client?->business_name)->filter()->unique()->values(),
+                    'doctor_segments' => $activeSegments->map(function (Attendance $row) {
+                        $client = $row->client;
+                        return [
+                            'id' => $row->id,
+                            'name' => $client?->name ?: $client?->business_name ?: 'Doctor',
+                            'timezone' => $this->timezones->forAttendance($row, true),
+                        ];
+                    })->values(),
                     'clock_in' => $session->clock_in?->toIso8601String(),
                 ];
             })->values();
         } else {
             $checkedInCount = Attendance::query()->whereNull('clock_out')->count();
-            $currentlyWorking = Attendance::query()->with(['employee:id,first_name,last_name,employee_code,profile_picture,timezone','client:id,name,business_name,timezone,profile_picture'])->whereNull('clock_out')->latest('clock_in')->limit(3)->get()->map(fn (Attendance $attendance) => ['id'=>$attendance->id,'employee'=>$attendance->employee,'client'=>$attendance->client,'doctor_names'=>collect([$attendance->client?->name ?: $attendance->client?->business_name])->filter()->values(),'clock_in'=>$attendance->clock_in?->toIso8601String()])->values();
+            $currentlyWorking = Attendance::query()->with(['employee:id,first_name,last_name,employee_code,profile_picture,timezone','client:id,name,business_name,timezone,profile_picture'])->whereNull('clock_out')->latest('clock_in')->limit(3)->get()->map(function (Attendance $attendance) {
+                $doctorName = $attendance->client?->name ?: $attendance->client?->business_name;
+                return [
+                    'id'=>$attendance->id,
+                    'employee'=>$attendance->employee,
+                    'client'=>$attendance->client,
+                    'doctor_names'=>collect([$doctorName])->filter()->values(),
+                    'doctor_segments'=>collect([[
+                        'id'=>$attendance->id,
+                        'name'=>$doctorName ?: 'Doctor',
+                        'timezone'=>$this->timezones->forAttendance($attendance, true),
+                    ]]),
+                    'clock_in'=>$attendance->clock_in?->toIso8601String(),
+                ];
+            })->values();
         }
         $pendingOvertime = Schema::hasColumn('attendances', 'overtime_status')
             ? Attendance::where('overtime_status', 'pending')->count()
@@ -234,6 +256,7 @@ class AdminApiController extends Controller
         $finance = $this->financeSummaryFromDaily($financeDaily, $appNow->copy()->startOfMonth(), $appNow->copy()->endOfMonth());
 
         return response()->json([
+            'server_now' => $this->clock->now('UTC')->toIso8601ZuluString(),
             'metrics' => [
                 'employees' => Employee::count(),
                 'clients' => Client::count(),

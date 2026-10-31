@@ -90,6 +90,32 @@ function DoctorSegmentTimer({segment,serverNow}){
   return <strong className="doctor-segment-timer-value">{durationText(elapsed)}</strong>;
 }
 
+
+function DoctorCurrentTime({serverNow,timezone}){
+  const parsed=Date.parse(serverNow||'');
+  const [nowMs,setNowMs]=useState(()=>Number.isFinite(parsed)?parsed:Date.now());
+  useEffect(()=>{
+    const start=Date.parse(serverNow||'');
+    const anchor=Number.isFinite(start)?start:Date.now();
+    const perf=performance.now();
+    const tick=()=>setNowMs(anchor+Math.max(0,performance.now()-perf));
+    tick();
+    const id=setInterval(tick,1000);
+    return()=>clearInterval(id);
+  },[serverNow,timezone]);
+  const date=new Date(nowMs);
+  let time='—',day='—';
+  try{
+    time=new Intl.DateTimeFormat('en-US',{timeZone:timezone||'UTC',hour:'numeric',minute:'2-digit',second:'2-digit',hour12:true}).format(date);
+    day=new Intl.DateTimeFormat('en-US',{timeZone:timezone||'UTC',weekday:'short',month:'short',day:'numeric'}).format(date);
+  }catch{}
+  return <div className="doctor-current-time-block">
+    <strong>{time}</strong>
+    <span>{day}</span>
+    <small>{timezone||'UTC'}</small>
+  </div>;
+}
+
 function BreakUsagePanel({active,activeBreak,serverNow}){
   const initialCurrent=Math.max(0,Number(active?.current_break_elapsed_seconds||0));
   const [current,setCurrent]=useState(initialCurrent);
@@ -251,7 +277,7 @@ export function EmployeeDashboard(){
                 return <article className="doctor-live-card" key={`live-${segment.attendance_id||segment.schedule_id||segment.client_id}`}>
                   <div className="doctor-live-card-head"><div><span>Active Doctor</span><strong>{segment.client_name||'Doctor'}</strong><small>{doctorTz}</small></div><Badge tone="success">Active</Badge></div>
                   <div className="doctor-live-card-grid-inner">
-                    <div><span>Doctor current time</span><DualTimezoneClock serverNow={data.now_utc||data.now} timezone={doctorTz} label="Doctor live time"/></div>
+                    <div className="doctor-current-time-cell"><span>Doctor current time</span><DoctorCurrentTime serverNow={data.now_utc||data.now} timezone={doctorTz}/></div>
                     <div><span>Doctor session timer</span><DoctorSegmentTimer segment={segment} serverNow={data.now_utc||data.now}/><small>Starts from this Doctor segment</small></div>
                     <div><span>Doctor shift</span><strong>{scheduleRange(segment.shift_starts_at,segment.shift_ends_at,doctorTz)}</strong><small>{doctorTz}</small></div>
                     <div><span>Your local equivalent</span><strong>{scheduleRange(segment.shift_starts_at,segment.shift_ends_at,employeeTimezone)}</strong><small>{employeeTimezone}</small></div>

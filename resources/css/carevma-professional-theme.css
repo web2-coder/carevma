@@ -2988,3 +2988,108 @@ html, body, button, input, select, textarea, .app-shell {
   .employee-dashboard-pro .shift-control-side{grid-template-columns:1fr!important}
   .employee-dashboard-pro .doctor-live-card-grid-inner{grid-template-columns:1fr!important}
 }
+
+/* 2026-10-30 doctor current-time readability + admin assigned-zone clocks */
+.employee-dashboard-pro .doctor-current-time-cell{
+  align-content:start;
+}
+.employee-dashboard-pro .doctor-current-time-block{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  justify-content:center;
+  gap:3px;
+  min-height:92px;
+  padding:14px 16px;
+  border:1px solid #dce8f4;
+  border-radius:14px;
+  background:#fff;
+  overflow:hidden;
+}
+.employee-dashboard-pro .doctor-current-time-block strong{
+  display:block;
+  width:100%;
+  font-size:24px!important;
+  line-height:1.08!important;
+  letter-spacing:-.02em;
+  color:var(--cv-navy-950,#0a1730);
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;
+  overflow:visible!important;
+  overflow-wrap:normal!important;
+}
+.employee-dashboard-pro .doctor-current-time-block span{
+  font-size:13px!important;
+  font-weight:700;
+  color:var(--cv-slate-800,#263a56);
+  text-transform:none;
+  letter-spacing:0;
+  white-space:nowrap;
+}
+.employee-dashboard-pro .doctor-current-time-block small{
+  display:block;
+  max-width:100%;
+  font-size:11px!important;
+  color:var(--cv-slate-600,#61748d);
+  white-space:normal;
+  overflow-wrap:anywhere;
+}
+.assigned-timezone-clock{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+  padding:8px 10px;
+  border:1px solid #dce8f4;
+  border-radius:12px;
+  background:#f7faff;
+  color:var(--cv-navy-800,#083589);
+}
+.assigned-timezone-clock>div{
+  display:grid;
+  gap:1px;
+  min-width:0;
+}
+.assigned-timezone-clock strong{
+  font-size:13px;
+  line-height:1.15;
+  color:var(--cv-navy-950,#0a1730);
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;
+}
+.assigned-timezone-clock span,
+.assigned-timezone-clock small{
+  font-size:10px;
+  line-height:1.2;
+  color:var(--cv-slate-600,#61748d);
+  white-space:nowrap;
+}
+.assigned-timezone-clock.is-compact{
+  padding:5px 7px;
+  gap:6px;
+  border-radius:9px;
+}
+.assigned-timezone-clock.is-compact strong{font-size:12px}
+.assigned-timezone-clock.is-compact span,
+.assigned-timezone-clock.is-compact small{font-size:9px}
+.dashboard-assigned-clocks{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  margin-top:6px;
+}
+.activity-main-copy{
+  min-width:0;
+}
+.birthday-dashboard-person .assigned-timezone-clock{
+  margin-top:5px;
+}
+.live-user-profile-block .assigned-timezone-clock{
+  width:100%;
+  margin-top:6px;
+}
+@media(max-width:640px){
+  .employee-dashboard-pro .doctor-current-time-block strong{font-size:20px!important}
+  .dashboard-assigned-clocks{flex-direction:column;align-items:stretch}
+  .assigned-timezone-clock{width:100%}
+}

@@ -111,7 +111,7 @@ export function ManagementDashboard(){
             const doctorName=(Array.isArray(row.doctor_names)&&row.doctor_names.length?row.doctor_names.join(', '):(doctor.name||doctor.business_name||'Doctor'));
             return <div className="activity-row" key={row.id}>
               <div className="avatar">{employee.profile_picture?<img src={employee.profile_picture} alt=""/>:<>{employee.first_name?.[0]}{employee.last_name?.[0]}</>}</div>
-              <div><strong>{vaName}</strong><span>{doctorName} · Live session</span></div>
+              <div className="activity-main-copy"><strong>{vaName}</strong><span>{doctorName} · Live session</span><div className="dashboard-assigned-clocks">{(row.doctor_segments||[]).map(segment=><AssignedTimezoneClock key={segment.id||`${row.id}-${segment.timezone}`} serverNow={data?.server_now} timezone={segment.timezone} compact/>)}</div></div>
               <Badge tone="success">Working</Badge>
             </div>;
           })):<EmptyState/>}
@@ -140,16 +140,41 @@ export function ManagementDashboard(){
     <Card className={`birthday-dashboard-card ${birthdays.length?'has-birthdays':''}`} title="Today’s birthdays" subtitle="Based on each VA’s assigned timezone">
       {birthdays.length?<div className="birthday-dashboard-list">{birthdays.map(person=><div className="birthday-dashboard-person" key={person.id}>
         <div className="birthday-dashboard-avatar">{person.profile_picture?<img src={person.profile_picture} alt=""/>:<span>{String(person.name||'VA').split(' ').map(x=>x[0]).slice(0,2).join('').toUpperCase()}</span>}</div>
-        <div><strong>🎂 {person.name}</strong><span>{person.timezone}</span></div>
+        <div className="activity-main-copy"><strong>🎂 {person.name}</strong><AssignedTimezoneClock serverNow={data?.server_now} timezone={person.timezone} compact/></div>
         <Badge tone="warning">Birthday today</Badge>
       </div>)}</div>:<div className="birthday-dashboard-empty"><strong>No birthdays today</strong><span>Tomorrow reminders are sent to Admin one day before a VA birthday.</span></div>}
     </Card>
 
     <div className="dashboard-grid">
       <Card title="Attendance activity" subtitle="Sessions recorded this week"><div className="mini-chart">{(data?.trend||[]).map(x=><div className="chart-col" key={x.date}><div className="chart-value">{x.sessions}</div><div className="chart-bar"><span style={{height:`${Math.max(10,x.sessions/max*100)}%`}}/></div><div className="chart-label">{x.label}</div></div>)}</div></Card>
-      <Card title="Recent attendance" subtitle="Latest workforce sessions"><div className="activity-list">{(data?.recent_attendance||[]).length?(data.recent_attendance.slice(0,5).map(a=><div className="activity-row" key={a.id}><div className="avatar">{a.employee?.profile_picture?<img src={a.employee.profile_picture} alt=""/>:<>{a.employee?.first_name?.[0]}{a.employee?.last_name?.[0]}</>}</div><div><strong>{a.employee?`${a.employee.first_name} ${a.employee.last_name}`:'Unknown employee'}</strong><span>{a.date} · {a.clock_out?'Completed':'Live session'}</span></div><Badge tone={a.clock_out?'success':'warning'}>{a.clock_out?'Done':'Live'}</Badge></div>)):<EmptyState/>}</div></Card>
+      <Card title="Recent attendance" subtitle="Latest workforce sessions"><div className="activity-list">{(data?.recent_attendance||[]).length?(data.recent_attendance.slice(0,5).map(a=><div className="activity-row" key={a.id}><div className="avatar">{a.employee?.profile_picture?<img src={a.employee.profile_picture} alt=""/>:<>{a.employee?.first_name?.[0]}{a.employee?.last_name?.[0]}</>}</div><div className="activity-main-copy"><strong>{a.employee?`${a.employee.first_name} ${a.employee.last_name}`:'Unknown employee'}</strong><span>{a.date} · {a.clock_out?'Completed':'Live session'}</span><AssignedTimezoneClock serverNow={data?.server_now} timezone={a.client_timezone||a.client?.timezone||'UTC'} compact/></div><Badge tone={a.clock_out?'success':'warning'}>{a.clock_out?'Done':'Live'}</Badge></div>)):<EmptyState/>}</div></Card>
     </div>
   </>;
+}
+
+
+function AssignedTimezoneClock({serverNow,timezone,compact=false}){
+  const start=Date.parse(serverNow||'');
+  const [nowMs,setNowMs]=useState(()=>Number.isFinite(start)?start:Date.now());
+  useEffect(()=>{
+    const parsed=Date.parse(serverNow||'');
+    const anchor=Number.isFinite(parsed)?parsed:Date.now();
+    const perf=performance.now();
+    const tick=()=>setNowMs(anchor+Math.max(0,performance.now()-perf));
+    tick();
+    const id=setInterval(tick,1000);
+    return()=>clearInterval(id);
+  },[serverNow,timezone]);
+  let time='—',date='—';
+  try{
+    const now=new Date(nowMs);
+    time=new Intl.DateTimeFormat('en-US',{timeZone:timezone||'UTC',hour:'numeric',minute:'2-digit',second:'2-digit',hour12:true}).format(now);
+    date=new Intl.DateTimeFormat('en-US',{timeZone:timezone||'UTC',weekday:'short',month:'short',day:'numeric'}).format(now);
+  }catch{}
+  return <div className={`assigned-timezone-clock ${compact?'is-compact':''}`}>
+    <Clock3 size={compact?13:15}/>
+    <div><strong>{time}</strong><span>{date}</span><small>{timezone||'UTC'}</small></div>
+  </div>;
 }
 
 function durationLabel(totalSeconds){
@@ -261,7 +286,7 @@ export function LiveUsersPage(){
               <span>VA</span><strong>{name}</strong><small>{employee.employee_code||employee.email||'—'}</small>
             </div>
             <div className="live-user-profile-link"><span>{r.client?`working with ${doctorSegments.length||1} Doctor${(doctorSegments.length||1)===1?'':'s'}`:'status'}</span><i>→</i></div>
-            {doctorSegments.length>0?<div className="live-user-doctor-stack">{doctorSegments.map(segment=>{const fallback=String(segment.name||'D').split(/\s+/).filter(Boolean).slice(0,2).map(part=>part[0]).join('').toUpperCase()||'D';return <div className="live-user-profile-block doctor" key={segment.attendance_id||segment.client_id}><AvatarMedia className="live-user-profile-photo" src={segment.profile_picture} alt={segment.name||'Doctor'} fallback={fallback}/><span>Doctor · Active</span><strong>{segment.name||'Doctor'}</strong><small>{segment.timezone||'UTC'}</small><div className="live-doctor-mini-timer"><span>Timer</span><LiveDuration baseSeconds={segment.elapsed_seconds||0}/></div></div>})}</div>:<div className="live-user-profile-block doctor"><AvatarMedia className="live-user-profile-photo" src={r.client?.profile_picture} alt={doctorName} fallback={doctorFallback}/><span>{r.client?'Doctor':'Presence'}</span><strong>{r.client?doctorName:(runtimeOnline?'Portal Online':'Portal Offline')}</strong><small>{r.doctor_timezone||relativeLastSeen(r.last_seen_at)}</small></div>}
+            {doctorSegments.length>0?<div className="live-user-doctor-stack">{doctorSegments.map(segment=>{const fallback=String(segment.name||'D').split(/\s+/).filter(Boolean).slice(0,2).map(part=>part[0]).join('').toUpperCase()||'D';return <div className="live-user-profile-block doctor" key={segment.attendance_id||segment.client_id}><AvatarMedia className="live-user-profile-photo" src={segment.profile_picture} alt={segment.name||'Doctor'} fallback={fallback}/><span>Doctor · Active</span><strong>{segment.name||'Doctor'}</strong><small>{segment.timezone||'UTC'}</small><AssignedTimezoneClock serverNow={data.server_now} timezone={segment.timezone||'UTC'} compact/><div className="live-doctor-mini-timer"><span>Timer</span><LiveDuration baseSeconds={segment.elapsed_seconds||0}/></div></div>})}</div>:<div className="live-user-profile-block doctor"><AvatarMedia className="live-user-profile-photo" src={r.client?.profile_picture} alt={doctorName} fallback={doctorFallback}/><span>{r.client?'Doctor':'Presence'}</span><strong>{r.client?doctorName:(runtimeOnline?'Portal Online':'Portal Offline')}</strong><small>{r.doctor_timezone||relativeLastSeen(r.last_seen_at)}</small>{r.doctor_timezone&&<AssignedTimezoneClock serverNow={data.server_now} timezone={r.doctor_timezone} compact/>}</div>}
           </div>
           <div className="live-user-card-status"><span className={`advanced-status-badge ${statusKey}`}><i/>{statusLabel}</span></div>
           {expanded&&<div className="live-user-inline-details" onClick={e=>e.stopPropagation()}>
