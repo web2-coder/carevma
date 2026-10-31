@@ -18,7 +18,7 @@ function validTimezone(value) {
 
 export function timezoneForUser(user) {
   const assigned = validTimezone(user?.assigned_timezone);
-  if (user?.role === 'employee') return assigned || validTimezone(user?.employee?.timezone) || DEFAULT_TIMEZONE;
+  if (user?.role === 'employee') return validTimezone(user?.employee?.timezone) || assigned || DEFAULT_TIMEZONE;
   if (user?.role === 'client') return assigned || validTimezone(user?.client?.timezone) || DEFAULT_TIMEZONE;
   return assigned || validTimezone(user?.timezone) || DEFAULT_TIMEZONE;
 }
@@ -73,7 +73,7 @@ export default function LiveNavbarClock({ user }) {
 
   if (!anchor) {
     return <div className="navbar-live-clock is-syncing" title={`Assigned timezone: ${timezone}`}>
-      <span className="navbar-live-clock-icon"><Clock3 size={17}/><i/></span>
+      <span className="navbar-live-clock-icon"><Clock3 size={17}/></span>
       <span className="navbar-live-clock-copy"><strong>Syncing time…</strong><small>{cityLabel(timezone)}</small></span>
       <span className="navbar-live-clock-zone">{timezone}</span>
     </div>;
@@ -84,7 +84,7 @@ export default function LiveNavbarClock({ user }) {
   const date = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'short', month: 'short', day: 'numeric' }).format(now);
 
   return <div className="navbar-live-clock is-live" title={`Current time · ${timezone}`}>
-    <span className="navbar-live-clock-icon"><Clock3 size={17}/><i/></span>
+    <span className="navbar-live-clock-icon"><Clock3 size={17}/></span>
     <span className="navbar-live-clock-copy"><strong>{time}</strong><small>{date} · {cityLabel(timezone)}</small></span>
     <span className="navbar-live-clock-zone">{timezone}</span>
   </div>;

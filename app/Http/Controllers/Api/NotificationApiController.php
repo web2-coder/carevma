@@ -10,7 +10,7 @@ class NotificationApiController extends Controller
 {
     public function index(Request $request)
     {
-        $limit = min(max((int) $request->query('per_page', 30), 1), 100);
+        $limit = min(max((int) $request->query('per_page', 10), 1), 100);
         $query = Notification::query()->where(function ($q) use ($request) {
             $q->where('user_id', $request->user()->id);
             if (in_array($request->user()->role, ['superadmin', 'admin', 'hr'], true)) {

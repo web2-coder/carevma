@@ -5,10 +5,15 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\Facades\Log;
 use App\Models\Employee;
+use App\Models\Attendance;
 use App\Models\Notification;
 use App\Models\User;
 use App\Services\OperationalNotifier;
 use App\Services\TrustedTimeService;
+use App\Services\AttendanceBillingService;
+use App\Services\ClientTimezoneService;
+use App\Services\WorkSessionService;
+use Illuminate\Support\Facades\Schema;
 use Carbon\Carbon;
 
 Artisan::command('inspire', function () {
@@ -49,6 +54,60 @@ Schedule::command('invoices:generate-monthly')
     ->everyMinute()
     ->name('carevma-monthly-invoice-generation')
     ->withoutOverlapping(120);
+
+/* Reconcile one VA work session into Doctor-specific segments every minute. */
+Schedule::call(function () {
+    app(WorkSessionService::class)->autoCheckoutDueSessions();
+})->everyMinute()->name('carevma-work-session-reconcile')->withoutOverlapping(60);
+
+/* Auto-checkout: if a VA forgets to check out, close the session exactly two hours after the Doctor-local scheduled shift end. */
+Schedule::call(function () {
+    $clock = app(TrustedTimeService::class);
+    $timezones = app(ClientTimezoneService::class);
+    $billing = app(AttendanceBillingService::class);
+    $notifier = app(OperationalNotifier::class);
+    $nowUtc = $clock->now('UTC');
+
+    $legacyAttendance = Attendance::query()
+        ->with(['employee.user', 'client:id,timezone', 'schedule', 'breaks'])
+        ->whereNull('clock_out');
+    if (Schema::hasColumn('attendances', 'work_session_id')) {
+        $legacyAttendance->whereNull('work_session_id');
+    }
+    $legacyAttendance->chunkById(100, function ($rows) use ($nowUtc, $timezones, $billing, $notifier) {
+            foreach ($rows as $attendance) {
+                $deadlineUtc = null;
+                if ($attendance->shift_end_snapshot) {
+                    $deadlineUtc = $attendance->shift_end_snapshot->copy()->utc()->addHours(2);
+                } elseif ($attendance->schedule) {
+                    $zone = $timezones->forAttendance($attendance, false);
+                    $date = $attendance->date?->toDateString() ?: $attendance->clock_in?->copy()->setTimezone($zone)->toDateString();
+                    if ($date) {
+                        $start = Carbon::parse($date.' '.$attendance->schedule->start_time, $zone);
+                        $end = Carbon::parse($date.' '.$attendance->schedule->end_time, $zone);
+                        if ($end->lte($start)) $end->addDay();
+                        $deadlineUtc = $end->utc()->addHours(2);
+                    }
+                }
+
+                if (!$deadlineUtc || $nowUtc->lt($deadlineUtc)) {
+                    continue;
+                }
+
+                $closed = $billing->finalize($attendance, $deadlineUtc);
+                if ($closed->employee?->user) {
+                    $notifier->send(
+                        $closed->employee->user,
+                        'Attendance auto checked out',
+                        'Your active session was automatically checked out two hours after the scheduled Doctor-local shift end. Any extra time must be submitted for overtime review before it can be billed.',
+                        'AttendanceAutoCheckout',
+                        '/employee/attendance',
+                        ['attendance_id' => $closed->id]
+                    );
+                }
+            }
+        });
+})->everyMinute()->name('carevma-auto-checkout')->withoutOverlapping(60);
 
 /* One-day-before birthday reminder for Admins. */
 Schedule::call(function () {
@@ -167,3 +226,28 @@ Schedule::call(function () {
     $now = app(TrustedTimeService::class)->now(config('carevma.business_timezone', 'Asia/Karachi'));
     return $now->format('H:i') === '09:15';
 })->name('carevma-probation-reminders')->withoutOverlapping(30);
+
+
+Artisan::command('carevma:mail-diagnostics', function () {
+    $mailer = (string) config('mail.default');
+    $host = (string) config('mail.mailers.smtp.host');
+    $port = (string) config('mail.mailers.smtp.port');
+    $queue = (string) config('queue.default');
+
+    $this->info('CareVMA mail diagnostics');
+    $this->line('Mailer: '.$mailer);
+    $this->line('SMTP host: '.($host ?: '(not configured)'));
+    $this->line('SMTP port: '.($port ?: '(not configured)'));
+    $this->line('Queue connection: '.($queue ?: '(not configured)'));
+    $this->line('From: '.(string) config('mail.from.address'));
+
+    if (str_contains(strtolower($host), 'mailtrap')) {
+        $this->warn('Mailtrap detected. Testing plans can reject bursts with 550 5.7.0 rate-limit responses. Use the queued mail worker and production SMTP for live delivery.');
+    }
+
+    if ($queue !== 'sync') {
+        $this->comment('Queued mail requires a running worker: php artisan queue:work --tries=3 --sleep=1');
+    }
+
+    $this->comment('After changing .env mail settings run: php artisan config:clear && php artisan config:cache && php artisan queue:restart');
+})->purpose('Show non-secret CareVMA SMTP and queue diagnostics');

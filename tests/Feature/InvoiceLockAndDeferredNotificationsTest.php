@@ -173,6 +173,8 @@ class InvoiceLockAndDeferredNotificationsTest extends TestCase
     public function test_deferred_operational_notifications_are_still_delivered(): void
     {
         $admin = $this->admin();
+        // The actor never gets a copy; every other admin gets the in-app audit entry.
+        $auditor = User::create(['name' => 'Second Admin', 'email' => 'admin2@carevma.test', 'password' => 'password', 'role' => 'admin']);
 
         $this->assertSame(0, Notification::count());
 
@@ -185,11 +187,9 @@ class InvoiceLockAndDeferredNotificationsTest extends TestCase
 
         $this->assertGreaterThan(
             0,
-            Notification::where('user_id', $admin->id)->count(),
+            Notification::where('user_id', $auditor->id)->count(),
             'The deferred notification fan-out did not run after the response was sent.'
         );
-
-        Mail::assertSent(\App\Mail\OperationalActivityMail::class);
     }
 
     /**

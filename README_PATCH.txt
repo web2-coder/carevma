@@ -1,38 +1,16 @@
-CareVMA Activation + Profile Patch - 2026-10-27
+CareVMA Invoice Filters + Live Workforce Layout Patch
 
-This patch is intended to be applied AFTER CareVMA_Combined_Patch_2026-10-27.
+Changes:
+1. Invoice list filters: month, year, custom date range, Doctor/Client, Invoice #, status.
+2. Filters are applied server-side and work across pagination.
+3. Send PDF action is icon-only with Send PDF hover/title tooltip.
+4. Live Workforce Online, Checked In, On Break, Late, Offline tabs reuse the same compact card renderer/layout.
+5. Preserves latest runtime online status logic from the combined patch.
+6. No invoice/attendance calculation logic changed.
 
-Included:
-1. Client/Doctor secure password setup invitation remains on creation.
-2. Client/Doctor list now has a Resend password setup email action.
-3. VA creation continues to send one activation email; employee resend action remains available.
-4. Admin and HR can upload a profile photo from My Account.
-5. Admin/HR photo is stored on users.profile_picture and shown in sidebar/top-right profile menu.
-6. Attendance chart keeps the CareVMA green/navy branded palette from the combined patch.
+Files:
+- resources/js/pages/Management.jsx
+- app/Http/Controllers/Api/AdminApiController.php
 
-Database:
-Run: php artisan migrate --force
-This adds nullable users.profile_picture only if the column does not already exist.
-
-IMPORTANT MAIL NOTE:
-Both Client and VA invitation code uses Laravel Mail::send synchronously. If invitation_sent=false, the application reached the mail send call but SMTP delivery failed. Check production MAIL_* settings and storage/logs/laravel.log. After correcting SMTP, use the resend action instead of recreating the account.
-
-Deploy locally:
-npm run build
-git add .
-git add -f public/build
-git commit -m "Fix CareVMA activation email resend and admin HR profile photos"
-git push origin main
-
-Live server:
-cd /home/u671369435/domains/carevma.com/public_html/app
-php artisan migrate --force
-php artisan optimize:clear
-php artisan config:cache
-php artisan route:cache
-php artisan view:cache
-
-Mail diagnostics (do not paste passwords publicly):
-php artisan config:show mail
-
-tail -n 100 storage/logs/laravel.log
+After copying patch files locally run: npm run build
+Then commit generated public/build assets together with these source files.

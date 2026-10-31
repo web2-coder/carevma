@@ -147,7 +147,7 @@ class OvertimeApprovalAndInvoiceGateTest extends TestCase
         $this->assertNull($attendance->overtime_approved_by);
     }
 
-    public function test_monthly_invoice_run_is_still_due_later_on_the_twenty_seventh(): void
+    public function test_monthly_invoice_run_is_still_due_later_on_the_twenty_sixth(): void
     {
         $this->admin();
         $employee = $this->employee();
@@ -180,19 +180,19 @@ class OvertimeApprovalAndInvoiceGateTest extends TestCase
             'overtime_status' => 'none',
         ]);
 
-        // 05:00 on the client-local 27th: long past 00:15, so the old exact-minute
+        // 05:00 on the client-local 26th: long past 00:15, so the old exact-minute
         // gate would have skipped this client and billed nothing all month.
         config([
             'trusted-time.manual_offset_seconds' =>
-                Carbon::parse('2026-10-27 05:00:00', 'UTC')->timestamp - time(),
+                Carbon::parse('2026-10-26 05:00:00', 'UTC')->timestamp - time(),
         ]);
 
         $this->artisan('invoices:generate-monthly')->assertExitCode(0);
 
         $invoice = Invoice::first();
 
-        $this->assertNotNull($invoice, 'The 27th billing close did not run after 00:15.');
-        $this->assertSame('2026-09-25', $invoice->period_start->toDateString());
-        $this->assertSame('2026-10-26', $invoice->period_end->toDateString());
+        $this->assertNotNull($invoice, 'The 26th billing close did not run after 00:15.');
+        $this->assertSame('2026-09-26', $invoice->period_start->toDateString());
+        $this->assertSame('2026-10-25', $invoice->period_end->toDateString());
     }
 }

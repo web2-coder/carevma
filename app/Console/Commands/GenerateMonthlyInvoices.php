@@ -39,15 +39,15 @@ class GenerateMonthlyInvoices extends Command
 
             // Automatic generation is evaluated in every client's own timezone.
             // The global scheduler may run every minute; only a client whose local
-            // date has reached the 27th enters the billing close.
+            // date has reached the 26th enters the billing close.
             if (!$this->option('force') && !$this->option('date')) {
-                // Due from 00:15 onward on the client-local 27th, not at that one exact
+                // Due from 00:15 onward on the client-local 26th, not at that one exact
                 // minute. Matching a single minute meant one missed tick -- cron skew, a
                 // restart, or a stale withoutOverlapping lock from a crashed run -- cost
                 // the client an entire month's invoice, silently. The period below is
                 // derived from the date alone, so a later tick on the same local day
                 // computes the identical cycle, and the duplicate check keeps it idempotent.
-                $dueToday = $localNow->day === 27
+                $dueToday = $localNow->day === 26
                     && !($localNow->hour === 0 && $localNow->minute < 15);
 
                 if (!$dueToday) {
@@ -56,10 +56,15 @@ class GenerateMonthlyInvoices extends Command
                 }
             }
 
-            // On local 27th, close the cycle from previous-month 25th through
-            // current-month 26th, inclusive.
-            $periodEnd = $localNow->copy()->subDay()->toDateString();
-            $periodStart = $localNow->copy()->subMonthNoOverflow()->day(25)->toDateString();
+            // Always use a canonical 26th -> 25th cycle, even for --force/testing.
+            // On/after the 26th the latest completed cycle ends on this month's 25th;
+            // before the 26th it ends on the previous month's 25th.
+            $cycleEnd = $localNow->copy()->day(25);
+            if ($localNow->day < 26) {
+                $cycleEnd->subMonthNoOverflow()->day(25);
+            }
+            $periodEnd = $cycleEnd->toDateString();
+            $periodStart = $cycleEnd->copy()->subMonthNoOverflow()->day(26)->toDateString();
 
             if (Invoice::where('client_id', $client->id)
                 ->whereDate('period_start', $periodStart)

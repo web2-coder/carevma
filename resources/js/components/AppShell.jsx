@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, UserRoundCog, CalendarDays, Clock3, FileCheck2, TimerReset,
   ReceiptText, SlidersHorizontal, Bell, UserCircle2, Settings, LogOut, Menu, X, BriefcaseBusiness,
-  Stethoscope, ClipboardList, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, Activity, CircleDollarSign
+  Stethoscope, ClipboardList, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, Activity, CircleDollarSign, BookOpenText
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api';
@@ -44,6 +44,7 @@ function navFor(user) {
       { group: 'Time', label: 'Overtime Review', to: '/admin/overtime', icon: TimerReset },
       { group: 'Billing', label: 'Invoices', to: '/admin/invoices', icon: ReceiptText },
       { group: 'Billing', label: 'Company Finance', to: '/admin/company-finance', icon: CircleDollarSign },
+      { group: 'Documents', label: 'Notebook', to: '/admin/notebook', icon: BookOpenText },
       {
         group: 'Setup', label: 'Configuration', icon: SlidersHorizontal, children: [
           ['Departments','departments'], ['Roles','roles'], ['Employment Types','employment-types'],
@@ -64,6 +65,7 @@ function navFor(user) {
       { group: 'Time', label: 'Attendance', to: '/hr/attendance', icon: Clock3 },
       { group: 'Time', label: 'Change Requests', to: '/hr/change-requests', icon: FileCheck2 },
       { group: 'Time', label: 'Overtime Review', to: '/hr/overtime', icon: TimerReset },
+      { group: 'Documents', label: 'Notebook', to: '/hr/notebook', icon: BookOpenText },
       {
         group: 'Setup', label: 'HR Configuration', icon: SlidersHorizontal, children: [
           ['Departments','departments'], ['Roles','roles'], ['Employment Types','employment-types'],
@@ -87,6 +89,7 @@ function navFor(user) {
       { label: 'My Schedule', to: '/employee/schedule', icon: CalendarDays },
       { label: 'My Attendance', to: '/employee/attendance', icon: Clock3 },
       { label: 'My Profile', to: '/employee/profile', icon: UserCircle2 },
+      { label: 'Shared Documents', to: '/employee/documents', icon: BookOpenText },
       { label: 'Notifications', to: '/employee/notifications', icon: Bell },
       { label: 'Settings', to: '/employee/settings', icon: Settings },
     ];
@@ -94,6 +97,7 @@ function navFor(user) {
   if (user.role === 'client') {
     return [
       { label: 'Assigned Team', to: '/doctor/dashboard', icon: Users },
+      { label: 'Shared Documents', to: '/doctor/documents', icon: BookOpenText },
       { label: 'Notifications', to: '/doctor/notifications', icon: Bell },
       { label: 'My Profile', to: '/doctor/profile', icon: UserCircle2 },
     ];
@@ -201,7 +205,7 @@ export default function AppShell() {
     const loadLiveCount = async () => {
       try {
         const { data } = await api.get('/management/live-users');
-        if (alive) setLiveCount(Math.max(0, Number(data?.total) || 0));
+        if (alive) setLiveCount(Math.max(0, Number(data?.checked_in) || 0));
       } catch {}
     };
 
@@ -326,7 +330,6 @@ export default function AppShell() {
         <NavItem item={item} collapsed={collapsed} mobileClose={() => setMobileOpen(false)} liveCount={liveCount}/>
       </Fragment>)}</nav>
       <div className="sidebar-foot">
-        {!collapsed && <div className="user-mini"><div className="avatar"><AvatarMedia src={user?.profile_picture || user?.employee?.profile_picture || user?.client?.profile_picture} alt={user?.name||'User'} fallback={user?.name?.split(' ').map(x => x[0]).slice(0,2).join('').toUpperCase()}/></div><div><strong>{user?.name}</strong><span>{user?.email}</span></div></div>}
         <button className="nav-link danger-link" onClick={signOut} title="Sign out"><span className="nav-icon"><LogOut size={19}/></span>{!collapsed && <span>Sign out</span>}</button>
       </div>
     </aside>

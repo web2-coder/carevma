@@ -147,6 +147,11 @@ class Employee extends Model
         return $this->hasMany(Attendance::class, 'employee_id');
     }
 
+    public function workSessions()
+    {
+        return $this->hasMany(WorkSession::class, 'employee_id');
+    }
+
     // 🔹 Accessors
     public function getFullNameAttribute()
     {

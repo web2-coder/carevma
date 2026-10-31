@@ -19,17 +19,56 @@ import {
 const api = axios.create({
   baseURL: '/api',
   withCredentials: true,
+  withXSRFToken: true,
   headers: {
     Accept: 'application/json',
     'X-Requested-With': 'XMLHttpRequest',
   },
 });
 
-// Never pin a CSRF token here. Laravel rotates the session token during login
-// (session()->regenerate() calls regenerateToken()), and VerifyCsrfToken refreshes the
-// XSRF-TOKEN cookie on every response. Axios reads that cookie per request and sends
-// X-XSRF-TOKEN, which Laravel consults only when X-CSRF-TOKEN is absent -- so a pinned
-// X-CSRF-TOKEN header wins, goes stale at login, and 419s every later write.
+// Keep CSRF dynamic. Laravel regenerates the session token on logout and some
+// security-sensitive session changes, so a token captured only once at boot can
+// become stale and cause 419 / TokenMismatchException errors.
+let runtimeCsrfToken = '';
+let csrfRefreshPromise = null;
+
+
+async function refreshCsrfToken({ force = false } = {}) {
+  if (!force && runtimeCsrfToken) return runtimeCsrfToken;
+  if (csrfRefreshPromise) return csrfRefreshPromise;
+
+  // Use the token returned by Laravel for the CURRENT session instead of
+  // reading XSRF-TOKEN from document.cookie. Old deployments may have left
+  // duplicate XSRF cookies with different Domain attributes; browsers can
+  // expose the stale one first and cause a permanent 419 loop.
+  csrfRefreshPromise = axios.get('/api/csrf-token', {
+    withCredentials: true,
+    headers: {
+      Accept: 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+      'Cache-Control': 'no-cache',
+      Pragma: 'no-cache',
+    },
+  }).then(response => {
+    runtimeCsrfToken = String(response?.data?.token || '');
+    if (!runtimeCsrfToken) {
+      throw new Error('Laravel did not return a CSRF token for the current session.');
+    }
+    return runtimeCsrfToken;
+  }).finally(() => {
+    csrfRefreshPromise = null;
+  });
+
+  return csrfRefreshPromise;
+}
+
+// Always prime a fresh same-session CSRF token before authentication actions.
+// This avoids login/logout requiring a browser refresh after Laravel rotates the
+// session ID or when an old XSRF cookie is still present in the tab.
+export async function primeCsrf() {
+  return refreshCsrfToken({ force: true });
+}
+
 
 /*
 |--------------------------------------------------------------------------
@@ -70,6 +109,16 @@ api.interceptors.request.use(
       }
 
       config.carevmaConfirmed = true;
+    }
+
+    const method = String(
+      config?.method || 'get',
+    ).toLowerCase();
+
+    if (!['get', 'head', 'options'].includes(method)) {
+      const token = await refreshCsrfToken();
+      delete config.headers['X-XSRF-TOKEN'];
+      config.headers['X-CSRF-TOKEN'] = token;
     }
 
     return config;
@@ -118,6 +167,32 @@ api.interceptors.response.use(
       axios.isCancel(error)
     ) {
       return Promise.reject(error);
+    }
+
+    /*
+     * CSRF token/session rotation recovery. Retry the original request once
+     * after asking Laravel for the current session token. This fixes the common
+     * login -> logout -> login TokenMismatchException without a hard refresh.
+     */
+    if (
+      error?.response?.status === 419 &&
+      error?.config &&
+      !error.config.__carevmaCsrfRetried
+    ) {
+      return refreshCsrfToken({ force: true })
+        .then(token => {
+          const retry = { ...error.config, __carevmaCsrfRetried: true };
+          retry.headers = { ...(retry.headers || {}) };
+          delete retry.headers['X-XSRF-TOKEN'];
+          delete retry.headers['X-CSRF-TOKEN'];
+
+          if (token) {
+            retry.headers['X-CSRF-TOKEN'] = token;
+          }
+
+          return api(retry);
+        })
+        .catch(() => Promise.reject(error));
     }
 
     /*
@@ -251,7 +326,7 @@ export const messageFrom = error => {
   }
 
   if (status === 419) {
-    return 'Your session security token expired. Refresh the page and try again.';
+    return 'Your secure session could not be renewed. Please sign in again.';
   }
 
   if (status === 422) {
