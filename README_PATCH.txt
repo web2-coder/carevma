@@ -1,12 +1,16 @@
-CareVMA - VA Shift End / Checkout Offline / One-time Work Summary Patch
+CareVMA Invoice Filters + Live Workforce Layout Patch
 
-Behavior:
-1. Active VA dashboard shows Doctor shift end, VA-local shift end, and live remaining time.
-2. After Doctor shift end, dashboard says extra work is overtime; it does NOT force checkout at shift end.
-3. On actual checkout, attendance is finalized and Live Workforce treats the VA as Offline immediately.
-4. Checkout response includes a one-time Today's Work Summary modal:
-   Clock In, Clock Out, Break, Regular Work, Overtime + status, Approved OT, Payable Time.
-5. Existing Attendance page remains the permanent history after the one-time summary is dismissed.
+Changes:
+1. Invoice list filters: month, year, custom date range, Doctor/Client, Invoice #, status.
+2. Filters are applied server-side and work across pagination.
+3. Send PDF action is icon-only with Send PDF hover/title tooltip.
+4. Live Workforce Online, Checked In, On Break, Late, Offline tabs reuse the same compact card renderer/layout.
+5. Preserves latest runtime online status logic from the combined patch.
+6. No invoice/attendance calculation logic changed.
 
-Important: No migration required.
-Build frontend locally before deployment.
+Files:
+- resources/js/pages/Management.jsx
+- app/Http/Controllers/Api/AdminApiController.php
+
+After copying patch files locally run: npm run build
+Then commit generated public/build assets together with these source files.
