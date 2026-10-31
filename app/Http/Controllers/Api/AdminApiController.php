@@ -170,6 +170,7 @@ class AdminApiController extends Controller
                             'id' => $row->id,
                             'name' => $client?->name ?: $client?->business_name ?: 'Doctor',
                             'timezone' => $this->timezones->forAttendance($row, true),
+                            'shift_ends_at' => $row->shift_end_snapshot?->copy()->utc()->toIso8601ZuluString(),
                         ];
                     })->values(),
                     'clock_in' => $session->clock_in?->toIso8601String(),
@@ -188,6 +189,7 @@ class AdminApiController extends Controller
                         'id'=>$attendance->id,
                         'name'=>$doctorName ?: 'Doctor',
                         'timezone'=>$this->timezones->forAttendance($attendance, true),
+                        'shift_ends_at'=>$attendance->shift_end_snapshot?->copy()->utc()->toIso8601ZuluString(),
                     ]]),
                     'clock_in'=>$attendance->clock_in?->toIso8601String(),
                 ];
@@ -814,6 +816,24 @@ class AdminApiController extends Controller
         ]);
         if ($request->filled('employee_id')) $query->where('employee_id', $request->integer('employee_id'));
         if ($request->filled('client_id')) $query->where('client_id', $request->integer('client_id'));
+        if ($search = trim((string) $request->query('search'))) {
+            $query->where(function ($q) use ($search) {
+                $q->where('weekday', 'like', "%{$search}%")
+                    ->orWhere('schedule_date', 'like', "%{$search}%")
+                    ->orWhere('start_time', 'like', "%{$search}%")
+                    ->orWhere('end_time', 'like', "%{$search}%")
+                    ->orWhere('timezone', 'like', "%{$search}%")
+                    ->orWhereHas('employee', fn ($employee) => $employee
+                        ->where('first_name', 'like', "%{$search}%")
+                        ->orWhere('last_name', 'like', "%{$search}%")
+                        ->orWhere('employee_code', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%"))
+                    ->orWhereHas('client', fn ($client) => $client
+                        ->where('name', 'like', "%{$search}%")
+                        ->orWhere('business_name', 'like', "%{$search}%")
+                        ->orWhere('timezone', 'like', "%{$search}%"));
+            });
+        }
 
         $query->orderByRaw("FIELD(weekday,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')")
             ->orderBy('start_time')
@@ -1083,6 +1103,8 @@ class AdminApiController extends Controller
                     'profile_picture'=>$attendance->client?->profile_picture,
                     'timezone'=>$segmentZone,
                     'shift_label'=>($segmentStart&&$segmentEnd)?$segmentStart->format('D, M d, g:i A').' – '.$segmentEnd->format('D, M d, g:i A'):null,
+                    'shift_ends_at'=>$attendance->shift_end_snapshot?->copy()->utc()->toIso8601ZuluString(),
+                    'shift_end_label'=>$segmentEnd?->format('D, M d, g:i A'),
                     'late_minutes'=>(int)($attendance->late_minutes??0),
                     'clock_in_utc'=>$attendance->clock_in?->copy()->utc()->toIso8601ZuluString(),
                     'elapsed_seconds'=>$attendance->clock_in?max(0,$this->clock->now('UTC')->timestamp-$attendance->clock_in->copy()->utc()->timestamp):0,
@@ -1107,7 +1129,20 @@ class AdminApiController extends Controller
     {
         $query = AttendanceChangeRequest::with(['employee:id,first_name,last_name,employee_code', 'attendance']);
         if ($request->filled('status')) $query->where('status', $request->input('status'));
-        return response()->json($query->latest('id')->paginate(min((int) $request->query('per_page', 10), 100)));
+        if ($search = trim((string) $request->query('search'))) {
+            $query->where(function ($q) use ($search) {
+                $q->where('reason', 'like', "%{$search}%")
+                    ->orWhere('status', 'like', "%{$search}%")
+                    ->orWhere('requested_clock_in', 'like', "%{$search}%")
+                    ->orWhere('requested_clock_out', 'like', "%{$search}%")
+                    ->orWhereHas('employee', fn ($employee) => $employee
+                        ->where('first_name', 'like', "%{$search}%")
+                        ->orWhere('last_name', 'like', "%{$search}%")
+                        ->orWhere('employee_code', 'like', "%{$search}%"))
+                    ->orWhereHas('attendance', fn ($attendance) => $attendance->where('date', 'like', "%{$search}%"));
+            });
+        }
+        return response()->json($query->latest('id')->paginate(min(max((int) $request->query('per_page', 10), 1), 100)));
     }
 
     public function reviewChangeRequest(Request $request, AttendanceChangeRequest $changeRequest)
@@ -1125,7 +1160,26 @@ class AdminApiController extends Controller
     public function scheduleChangeRequests(Request $request)
     {
         if(!Schema::hasTable('schedule_change_requests'))return response()->json(['data'=>[],'total'=>0,'current_page'=>1,'last_page'=>1,'per_page'=>10]);
-        $query=ScheduleChangeRequest::with(['employee:id,first_name,last_name,employee_code','schedule.client:id,name,business_name,timezone']); if($request->filled('status'))$query->where('status',$request->input('status')); return response()->json($query->latest('id')->paginate(min((int)$request->query('per_page',10),100)));
+        $query = ScheduleChangeRequest::with(['employee:id,first_name,last_name,employee_code','schedule.client:id,name,business_name,timezone']);
+        if ($request->filled('status')) $query->where('status', $request->input('status'));
+        if ($search = trim((string) $request->query('search'))) {
+            $query->where(function ($q) use ($search) {
+                $q->where('reason', 'like', "%{$search}%")
+                    ->orWhere('status', 'like', "%{$search}%")
+                    ->orWhere('requested_date', 'like', "%{$search}%")
+                    ->orWhere('requested_start_time', 'like', "%{$search}%")
+                    ->orWhere('requested_end_time', 'like', "%{$search}%")
+                    ->orWhereHas('employee', fn ($employee) => $employee
+                        ->where('first_name', 'like', "%{$search}%")
+                        ->orWhere('last_name', 'like', "%{$search}%")
+                        ->orWhere('employee_code', 'like', "%{$search}%"))
+                    ->orWhereHas('schedule.client', fn ($client) => $client
+                        ->where('name', 'like', "%{$search}%")
+                        ->orWhere('business_name', 'like', "%{$search}%")
+                        ->orWhere('timezone', 'like', "%{$search}%"));
+            });
+        }
+        return response()->json($query->latest('id')->paginate(min(max((int)$request->query('per_page',10),1),100)));
     }
 
     public function reviewScheduleChangeRequest(Request $request, ScheduleChangeRequest $scheduleChangeRequest)
@@ -1138,7 +1192,17 @@ class AdminApiController extends Controller
     {
         $query = Attendance::with('employee:id,first_name,last_name,employee_code')->where('overtime', '>', 0);
         if (Schema::hasColumn('attendances', 'overtime_status')) $query->whereIn('overtime_status', ['pending', 'approved', 'rejected']);
-        return response()->json($query->latest('date')->paginate(10));
+        if ($search = trim((string) $request->query('search'))) {
+            $query->where(function ($q) use ($search) {
+                $q->where('date', 'like', "%{$search}%");
+                if (Schema::hasColumn('attendances', 'overtime_status')) $q->orWhere('overtime_status', 'like', "%{$search}%");
+                $q->orWhereHas('employee', fn ($employee) => $employee
+                    ->where('first_name', 'like', "%{$search}%")
+                    ->orWhere('last_name', 'like', "%{$search}%")
+                    ->orWhere('employee_code', 'like', "%{$search}%"));
+            });
+        }
+        return response()->json($query->latest('date')->latest('id')->paginate(min(max((int) $request->query('per_page', 10), 1), 100)));
     }
 
     public function reviewOvertime(Request $request, Attendance $attendance)

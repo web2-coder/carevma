@@ -116,6 +116,24 @@ function DoctorCurrentTime({serverNow,timezone}){
   </div>;
 }
 
+function ShiftEndStatus({end,serverNow,timeZone}){
+  const parsed=Date.parse(serverNow||'');
+  const [nowMs,setNowMs]=useState(()=>Number.isFinite(parsed)?parsed:Date.now());
+  useEffect(()=>{
+    const start=Date.parse(serverNow||'');
+    const anchorMs=Number.isFinite(start)?start:Date.now();
+    const perf=performance.now();
+    const tick=()=>setNowMs(anchorMs+Math.max(0,performance.now()-perf));
+    tick();const id=setInterval(tick,1000);return()=>clearInterval(id);
+  },[serverNow,end]);
+  const endMs=Date.parse(end||'');
+  if(!Number.isFinite(endMs))return <small>Shift end not available</small>;
+  const left=Math.max(0,Math.floor((endMs-nowMs)/1000));
+  const hours=Math.floor(left/3600),minutes=Math.floor((left%3600)/60),seconds=left%60;
+  const remaining=endMs<=nowMs?'Shift end reached':`Ends in ${hours?`${hours}h `:''}${minutes}m ${seconds}s`;
+  return <div className="shift-end-status"><strong>Ends at {formatZoneTime(end,timeZone||'UTC')}</strong><small>{remaining} · {timeZone||'UTC'}</small></div>;
+}
+
 function BreakUsagePanel({active,activeBreak,serverNow}){
   const initialCurrent=Math.max(0,Number(active?.current_break_elapsed_seconds||0));
   const [current,setCurrent]=useState(initialCurrent);
@@ -264,7 +282,7 @@ export function EmployeeDashboard(){
             <BreakUsagePanel active={active} activeBreak={activeBreak} serverNow={data.now_utc||data.now}/>
             <div className="shift-actions">{activeBreak?<Button variant="warning" loading={busy} icon={Coffee} onClick={()=>action('/employee/break/end')}>End break</Button>:<Button variant="secondary" loading={busy} icon={Coffee} onClick={()=>action('/employee/break/start',{notes:'Employee break'})}>Start break</Button>}<Button variant="danger" loading={busy} icon={LogOut} onClick={()=>action('/employee/clock-out')}>Clock out</Button></div>
             <div className="session-stats"><div><span>Break records</span><strong>{active.breaks?.length||0}</strong></div><div><span>Late</span><strong>{Math.max(0,Math.floor(Number(active.late_minutes||0)))} min</strong></div><div><span>Working with</span><strong>{doctorNames.length?`${doctorNames.length} Doctor${doctorNames.length===1?'':'s'}`:(active.client?.name||'—')}</strong></div></div>
-            {doctorSegments.length>0&&<Card title={`Doctor shifts in this session (${doctorSegments.length})`} subtitle="Later assigned Doctor shifts join automatically; completed Doctor segments stop independently."><div className="agenda">{doctorSegments.map(segment=><div className="agenda-row" key={`${segment.schedule_id}-${segment.client_id}-${segment.status}`}><div className="agenda-time">{segment.shift_starts_at?formatZoneTime(segment.shift_starts_at,segment.doctor_timezone):'—'}</div><div><strong>{segment.client_name||'Doctor'}</strong><span>Doctor: {scheduleRange(segment.shift_starts_at,segment.shift_ends_at,segment.doctor_timezone)} · {segment.doctor_timezone||'UTC'}</span><span>Your time: {scheduleRange(segment.shift_starts_at,segment.shift_ends_at,employeeTimezone)} · {employeeTimezone}</span>{Number(segment.late_minutes||0)>0&&<span>Late: {segment.late_minutes} min</span>}</div><Badge tone={segment.status==='active'?'success':segment.status==='upcoming'?'warning':'neutral'}>{segment.status||'Active'}</Badge></div>)}</div></Card>}
+            {doctorSegments.length>0&&<Card title={`Doctor shifts in this session (${doctorSegments.length})`} subtitle="Later assigned Doctor shifts join automatically; completed Doctor segments stop independently."><div className="agenda">{doctorSegments.map(segment=><div className="agenda-row" key={`${segment.schedule_id}-${segment.client_id}-${segment.status}`}><div className="agenda-time">{segment.shift_starts_at?formatZoneTime(segment.shift_starts_at,segment.doctor_timezone):'—'}</div><div><strong>{segment.client_name||'Doctor'}</strong><span>Doctor: {scheduleRange(segment.shift_starts_at,segment.shift_ends_at,segment.doctor_timezone)} · {segment.doctor_timezone||'UTC'}</span><span>Your time: {scheduleRange(segment.shift_starts_at,segment.shift_ends_at,employeeTimezone)} · {employeeTimezone}</span>{segment.status==='active'&&<ShiftEndStatus end={segment.shift_ends_at} serverNow={data.now_utc||data.now} timeZone={segment.doctor_timezone}/>} {Number(segment.late_minutes||0)>0&&<span>Late: {segment.late_minutes} min</span>}</div><Badge tone={segment.status==='active'?'success':segment.status==='upcoming'?'warning':'neutral'}>{segment.status||'Active'}</Badge></div>)}</div></Card>}
           </div>:<div className="schedule-picker">{data.today_schedules.length?data.today_schedules.map(s=>{const doctorTz=s.client_timezone||s.client?.timezone;return <div className="schedule-choice-card" key={s.id}><div className="schedule-choice-copy"><span>{s.client?.name||'Client'}</span><strong>{scheduleRange(s.client_shift_starts_at,s.client_shift_ends_at,doctorTz)}</strong><small>Doctor time · {doctorTz||'Not set'}</small><small>My local shift: {scheduleRange(s.shift_starts_at,s.shift_ends_at,s.employee_timezone||data.timezone)} · {s.employee_timezone||data.timezone}</small><small>Doctor break: {breakCodeText(s.break_allowed_hours)}</small><small>Check-in opens: {formatZone(s.doctor_check_in_opens_at||s.client_shift_starts_at,doctorTz)}</small></div><Button loading={busy} icon={LogIn} onClick={()=>{setCheckInTarget(s);setCheckInComment('')}}>Check in</Button></div>}):<div className="empty-compact"><strong>No shift open right now</strong><span>Your next check-in option appears 15 minutes before the Doctor-local start time.</span></div>}</div>}
         </div><aside className="shift-control-side" aria-label="Workday status">
           {active&&<div className="doctor-live-session-section">
@@ -281,6 +299,7 @@ export function EmployeeDashboard(){
                     <div><span>Doctor session timer</span><DoctorSegmentTimer segment={segment} serverNow={data.now_utc||data.now}/><small>Starts from this Doctor segment</small></div>
                     <div><span>Doctor shift</span><strong>{scheduleRange(segment.shift_starts_at,segment.shift_ends_at,doctorTz)}</strong><small>{doctorTz}</small></div>
                     <div><span>Your local equivalent</span><strong>{scheduleRange(segment.shift_starts_at,segment.shift_ends_at,employeeTimezone)}</strong><small>{employeeTimezone}</small></div>
+                    <div><span>Shift end</span><ShiftEndStatus end={segment.shift_ends_at} serverNow={data.now_utc||data.now} timeZone={doctorTz}/></div>
                     <div><span>Late</span><strong>{Math.max(0,Number(segment.late_minutes||0))} min</strong><small>Calculated for this Doctor only</small></div>
                   </div>
                 </article>;
