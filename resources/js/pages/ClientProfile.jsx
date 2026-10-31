@@ -30,6 +30,7 @@ import {
   Table,
   money,
   mins,
+  durationHM as formatDurationHM,
   dateTime,
 } from '../components/ui';
 import TimezonePicker from '../components/TimezonePicker';
@@ -919,7 +920,7 @@ export default function ClientProfilePage() {
     { key: 'clock_out', label: 'Clock out', render: row => <DualTime value={row.clock_out} doctorTz={row.client_timezone || client?.timezone || row.client?.timezone || 'UTC'} live={!row.clock_out} /> },
     { key: 'worked', label: 'Worked', render: row => mins(row.total_minutes) },
     { key: 'break', label: 'Break', render: row => `${Math.floor(Number(row.break_taken || 0) / 60)} min` },
-    { key: 'late', label: 'Late', render: row => `${Math.round(Number(row.late_minutes || 0))} min` },
+    { key: 'late', label: 'Late', render: row => formatDurationHM(row.late_minutes) },
     { key: 'overtime', label: 'Overtime', render: row => `${Math.round(Number(row.overtime || 0))} min` },
   ];
 

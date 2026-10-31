@@ -359,6 +359,13 @@ export function Pagination({ meta, onPage }) {
 }
 
 export const money = value => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value || 0));
+export const durationHM = value => {
+  const total = Math.max(0, Math.round(Number(value || 0)));
+  const hours = Math.floor(total / 60);
+  const minutes = total % 60;
+  if (!hours) return `${minutes}m`;
+  return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
+};
 export const mins = value => {
   const total = Math.max(0, Math.round(Number(value || 0)));
   if (total < 60) return `${total} min`;
