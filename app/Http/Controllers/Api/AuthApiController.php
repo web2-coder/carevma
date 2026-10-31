@@ -243,60 +243,22 @@ class AuthApiController extends Controller
     private function assignedTimezone(User $user): string
     {
         return match ($user->role) {
-            'employee' => $this->employeeDoctorTimezone($user->employee),
+            'employee' => $this->employeeOwnTimezone($user->employee),
             'client' => $this->timezones->valid($user->client?->timezone, $this->timezones->businessTimezone()),
             default => $this->timezones->businessTimezone(),
         };
     }
 
-    private function employeeDoctorTimezone(?Employee $employee): string
+    private function employeeOwnTimezone(?Employee $employee): string
     {
         if (!$employee) {
             return $this->timezones->businessTimezone();
         }
 
-        $active = $employee->attendances()
-            ->with('client:id,timezone')
-            ->whereNull('clock_out')
-            ->latest('id')
-            ->first();
-        if ($active?->client?->timezone) {
-            return $this->timezones->valid($active->client->timezone, $this->timezones->businessTimezone());
-        }
-
-        $nowUtc = $this->clock->now('UTC');
-        $next = $employee->clientSchedules()
-            ->with('client:id,timezone')
-            ->where(function ($query) {
-                $query->where('enabled', true)->orWhereNull('enabled');
-            })
-            ->get()
-            ->map(function ($schedule) use ($nowUtc) {
-                $zone = $this->timezones->valid($schedule->client?->timezone ?: $schedule->timezone, $this->timezones->businessTimezone());
-                $localNow = $nowUtc->copy()->setTimezone($zone);
-
-                if ($schedule->schedule_date) {
-                    $date = Carbon::parse($schedule->schedule_date)->toDateString();
-                    $start = Carbon::parse($date.' '.$schedule->start_time, $zone);
-                    if ($start->lt($localNow->copy()->subMinutes(15))) return null;
-                    return ['timezone' => $zone, 'start_utc' => $start->utc()->timestamp];
-                }
-
-                for ($offset = 0; $offset <= 7; $offset++) {
-                    $date = $localNow->copy()->addDays($offset);
-                    if (strcasecmp($date->format('l'), (string) $schedule->weekday) !== 0) continue;
-                    $start = Carbon::parse($date->toDateString().' '.$schedule->start_time, $zone);
-                    if ($start->lt($localNow->copy()->subMinutes(15))) continue;
-                    return ['timezone' => $zone, 'start_utc' => $start->utc()->timestamp];
-                }
-
-                return null;
-            })
-            ->filter()
-            ->sortBy('start_utc')
-            ->first();
-
-        return $next['timezone'] ?? $this->timezones->valid($employee->timezone, $this->timezones->businessTimezone());
+        // The navbar has exactly one primary clock for a VA: the VA's own saved timezone.
+        // Doctor timezones belong to individual shift/attendance cards and must never replace
+        // the VA clock when one or more Doctors are active at the same time.
+        return $this->timezones->valid($employee->timezone, $this->timezones->businessTimezone());
     }
 
 }

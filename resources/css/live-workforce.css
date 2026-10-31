@@ -395,3 +395,21 @@
 .live-user-card.is-compact .live-user-card-profile-row{padding-bottom:2px;border-bottom:0}
 .live-user-card.is-expanded .live-user-card-profile-row{padding-bottom:16px;border-bottom:1px solid var(--border)}
 .live-user-card.is-expanded{cursor:default}
+
+/* Multi-doctor live session: keep every active Doctor visible without merging timezones. */
+.live-user-doctor-stack{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(110px,1fr));
+  gap:10px;
+  min-width:0;
+}
+.live-user-doctor-stack .live-user-profile-block{
+  min-width:0;
+}
+.live-user-doctor-stack .live-user-profile-photo{
+  width:58px;
+  height:58px;
+}
+@media (max-width: 720px){
+  .live-user-doctor-stack{grid-template-columns:1fr;}
+}

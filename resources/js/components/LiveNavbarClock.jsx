@@ -18,7 +18,7 @@ function validTimezone(value) {
 
 export function timezoneForUser(user) {
   const assigned = validTimezone(user?.assigned_timezone);
-  if (user?.role === 'employee') return assigned || validTimezone(user?.employee?.timezone) || DEFAULT_TIMEZONE;
+  if (user?.role === 'employee') return validTimezone(user?.employee?.timezone) || assigned || DEFAULT_TIMEZONE;
   if (user?.role === 'client') return assigned || validTimezone(user?.client?.timezone) || DEFAULT_TIMEZONE;
   return assigned || validTimezone(user?.timezone) || DEFAULT_TIMEZONE;
 }

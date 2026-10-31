@@ -242,6 +242,7 @@ export function LiveUsersPage(){
       {rows.length?<div className="live-user-card-grid">{rows.map(r=>{
         const employee=r.employee||{};
         const name=`${employee.first_name||''} ${employee.last_name||''}`.trim()||'Unknown employee';
+        const doctorSegments=Array.isArray(r.doctor_segments)?r.doctor_segments:[];
         const doctorName=(Array.isArray(r.doctor_names)&&r.doctor_names.length?r.doctor_names.join(', '):(r.client?.name||r.client?.business_name||'No active Doctor session'));
         const doctorFallback=String(doctorName||'D').split(/\s+/).filter(Boolean).slice(0,2).map(part=>part[0]).join('').toUpperCase()||'D';
         const vaFallback=`${employee.first_name?.[0]||''}${employee.last_name?.[0]||''}`.toUpperCase()||'VA';
@@ -257,17 +258,14 @@ export function LiveUsersPage(){
               <div className="live-avatar-wrap"><AvatarMedia className="live-user-profile-photo" src={employee.profile_picture} alt={name} fallback={vaFallback}/><span className={`advanced-live-dot ${runtimeOnline?'online':'offline'}`}/></div>
               <span>VA</span><strong>{name}</strong><small>{employee.employee_code||employee.email||'—'}</small>
             </div>
-            <div className="live-user-profile-link"><span>{r.client?'working with':'status'}</span><i>→</i></div>
-            <div className="live-user-profile-block doctor">
-              <AvatarMedia className="live-user-profile-photo" src={r.client?.profile_picture} alt={doctorName} fallback={doctorFallback}/>
-              <span>{r.client?'Doctor':'Presence'}</span><strong>{r.client?doctorName:(runtimeOnline?'Portal Online':'Portal Offline')}</strong><small>{r.doctor_timezone||relativeLastSeen(r.last_seen_at)}</small>
-            </div>
+            <div className="live-user-profile-link"><span>{r.client?`working with ${doctorSegments.length||1} Doctor${(doctorSegments.length||1)===1?'':'s'}`:'status'}</span><i>→</i></div>
+            {doctorSegments.length>0?<div className="live-user-doctor-stack">{doctorSegments.map(segment=>{const fallback=String(segment.name||'D').split(/\s+/).filter(Boolean).slice(0,2).map(part=>part[0]).join('').toUpperCase()||'D';return <div className="live-user-profile-block doctor" key={segment.attendance_id||segment.client_id}><AvatarMedia className="live-user-profile-photo" src={segment.profile_picture} alt={segment.name||'Doctor'} fallback={fallback}/><span>Doctor · Active</span><strong>{segment.name||'Doctor'}</strong><small>{segment.timezone||'UTC'}</small></div>})}</div>:<div className="live-user-profile-block doctor"><AvatarMedia className="live-user-profile-photo" src={r.client?.profile_picture} alt={doctorName} fallback={doctorFallback}/><span>{r.client?'Doctor':'Presence'}</span><strong>{r.client?doctorName:(runtimeOnline?'Portal Online':'Portal Offline')}</strong><small>{r.doctor_timezone||relativeLastSeen(r.last_seen_at)}</small></div>}
           </div>
           <div className="live-user-card-status"><span className={`advanced-status-badge ${statusKey}`}><i/>{statusLabel}</span></div>
           {expanded&&<div className="live-user-inline-details" onClick={e=>e.stopPropagation()}>
             <div className="live-user-card-body">
               <div><span>Attendance</span><strong>{r.attendance_status||'Not checked in'}</strong><small>{runtimeOnline?'Portal active':'Portal inactive'} · {relativeLastSeen(r.last_seen_at)}</small></div>
-              <div><span>Doctor shift</span><strong>{r.schedule_doctor_label||'No active shift'}</strong><small>{r.schedule?`Break: ${breakCodeText(r.schedule.break_allowed_hours)}`:'No open attendance session'}</small></div>
+              {doctorSegments.length>0?doctorSegments.map(segment=><div key={`detail-${segment.attendance_id||segment.client_id}`}><span>{segment.name||'Doctor'} shift</span><strong>{segment.shift_label||'Active shift'}</strong><small>{segment.timezone||'UTC'}{Number(segment.late_minutes||0)>0?` · Late ${segment.late_minutes} min`:''}</small></div>):<div><span>Doctor shift</span><strong>{r.schedule_doctor_label||'No active shift'}</strong><small>{r.schedule?`Break: ${breakCodeText(r.schedule.break_allowed_hours)}`:'No open attendance session'}</small></div>}
               <div><span>Clocked in</span><strong>{r.clock_in_doctor_label||'—'}</strong><small>{r.doctor_timezone?'Doctor local time':'Not checked in'}</small></div>
               {r.clock_in?<div><span>Work + Break</span><LiveDuration baseSeconds={r.elapsed_seconds}/><small>Work {durationLabel(workedSeconds)} · Break {durationLabel(totalBreakSeconds)}</small></div>:<div><span>Last Active</span><strong>{relativeLastSeen(r.last_seen_at)}</strong><small>{employee.location||'Location not set'}</small></div>}
               {r.clock_in&&<div><span>Break time</span><LiveBreakDuration row={r}/><small>{r.is_on_break?'Break is active now':'Current break status'}</small></div>}
