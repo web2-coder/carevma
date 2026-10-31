@@ -6,6 +6,8 @@ use App\Models\Attendance;
 use App\Models\ClientEmployeeRate;
 use App\Models\Invoice;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Carbon\Carbon;
+use DateTimeInterface;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
 
@@ -35,12 +37,19 @@ class InvoicePdfService
             $invoice->setRelation('adjustments', collect());
         }
 
+        $invoiceStart = $this->dateString($invoice->period_start);
+        $invoiceEnd = $this->dateString($invoice->period_end);
+
+        if (! $invoiceStart || ! $invoiceEnd) {
+            throw new \RuntimeException('Invoice period start/end is missing or invalid.');
+        }
+
         $employeeIds = $invoice->salaries->pluck('employee_id')->filter()->unique()->values();
         $attendanceByEmployee = collect();
         if ($employeeIds->isNotEmpty()) {
             [$startUtc, $endUtc] = $this->timezones->utcBoundsForLocalDates(
-                $invoice->period_start->toDateString(),
-                $invoice->period_end->toDateString(),
+                $invoiceStart,
+                $invoiceEnd,
                 $invoice->client
             );
             $query = Attendance::query()
@@ -56,8 +65,8 @@ class InvoicePdfService
 
         foreach ($invoice->salaries as $salary) {
             if ($salary->employee) {
-                $salaryStart = $salary->period_start?->toDateString() ?: $invoice->period_start->toDateString();
-                $salaryEnd = $salary->period_end?->toDateString() ?: $invoice->period_end->toDateString();
+                $salaryStart = $this->dateString($salary->period_start) ?: $invoiceStart;
+                $salaryEnd = $this->dateString($salary->period_end) ?: $invoiceEnd;
                 $rows = $attendanceByEmployee->get($salary->employee_id, collect())->filter(function (Attendance $attendance) use ($invoice, $salaryStart, $salaryEnd) {
                     if (! $attendance->clock_in) {
                         return false;
@@ -97,5 +106,22 @@ class InvoicePdfService
             'clientTimezone' => $clientTimezone,
             'scheduleByEmployee' => $scheduleByEmployee,
         ]);
+    }
+
+    private function dateString(mixed $value): ?string
+    {
+        if ($value instanceof DateTimeInterface) {
+            return $value->format('Y-m-d');
+        }
+
+        if (! is_string($value) || trim($value) === '') {
+            return null;
+        }
+
+        try {
+            return Carbon::parse($value)->toDateString();
+        } catch (\Throwable) {
+            return null;
+        }
     }
 }
