@@ -18,12 +18,22 @@ class InvoicePdfService
     public function make(Invoice $invoice)
     {
         $invoice = $invoice->fresh();
-        $invoice->load([
-            'client.service',
-            'client.contractType',
-            'salaries.employee',
-            'adjustments.employee:id,first_name,last_name,employee_code',
-        ]);
+        $invoice->load(['client.service', 'client.contractType']);
+
+        // Live-safe PDF hydration: older CareVMA databases may not yet contain
+        // one of the newer invoice support tables/columns. The PDF must still
+        // render instead of throwing a 500 while reading an optional relation.
+        if (Schema::hasTable('employee_salaries') && Schema::hasColumn('employee_salaries', 'invoice_id')) {
+            $invoice->load('salaries.employee');
+        } else {
+            $invoice->setRelation('salaries', collect());
+        }
+
+        if (Schema::hasTable('invoice_adjustments') && Schema::hasColumn('invoice_adjustments', 'invoice_id')) {
+            $invoice->load('adjustments.employee:id,first_name,last_name,employee_code');
+        } else {
+            $invoice->setRelation('adjustments', collect());
+        }
 
         $employeeIds = $invoice->salaries->pluck('employee_id')->filter()->unique()->values();
         $attendanceByEmployee = collect();
@@ -74,7 +84,9 @@ class InvoicePdfService
                 ->groupBy('employee_id');
         }
 
-        $rates = ClientEmployeeRate::where('client_id', $invoice->client_id)->get()->keyBy('employee_id');
+        $rates = Schema::hasTable('client_employee_rates')
+            ? ClientEmployeeRate::where('client_id', $invoice->client_id)->get()->keyBy('employee_id')
+            : collect();
         $clientTimezone = $this->timezones->forClient($invoice->client);
 
         return Pdf::loadView('invoices.invoice', [

@@ -591,6 +591,10 @@ table tbody tr:hover,
   backdrop-filter: blur(5px);
 }
 
+.client-schedule-drawer-backdrop {
+  z-index: 1001 !important;
+}
+
 .modal-head,
 .modal-foot {
   border-color: #e4ebf4;
