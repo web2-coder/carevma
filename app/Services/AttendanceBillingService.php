@@ -102,14 +102,14 @@ class AttendanceBillingService
             $overtime = max(0, (int) $shiftEnd->diffInMinutes($clockOut) - $overtimeBreakMinutes);
         }
 
-        // A scheduled break is part of the shift length but is never billable.
-        // Example: 08:00-17:00 (9h) with a 1h break => maximum regular billing is 8h,
-        // even if the VA clocks in early, clocks out late, or skips the break.
+        // Cap regular work at the full scheduled shift window.
+        // Only ACTUAL break time is deducted from worked minutes. An allowed break
+        // that the VA did not take must not silently reduce payable regular time.
+        // Example: 15:40-17:00 with no break => up to 80 regular minutes.
+        // Example: 09:00-18:00 with a 60-minute actual break => 8h worked.
         if ($shiftStart && $shiftEnd) {
             $scheduledMinutes = max(0, (int) $shiftStart->diffInMinutes($shiftEnd));
-            $breakAllowanceMinutes = $this->hmsToMinutes($attendance->break_limit);
-            $regularCap = max(0, $scheduledMinutes - $breakAllowanceMinutes);
-            $workedInsideShift = min($workedInsideShift, $regularCap);
+            $workedInsideShift = min($workedInsideShift, $scheduledMinutes);
         }
 
         $attendance->total_minutes = $workedInsideShift;
