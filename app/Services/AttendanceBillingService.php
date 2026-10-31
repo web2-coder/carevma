@@ -102,14 +102,28 @@ class AttendanceBillingService
             $overtime = max(0, (int) $shiftEnd->diffInMinutes($clockOut) - $overtimeBreakMinutes);
         }
 
-        // Cap regular work at the full scheduled shift window.
-        // Only ACTUAL break time is deducted from worked minutes. An allowed break
-        // that the VA did not take must not silently reduce payable regular time.
-        // Example: 15:40-17:00 with no break => up to 80 regular minutes.
-        // Example: 09:00-18:00 with a 60-minute actual break => 8h worked.
+        // CareVMA billing rule:
+        // regular payable time is the time actually covered inside the Doctor shift,
+        // less the ASSIGNED break allowance (or a longer actual break, if taken).
+        // The regular portion can never exceed the scheduled net shift duration.
+        // Example: 17:00-19:00 with a 00:30 break allowance => 90 regular minutes.
+        // If checkout is 19:25, the extra 25 minutes remain overtime and are only
+        // added to payable time after HR/Admin approval.
         if ($shiftStart && $shiftEnd) {
             $scheduledMinutes = max(0, (int) $shiftStart->diffInMinutes($shiftEnd));
-            $workedInsideShift = min($workedInsideShift, $scheduledMinutes);
+            $allowedBreakMinutes = $this->hmsToMinutes($attendance->break_limit);
+            if ($allowedBreakMinutes <= 0 && $attendance->schedule) {
+                $raw = number_format(max(0, (float) ($attendance->schedule->break_allowed_hours ?? 0)), 2, '.', '');
+                [$hours, $minutes] = array_pad(explode('.', $raw, 2), 2, '00');
+                $allowedBreakMinutes = ((int) $hours * 60) + min(59, max(0, (int) $minutes));
+            }
+
+            $deductBreakMinutes = max($allowedBreakMinutes, $regularBreakMinutes);
+            $coveredInsideShift = max(0, (int) $regularStart->diffInMinutes($regularEnd));
+            $workedInsideShift = max(0, $coveredInsideShift - $deductBreakMinutes);
+
+            $scheduledNetMinutes = max(0, $scheduledMinutes - $allowedBreakMinutes);
+            $workedInsideShift = min($workedInsideShift, $scheduledNetMinutes);
         }
 
         $attendance->total_minutes = $workedInsideShift;

@@ -326,9 +326,9 @@
                                 }) ?: $daySchedules->first();
 
                                 // Total Hours on a PRESENT row represents the scheduled shift
-                                // length minus the ACTUAL break taken for this attendance.
-                                // It does not subtract an unused break allowance.
-                                // Example: 15:40-17:00 + 0m actual break => 1h 20m.
+                                // duration minus the ASSIGNED break allowance for that shift.
+                                // It is not the actual worked duration.
+                                // Example: 17:00-19:00 with a 30m assigned break => 1h 30m.
                                 $scheduledGrossMinutes = 0;
                                 if ($shiftStartLocal && $shiftEndLocal) {
                                     $scheduledGrossMinutes = max(0, $shiftStartLocal->diffInMinutes($shiftEndLocal));
@@ -342,7 +342,17 @@
                                     $scheduledGrossMinutes = max(0, $scheduledStart->diffInMinutes($scheduledEnd));
                                 }
 
-                                $scheduledTotalMinutes = max(0, $scheduledGrossMinutes - $breakMinutes);
+                                $assignedBreakMinutes = 0;
+                                if (!empty($attendance->break_limit)) {
+                                    $parts = array_map('intval', explode(':', (string) $attendance->break_limit));
+                                    $assignedBreakMinutes = max(0, (($parts[0] ?? 0) * 60) + ($parts[1] ?? 0));
+                                } elseif ($matchedSchedule) {
+                                    $breakRaw = number_format(max(0, (float) ($matchedSchedule->break_allowed_hours ?? 0)), 2, '.', '');
+                                    [$breakHours, $breakMins] = array_pad(explode('.', $breakRaw, 2), 2, '00');
+                                    $assignedBreakMinutes = ((int) $breakHours * 60) + min(59, max(0, (int) $breakMins));
+                                }
+
+                                $scheduledTotalMinutes = max(0, $scheduledGrossMinutes - $assignedBreakMinutes);
 
                                 $shiftLabel = ($shiftStartLocal && $shiftEndLocal)
                                     ? $shiftStartLocal->format('h:i A').' - '.$shiftEndLocal->format('h:i A')
