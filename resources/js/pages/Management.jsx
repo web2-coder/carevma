@@ -103,17 +103,19 @@ export function ManagementDashboard(){
         </div>
       </Card>
 
-      <Card className="currently-working-dashboard-card" title="Currently Working" subtitle="VAs with an active check-in right now">
-        {currentlyWorking.length?<div className="currently-working-dashboard-list">{currentlyWorking.map(row=>{
-          const employee=row.employee||{}; const doctor=row.client||{};
-          const vaName=`${employee.first_name||''} ${employee.last_name||''}`.trim()||'VA';
-          const doctorName=(Array.isArray(row.doctor_names)&&row.doctor_names.length?row.doctor_names.join(', '):(doctor.name||doctor.business_name||'Doctor'));
-          return <div className="currently-working-dashboard-person" key={row.id}>
-            <AvatarMedia className="currently-working-avatar" src={employee.profile_picture} alt={vaName} fallback={`${employee.first_name?.[0]||''}${employee.last_name?.[0]||''}`.toUpperCase()||'VA'}/>
-            <div><strong>{vaName}</strong><span>{employee.employee_code||'Checked in'} · {doctorName}</span></div>
-            <Badge tone="success">Working</Badge>
-          </div>;
-        })}</div>:<div className="birthday-dashboard-empty"><strong>No VAs working right now</strong><span>A VA appears here only after checking in.</span></div>}
+      <Card title="Currently Working" subtitle="Latest workforce sessions">
+        <div className="activity-list">
+          {currentlyWorking.length?(currentlyWorking.slice(0,5).map(row=>{
+            const employee=row.employee||{}; const doctor=row.client||{};
+            const vaName=`${employee.first_name||''} ${employee.last_name||''}`.trim()||'VA';
+            const doctorName=(Array.isArray(row.doctor_names)&&row.doctor_names.length?row.doctor_names.join(', '):(doctor.name||doctor.business_name||'Doctor'));
+            return <div className="activity-row" key={row.id}>
+              <div className="avatar">{employee.profile_picture?<img src={employee.profile_picture} alt=""/>:<>{employee.first_name?.[0]}{employee.last_name?.[0]}</>}</div>
+              <div><strong>{vaName}</strong><span>{doctorName} · Live session</span></div>
+              <Badge tone="success">Working</Badge>
+            </div>;
+          })):<EmptyState/>}
+        </div>
         <div className="currently-working-dashboard-footer"><Link className="btn btn-secondary btn-link" to={`${roleBase(user.role)}/live-users`}>View All</Link></div>
       </Card>
     </div>
