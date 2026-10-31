@@ -19,6 +19,7 @@ use App\Models\Role;
 use App\Models\Service;
 use App\Models\ShiftType;
 use App\Models\User;
+use App\Models\WorkSession;
 use App\Services\AttendanceBillingService;
 use Carbon\Carbon;
 use Illuminate\Database\Seeder;
@@ -40,9 +41,10 @@ class CareVmaRandomAttendanceSeeder extends Seeder
             $clients = $this->clients($lookups);
             $schedules = $this->assignSchedules($employees, $clients);
             $this->seedAttendance($employees, $schedules);
+            $this->seedLiveSessions($employees, $clients);
         });
 
-        $this->command?->info('CareVMA calculated demo data seeded: 5 VAs, 5 Doctors, repeating schedules and timestamp-derived attendance.');
+        $this->command?->info('CareVMA calculated demo data seeded: 5 VAs, 5 Doctors, repeating schedules, about 10 days of timestamp-derived attendance and 2 VAs clocked in right now.');
         $this->command?->info('Worked minutes are calculated from clock-in/out + breaks. Regular work is capped by the scheduled shift less allowed break; only approved overtime is additionally payable.');
     }
 
@@ -216,13 +218,72 @@ class CareVmaRandomAttendanceSeeder extends Seeder
         return $byEmployee;
     }
 
+    private function seedLiveSessions(array $employees, array $clients): void
+    {
+        $nowUtc = now('UTC');
+
+        foreach ([0 => 0, 3 => 25] as $employeeIndex => $lateMinutes) {
+            $employee = $employees[$employeeIndex]['model'];
+            $client = $clients[($employeeIndex * 3 + 2) % 5]; // a doctor this VA already works for
+            $zone = $client->timezone;
+
+            // A one-off shift that began two hours ago in the doctor's timezone, so the
+            // session is live now and stays open for the rest of the demo.
+            $shiftStart = $nowUtc->copy()->setTimezone($zone)->subHours(2)->startOfHour();
+            $shiftEnd = $shiftStart->copy()->addHours(9);
+
+            $schedule = EmployeeClientSchedule::create([
+                'employee_id' => $employee->id,
+                'client_id' => $client->id,
+                'weekday' => $shiftStart->format('l'),
+                'schedule_date' => $shiftStart->toDateString(),
+                'start_time' => $shiftStart->format('H:i:s'),
+                'end_time' => $shiftEnd->format('H:i:s'),
+                'timezone' => $zone,
+                'no_of_hours' => '8.00',
+                'break_allowed_hours' => 1.00,
+                'enabled' => true,
+                'repeat' => false,
+            ]);
+
+            $clockIn = $shiftStart->copy()->addMinutes($lateMinutes)->utc();
+            $session = WorkSession::create([
+                'employee_id' => $employee->id,
+                'primary_schedule_id' => $schedule->id,
+                'clock_in' => $clockIn,
+                'status' => 'active',
+            ]);
+
+            Attendance::create([
+                'work_session_id' => $session->id,
+                'employee_id' => $employee->id,
+                'client_id' => $client->id,
+                'schedule_id' => $schedule->id,
+                'date' => $shiftStart->toDateString(),
+                'timezone_snapshot' => $zone,
+                'shift_start_snapshot' => $shiftStart->copy()->utc(),
+                'shift_end_snapshot' => $shiftEnd->copy()->utc(),
+                'clock_in' => $clockIn,
+                'break_limit' => '01:00:00',
+                'break_taken' => 0,
+                'total_minutes' => 0,
+                'overtime' => 0,
+                'is_late' => $lateMinutes > 0,
+                'late_minutes' => $lateMinutes,
+                'overtime_status' => 'none',
+            ]);
+
+            $employee->user?->forceFill(['last_seen_at' => $nowUtc])->save();
+        }
+    }
+
     private function seedAttendance(array $employees, array $schedulesByEmployee): void
     {
         $billing = app(AttendanceBillingService::class);
 
         foreach ($employees as $employeeIndex => $entry) {
             $employee = $entry['model'];
-            $historyDays = 15 + (($employeeIndex * 4 + 7) % 16); // 15..30 calendar-day history
+            $historyDays = 10 + ($employeeIndex % 3); // 10..12 calendar-day history
             $startDate = now()->subDays($historyDays)->startOfDay();
             $endDate = now()->subDay()->startOfDay();
 
@@ -235,7 +296,7 @@ class CareVmaRandomAttendanceSeeder extends Seeder
                     $seed = ($employee->id * 97) + ($schedule->id * 31) + ((int) $date->format('z') * 17);
 
                     // Some scheduled days are absent. No attendance means no payable time.
-                    if (($seed % 25) < 2) {
+                    if (($seed % 25) < 4) {
                         continue;
                     }
 
