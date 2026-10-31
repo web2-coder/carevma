@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Log;
 use App\Http\Controllers\Controller;
 use App\Models\Attendance;
 use App\Models\AttendanceChangeRequest;
@@ -1328,7 +1329,20 @@ class AdminApiController extends Controller
         }
 
         $client = Client::findOrFail($data['client_id']);
-        $invoice = $generator->generate($client, $data['period_start'], $data['period_end'], false);
+        try {
+            $invoice = $generator->generate($client, $data['period_start'], $data['period_end'], false);
+        } catch (\Throwable $e) {
+            Log::error('Manual invoice generation failed', [
+                'client_id' => $client->id,
+                'period_start' => $data['period_start'],
+                'period_end' => $data['period_end'],
+                'exception' => $e,
+            ]);
+
+            return response()->json([
+                'message' => 'Invoice generation failed because the live billing schema or attendance data is not compatible. The error has been logged for diagnosis.',
+            ], 422);
+        }
 
         if (!$invoice) {
             return response()->json(['message' => 'No completed, unbilled attendance exists for this client in the selected client-local date range.'], 422);

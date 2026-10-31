@@ -118,6 +118,63 @@ export function SearchableSelect({
     {error && <em>{error}</em>}
   </div>;
 }
+export function SearchableMultiSelect({
+  label, values = [], onChange, options = [], placeholder = 'Select', searchPlaceholder = 'Search…',
+  disabled = false, error, emptyText = 'No matching results',
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const rootRef = useRef(null);
+  const normalizedValues = (Array.isArray(values) ? values : []).map(value => String(value ?? ''));
+  const selected = options.filter(option => normalizedValues.includes(String(option.value ?? '')));
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter(option => `${option.label || ''} ${option.searchText || ''} ${option.meta || ''}`.toLowerCase().includes(q));
+  }, [options, query]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = event => { if (rootRef.current && !rootRef.current.contains(event.target)) setOpen(false); };
+    const escape = event => { if (event.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', escape);
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', escape); };
+  }, [open]);
+
+  const toggle = option => {
+    const id = String(option.value ?? '');
+    const next = normalizedValues.includes(id)
+      ? normalizedValues.filter(value => value !== id)
+      : [...normalizedValues, id];
+    onChange?.(next);
+  };
+
+  const summary = selected.length
+    ? selected.length === 1 ? selected[0].label : `${selected.length} Doctors / Clients selected`
+    : placeholder;
+
+  return <div className={`field searchable-select-field searchable-multi-select-field ${disabled ? 'is-disabled' : ''}`} ref={rootRef}>
+    <span>{label}</span>
+    <button type="button" className={`searchable-select-trigger ${open ? 'is-open' : ''}`} disabled={disabled} onClick={() => setOpen(current => !current)} aria-haspopup="listbox" aria-expanded={open}>
+      <span className={selected.length ? '' : 'is-placeholder'}>{summary}</span><ChevronDown size={16}/>
+    </button>
+    {open && <div className="searchable-select-popover searchable-multi-select-popover">
+      <div className="searchable-select-search"><Search size={15}/><input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder={searchPlaceholder}/>{query && <button type="button" onClick={() => setQuery('')} aria-label="Clear search"><X size={14}/></button>}</div>
+      <div className="searchable-select-options" role="listbox" aria-multiselectable="true">
+        {filtered.length ? filtered.map(option => {
+          const active = normalizedValues.includes(String(option.value ?? ''));
+          return <button type="button" key={`${option.value}-${option.label}`} className={`searchable-select-option ${active ? 'is-selected' : ''}`} onClick={() => toggle(option)} role="option" aria-selected={active}>
+            <span><strong>{option.label}</strong>{option.meta && <small>{option.meta}</small>}</span><span className={`searchable-multi-check ${active ? 'is-selected' : ''}`}>{active && <Check size={14}/>}</span>
+          </button>;
+        }) : <div className="searchable-select-empty">{emptyText}</div>}
+      </div>
+      <div className="searchable-multi-footer"><small>{selected.length} selected</small><button type="button" onClick={() => { onChange?.([]); setQuery(''); }}>Clear</button><button type="button" onClick={() => setOpen(false)}>Done</button></div>
+    </div>}
+    {error && <em>{error}</em>}
+  </div>;
+}
+
 export function Textarea({ label, error, ...props }) {
   return <label className="field"><span>{label}</span><textarea {...props}/>{error && <em>{error}</em>}</label>;
 }

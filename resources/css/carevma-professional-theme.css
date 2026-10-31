@@ -2922,3 +2922,16 @@ html, body, button, input, select, textarea, .app-shell {
     min-width: 0 !important;
   }
 }
+
+
+/* CareVMA safe invoice searchable multi-select patch - 2026-10-30 */
+.searchable-multi-select-field{position:relative;min-width:0}
+.searchable-multi-select-popover{z-index:80}
+.searchable-multi-select-popover .searchable-select-options{max-height:260px}
+.searchable-multi-check{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border:1px solid #cbd5e1;border-radius:6px;flex:0 0 20px}
+.searchable-multi-check.is-selected{border-color:currentColor}
+.searchable-multi-footer{display:flex;align-items:center;gap:8px;padding:9px 10px;border-top:1px solid #e2e8f0;background:#fff}
+.searchable-multi-footer small{margin-right:auto;color:#64748b}
+.searchable-multi-footer button{border:0;background:transparent;font:inherit;font-weight:700;cursor:pointer;padding:5px 7px;border-radius:7px}
+.searchable-multi-footer button:hover{background:#f1f5f9}
+.invoice-bulk-grid .searchable-multi-select-field{align-self:end}

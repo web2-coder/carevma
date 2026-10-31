@@ -9,7 +9,7 @@ import api, { messageFrom } from '../api';
 import { DEFAULT_TIMEZONE, formatDate, formatDateTime, formatTime as formatTimeInZone, todayInZone, weekdayFromDateOnly } from '../timezone';
 import { useAuth } from '../context/AuthContext';
 import {
-  PageHeader, Card, MetricCard, Button, Input, Select, SearchableSelect, Textarea, SearchBox, Badge, statusTone,
+  PageHeader, Card, MetricCard, Button, Input, Select, SearchableSelect, SearchableMultiSelect, Textarea, SearchBox, Badge, statusTone,
   EmptyState, Loading, Notice, Modal, Table, Pagination, money, mins, dateTime, AvatarMedia
 } from '../components/ui';
 import TimezonePicker from '../components/TimezonePicker';
@@ -547,7 +547,7 @@ export function InvoicesPage(){
   const [createForm,setCreateForm]=useState(()=>({client_id:'',...latestCompletedBillingCycle()}));
   const [editForm,setEditForm]=useState(null);
   const [filters,setFilters]=useState({month:'',year:'',date_from:'',date_to:'',client_id:'',invoice_number:'',status:''});
-  const [bulkMonth,setBulkMonth]=useState(''); const [bulkClients,setBulkClients]=useState([]); const [bulkClientSearch,setBulkClientSearch]=useState('');
+  const [bulkMonth,setBulkMonth]=useState(''); const [bulkClients,setBulkClients]=useState([]);
   const n=useNotice();
 
   const load=async(nextPage=page)=>{
@@ -688,7 +688,7 @@ export function InvoicesPage(){
       actions={<Button icon={Plus} onClick={()=>{setCreateForm({client_id:'',...latestCompletedBillingCycle()});setCreateOpen(true)}}>Generate invoice</Button>}
     />
     <NoticeBar notice={n.notice} clear={n.clear}/>
-    <Card title="Bulk invoice actions" subtitle="Choose an invoice month and one or more Doctors / Clients. Existing exact-cycle invoices are safely skipped by the server."><div className="form-grid invoice-bulk-grid"><Input label="Invoice month" type="month" value={bulkMonth} onChange={e=>setBulkMonth(e.target.value)}/><div className="field"><span className="field-label">Doctors / Clients</span><Input label="Search Doctors / Clients" value={bulkClientSearch} onChange={e=>setBulkClientSearch(e.target.value)} placeholder="Search doctor name, business or email"/><div className="bulk-client-picker">{(options.clients||[]).filter(c=>!bulkClientSearch.trim()||`${c.name||''} ${c.business_name||''} ${c.email||''}`.toLowerCase().includes(bulkClientSearch.trim().toLowerCase())).map(c=><label key={c.id}><input type="checkbox" checked={bulkClients.includes(String(c.id))} onChange={e=>setBulkClients(current=>e.target.checked?[...current,String(c.id)]:current.filter(id=>id!==String(c.id)))}/><span>{c.name||c.business_name||c.email}</span></label>)}</div></div><div className="bulk-invoice-actions"><Button loading={busy} onClick={bulkGenerate}>Generate selected</Button><Button loading={busy} variant="secondary" icon={Send} onClick={bulkEmail}>Email selected PDFs</Button></div></div></Card>
+    <Card title="Bulk invoice actions" subtitle="Choose an invoice month and one or more Doctors / Clients. Existing exact-cycle invoices are safely skipped by the server."><div className="form-grid invoice-bulk-grid"><Input label="Invoice month" type="month" value={bulkMonth} onChange={e=>setBulkMonth(e.target.value)}/><SearchableMultiSelect label="Doctors / Clients" values={bulkClients} onChange={setBulkClients} placeholder="Select Doctors / Clients" searchPlaceholder="Search Doctors / Clients…" options={(options.clients||[]).map(x=>({value:String(x.id),label:x.name||x.business_name||x.email,meta:x.timezone||'',searchText:`${x.business_name||''} ${x.email||''}`}))}/><div className="bulk-invoice-actions"><Button loading={busy} onClick={bulkGenerate}>Generate selected</Button><Button loading={busy} variant="secondary" icon={Send} onClick={bulkEmail}>Email selected PDFs</Button></div></div></Card>
     <Card title="Invoice filters" subtitle="Filter invoices by month, year, custom date range, Doctor / Client, invoice number or status. Filters can be combined.">
       <div className="form-grid invoice-filter-grid">
         <Input label="Month" type="month" value={filters.month} onChange={e=>setFilters({...filters,month:e.target.value})}/>
