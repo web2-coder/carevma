@@ -81,6 +81,7 @@ export function ManagementDashboard(){
   const max=Math.max(...(data?.trend||[]).map(x=>x.sessions),1);
   const birthdays=Array.isArray(data?.birthdays_today)?data.birthdays_today:[];
   const currentlyWorking=Array.isArray(data?.currently_working)?data.currently_working:[];
+  const timezoneClocks=Array.isArray(data?.timezone_clocks)?data.timezone_clocks:[];
   const billing=data?.auto_invoice_cycle||{};
   const billingGenerated=billing.status==='generated';
   const billingStatus=billingGenerated?'Generated':billing.status==='scheduled'?'Scheduled':'No billable invoices';
@@ -100,6 +101,19 @@ export function ManagementDashboard(){
       <MetricCard label="Pending overtime" value={m.pending_overtime} icon={TimerReset} hint="Needs review"/>
       {user.role!=='hr'&&<MetricCard label="Invoices" value={m.invoices} icon={ReceiptText} hint="Billing records"/>}
     </div>
+
+    {user.role==='admin'&&<Card className="admin-timezone-clocks-card" title="Team time zone clocks" subtitle="Live clocks for every timezone assigned to a VA or Doctor">
+      {timezoneClocks.length?<div className="admin-timezone-clock-grid">{timezoneClocks.map(item=>{
+        const timezone=item.timezone||'UTC';
+        const place=String(timezone).split('/').pop().replaceAll('_',' ');
+        const vaCount=Number(item.va_count||0);
+        const doctorCount=Number(item.doctor_count||0);
+        return <div className="admin-timezone-clock-card" key={timezone}>
+          <div className="admin-timezone-clock-heading"><div><strong>{place}</strong><span>{timezone}</span></div><small>{vaCount} VA{vaCount===1?'':'s'} · {doctorCount} Doctor{doctorCount===1?'':'s'}</small></div>
+          <AssignedTimezoneClock serverNow={data?.server_now} timezone={timezone}/>
+        </div>;
+      })}</div>:<EmptyState title="No assigned timezones" description="Assigned VA and Doctor timezones will appear here automatically."/>}
+    </Card>}
 
     <div className="dashboard-notice-grid">
       <Card className={`billing-cycle-card ${billingGenerated?'is-generated':''}`} title="Automatic monthly invoices" subtitle="26th → next month 25th · drafts generate after the cycle closes">
@@ -131,7 +145,7 @@ export function ManagementDashboard(){
             const doctorName=(Array.isArray(row.doctor_names)&&row.doctor_names.length?row.doctor_names.join(', '):(doctor.name||doctor.business_name||'Doctor'));
             return <div className="activity-row" key={row.id}>
               <div className="avatar">{employee.profile_picture?<img src={employee.profile_picture} alt=""/>:<>{employee.first_name?.[0]}{employee.last_name?.[0]}</>}</div>
-              <div className="activity-main-copy"><strong>{vaName}</strong><span>{doctorName} · Live session</span><div className="dashboard-assigned-clocks">{(row.doctor_segments||[]).map(segment=><div key={segment.id||segment.attendance_id||`${row.id}-${segment.timezone}`}><AssignedTimezoneClock serverNow={data?.server_now} timezone={segment.timezone} compact/><ShiftEndStatus end={segment.shift_ends_at} serverNow={data?.server_now} timeZone={segment.timezone} compact/></div>)}</div></div>
+              <div className="activity-main-copy"><strong>{vaName}</strong><span>{doctorName} · Live session</span><div className="dashboard-shift-end-list">{(row.doctor_segments||[]).map(segment=><ShiftEndStatus key={segment.id||segment.attendance_id||`${row.id}-${segment.timezone}`} end={segment.shift_ends_at} serverNow={data?.server_now} timeZone={segment.timezone} compact/>)}</div></div>
               <Badge tone="success">Working</Badge>
             </div>;
           })):<EmptyState/>}
@@ -160,14 +174,14 @@ export function ManagementDashboard(){
     <Card className={`birthday-dashboard-card ${birthdays.length?'has-birthdays':''}`} title="Today’s birthdays" subtitle="Based on each VA’s assigned timezone">
       {birthdays.length?<div className="birthday-dashboard-list">{birthdays.map(person=><div className="birthday-dashboard-person" key={person.id}>
         <div className="birthday-dashboard-avatar">{person.profile_picture?<img src={person.profile_picture} alt=""/>:<span>{String(person.name||'VA').split(' ').map(x=>x[0]).slice(0,2).join('').toUpperCase()}</span>}</div>
-        <div className="activity-main-copy"><strong>🎂 {person.name}</strong><AssignedTimezoneClock serverNow={data?.server_now} timezone={person.timezone} compact/></div>
+        <div className="activity-main-copy"><strong>🎂 {person.name}</strong></div>
         <Badge tone="warning">Birthday today</Badge>
       </div>)}</div>:<div className="birthday-dashboard-empty"><strong>No birthdays today</strong><span>Tomorrow reminders are sent to Admin one day before a VA birthday.</span></div>}
     </Card>
 
     <div className="dashboard-grid">
       <Card title="Attendance activity" subtitle="Sessions recorded this week"><div className="mini-chart">{(data?.trend||[]).map(x=><div className="chart-col" key={x.date}><div className="chart-value">{x.sessions}</div><div className="chart-bar"><span style={{height:`${Math.max(10,x.sessions/max*100)}%`}}/></div><div className="chart-label">{x.label}</div></div>)}</div></Card>
-      <Card title="Recent attendance" subtitle="Latest workforce sessions"><div className="activity-list">{(data?.recent_attendance||[]).length?(data.recent_attendance.slice(0,5).map(a=><div className="activity-row" key={a.id}><div className="avatar">{a.employee?.profile_picture?<img src={a.employee.profile_picture} alt=""/>:<>{a.employee?.first_name?.[0]}{a.employee?.last_name?.[0]}</>}</div><div className="activity-main-copy"><strong>{a.employee?`${a.employee.first_name} ${a.employee.last_name}`:'Unknown employee'}</strong><span>{a.date} · {a.clock_out?'Completed':'Live session'}</span><AssignedTimezoneClock serverNow={data?.server_now} timezone={a.client_timezone||a.client?.timezone||'UTC'} compact/></div><Badge tone={a.clock_out?'success':'warning'}>{a.clock_out?'Done':'Live'}</Badge></div>)):<EmptyState/>}</div></Card>
+      <Card title="Recent attendance" subtitle="Latest workforce sessions"><div className="activity-list">{(data?.recent_attendance||[]).length?(data.recent_attendance.slice(0,5).map(a=>{const zone=a.client_timezone||a.client?.timezone||'UTC';return <div className="activity-row" key={a.id}><div className="avatar">{a.employee?.profile_picture?<img src={a.employee.profile_picture} alt=""/>:<>{a.employee?.first_name?.[0]}{a.employee?.last_name?.[0]}</>}</div><div className="activity-main-copy"><strong>{a.employee?`${a.employee.first_name} ${a.employee.last_name}`:'Unknown employee'}</strong><span>{tzDate(a.client_local_date||a.date,zone)} · {a.clock_out?'Completed':'Live session'}</span></div><Badge tone={a.clock_out?'success':'warning'}>{a.clock_out?'Done':'Live'}</Badge></div>})):<EmptyState/>}</div></Card>
     </div>
   </>;
 }

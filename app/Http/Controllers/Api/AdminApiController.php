@@ -199,6 +199,34 @@ class AdminApiController extends Controller
             ? Attendance::where('overtime_status', 'pending')->count()
             : Attendance::where('overtime', '>', 0)->count();
 
+        $employeeTimezoneCounts = Employee::query()
+            ->whereNotNull('timezone')
+            ->where('timezone', '!=', '')
+            ->selectRaw('timezone, COUNT(*) as total')
+            ->groupBy('timezone')
+            ->pluck('total', 'timezone');
+
+        $clientTimezoneCounts = Client::query()
+            ->whereNotNull('timezone')
+            ->where('timezone', '!=', '')
+            ->selectRaw('timezone, COUNT(*) as total')
+            ->groupBy('timezone')
+            ->pluck('total', 'timezone');
+
+        $timezoneClocks = $employeeTimezoneCounts->keys()
+            ->merge($clientTimezoneCounts->keys())
+            ->map(fn ($timezone) => $this->validTimezoneValue((string) $timezone, $this->timezones->businessTimezone()))
+            ->unique()
+            ->sort()
+            ->values()
+            ->map(function (string $timezone) use ($employeeTimezoneCounts, $clientTimezoneCounts) {
+                return [
+                    'timezone' => $timezone,
+                    'va_count' => (int) ($employeeTimezoneCounts[$timezone] ?? 0),
+                    'doctor_count' => (int) ($clientTimezoneCounts[$timezone] ?? 0),
+                ];
+            });
+
         $birthdaysToday = Employee::query()
             ->whereNotNull('date_of_birth')
             ->get(['id', 'first_name', 'last_name', 'date_of_birth', 'timezone', 'profile_picture'])
@@ -282,6 +310,7 @@ class AdminApiController extends Controller
                 return $row;
             }),
             'birthdays_today' => $birthdaysToday,
+            'timezone_clocks' => $timezoneClocks,
             'currently_working' => $currentlyWorking,
             'auto_invoice_cycle' => [
                 'period_start' => $cycleStart,

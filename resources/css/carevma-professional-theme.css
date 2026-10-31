@@ -3097,3 +3097,76 @@ html, body, button, input, select, textarea, .app-shell {
 
 /* 2026-10-30: live shift end visibility */
 .shift-end-status{display:flex;flex-direction:column;gap:3px;min-width:0;margin-top:5px}.shift-end-status strong{font-size:13px;line-height:1.25;color:var(--ink,#0b2344);white-space:normal}.shift-end-status small{font-size:11px;line-height:1.35;color:var(--muted,#6b7d96);white-space:normal}.shift-end-status.compact{margin-top:4px}.shift-end-status.compact strong{font-size:11px}.shift-end-status.compact small{font-size:10px}.dashboard-assigned-clocks>div{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+
+
+/* 2026-10-30: Admin dashboard central timezone clock section */
+.admin-timezone-clocks-card{
+  margin-bottom:18px;
+}
+.admin-timezone-clock-grid{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:12px;
+}
+.admin-timezone-clock-card{
+  min-width:0;
+  padding:14px;
+  border:1px solid #dfe8f2;
+  border-radius:14px;
+  background:linear-gradient(145deg,#ffffff,#f8fbff);
+  box-shadow:0 4px 12px rgba(15,47,75,.035);
+}
+.admin-timezone-clock-heading{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom:10px;
+}
+.admin-timezone-clock-heading>div{
+  display:flex;
+  flex-direction:column;
+  min-width:0;
+}
+.admin-timezone-clock-heading strong{
+  font:800 13px Poppins,sans-serif;
+  color:var(--cv-navy-950,#0a1730);
+}
+.admin-timezone-clock-heading span{
+  margin-top:2px;
+  font-size:9px;
+  color:var(--cv-slate-600,#61748d);
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.admin-timezone-clock-heading small{
+  font-size:9px;
+  color:var(--cv-slate-600,#61748d);
+  text-align:right;
+  white-space:nowrap;
+}
+.admin-timezone-clock-card .assigned-timezone-clock{
+  width:100%;
+  padding:11px 12px;
+  border-radius:12px;
+}
+.admin-timezone-clock-card .assigned-timezone-clock strong{
+  font-size:18px;
+}
+.admin-timezone-clock-card .assigned-timezone-clock small{
+  display:none;
+}
+.dashboard-shift-end-list{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px 12px;
+  margin-top:5px;
+}
+@media(max-width:1200px){
+  .admin-timezone-clock-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:640px){
+  .admin-timezone-clock-grid{grid-template-columns:1fr}
+  .admin-timezone-clock-heading{align-items:flex-start}
+}
