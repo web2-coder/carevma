@@ -314,7 +314,7 @@
                                 $attendanceDate = $clockInLocal ? $clockInLocal->format('d-M-Y') : $displayDate->format('d-M-Y');
                                 $clockIn = $clockInLocal ? $clockInLocal->format('h:i A') : '-';
                                 $clockOut = $clockOutLocal ? $clockOutLocal->format('h:i A') : '-';
-                                $breakMinutes = (int) floor(max(0, (int) ($attendance->break_taken ?? 0)) / 60);
+                                $actualBreakMinutes = (int) floor(max(0, (int) ($attendance->break_taken ?? 0)) / 60);
                                 $regularMinutes = max(0, (int) ($attendance->total_minutes ?? 0));
                                 $overtimeMinutes = max(0, (int) ($attendance->overtime ?? 0));
                                 $approvedMinutes = max(0, (int) ($attendance->approved_overtime_minutes ?? 0));
@@ -351,6 +351,12 @@
                                     [$breakHours, $breakMins] = array_pad(explode('.', $breakRaw, 2), 2, '00');
                                     $assignedBreakMinutes = ((int) $breakHours * 60) + min(59, max(0, (int) $breakMins));
                                 }
+
+                                // Break column follows the same billing rule as payable time:
+                                // show/deduct at least the assigned allowance; if the VA exceeds it,
+                                // show/deduct the longer actual break.
+                                // Examples: 30m allowed + 10m taken => 30m; 30m allowed + 37m taken => 37m.
+                                $breakMinutes = max($assignedBreakMinutes, $actualBreakMinutes);
 
                                 $scheduledTotalMinutes = max(0, $scheduledGrossMinutes - $assignedBreakMinutes);
 

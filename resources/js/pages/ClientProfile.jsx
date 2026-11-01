@@ -108,6 +108,13 @@ function hoursText(value) {
   return `${durationHM(value)} H.MM`;
 }
 
+function billedBreakMinutes(row) {
+  const actual = Math.floor(Math.max(0, Number(row?.break_taken || 0)) / 60);
+  const parts = String(row?.break_limit || '0:00').split(':').map(Number);
+  const allowed = Math.max(0, (parts[0] || 0) * 60 + (parts[1] || 0));
+  return Math.max(allowed, actual);
+}
+
 function scheduleHours(startTime, endTime) {
   const toMinutes = value => {
     const [hours = '0', minutes = '0'] = String(value || '00:00').split(':');
@@ -919,7 +926,7 @@ export default function ClientProfilePage() {
     { key: 'clock_in', label: 'Clock in', render: row => <DualTime value={row.clock_in} doctorTz={row.client_timezone || client?.timezone || row.client?.timezone || 'UTC'} /> },
     { key: 'clock_out', label: 'Clock out', render: row => <DualTime value={row.clock_out} doctorTz={row.client_timezone || client?.timezone || row.client?.timezone || 'UTC'} live={!row.clock_out} /> },
     { key: 'worked', label: 'Worked', render: row => mins(row.total_minutes) },
-    { key: 'break', label: 'Break', render: row => `${Math.floor(Number(row.break_taken || 0) / 60)} min` },
+    { key: 'break', label: 'Break', render: row => `${billedBreakMinutes(row)} min` },
     { key: 'late', label: 'Late', render: row => formatDurationHM(row.late_minutes) },
     { key: 'overtime', label: 'Overtime', render: row => `${Math.round(Number(row.overtime || 0))} min` },
   ];
