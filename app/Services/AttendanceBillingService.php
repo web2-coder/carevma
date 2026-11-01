@@ -133,7 +133,7 @@ class AttendanceBillingService
 
         if (Schema::hasColumn('attendances', 'overtime_status')) {
             // Recalculation must not silently erase an HR/Admin decision.
-            // New overtime starts as review_required; approved minutes can never exceed actual OT.
+            // New overtime is queued immediately for HR/Admin review; approved minutes can never exceed actual OT.
             if ($overtime <= 0) {
                 $attendance->overtime_status = 'none';
                 $attendance->approved_overtime_minutes = 0;
@@ -141,7 +141,7 @@ class AttendanceBillingService
                 $attendance->overtime_approved_by = null;
                 $attendance->overtime_approved_at = null;
             } elseif (!in_array($attendance->overtime_status, ['pending', 'approved', 'rejected'], true)) {
-                $attendance->overtime_status = 'review_required';
+                $attendance->overtime_status = 'pending';
                 $attendance->approved_overtime_minutes = 0;
                 $attendance->overtime_amount = null;
             } elseif ($attendance->overtime_status === 'approved') {

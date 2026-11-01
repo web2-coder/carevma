@@ -196,7 +196,7 @@ class AdminApiController extends Controller
             })->values();
         }
         $pendingOvertime = Schema::hasColumn('attendances', 'overtime_status')
-            ? Attendance::where('overtime_status', 'pending')->count()
+            ? Attendance::whereIn('overtime_status', ['pending', 'review_required'])->count()
             : Attendance::where('overtime', '>', 0)->count();
 
         $employeeTimezoneCounts = Employee::query()
@@ -1034,7 +1034,11 @@ class AdminApiController extends Controller
 
     public function attendance(Request $request)
     {
-        $query = Attendance::with(['employee:id,first_name,last_name,employee_code,timezone,profile_picture', 'breaks']);
+        $query = Attendance::with([
+            'employee:id,first_name,last_name,employee_code,timezone,profile_picture',
+            'breaks',
+            'schedule:id,client_id,employee_id,start_time,end_time,timezone,break_allowed_hours',
+        ]);
         if (Schema::hasColumn('attendances', 'client_id')) $query->with('client:id,name,business_name,timezone');
         if ($request->filled('employee_id')) $query->where('employee_id', $request->integer('employee_id'));
         $selectedClientId = $request->filled('client_id') && Schema::hasColumn('attendances', 'client_id')
@@ -1067,6 +1071,44 @@ class AdminApiController extends Controller
             $row->setAttribute('clock_out_client', $this->timezones->isoInZone($row->clock_out, $clientZone));
             $row->setAttribute('clock_in_employee', $this->timezones->isoInZone($row->clock_in, $employeeZone));
             $row->setAttribute('clock_out_employee', $this->timezones->isoInZone($row->clock_out, $employeeZone));
+
+            // Keep every attendance surface aligned with the billing rule:
+            // effective break = max(assigned allowance, actual break taken).
+            $actualBreakMinutes = (int) floor(max(0, (int) ($row->break_taken ?? 0)) / 60);
+            $allowedBreakMinutes = 0;
+            if (!empty($row->break_limit)) {
+                $parts = array_map('intval', explode(':', (string) $row->break_limit));
+                $allowedBreakMinutes = max(0, (($parts[0] ?? 0) * 60) + ($parts[1] ?? 0));
+            } elseif ($row->schedule) {
+                $raw = number_format(max(0, (float) ($row->schedule->break_allowed_hours ?? 0)), 2, '.', '');
+                [$hours, $minutes] = array_pad(explode('.', $raw, 2), 2, '00');
+                $allowedBreakMinutes = ((int) $hours * 60) + min(59, max(0, (int) $minutes));
+            }
+            $effectiveBreakMinutes = max($allowedBreakMinutes, $actualBreakMinutes);
+            $regularMinutes = max(0, (int) ($row->total_minutes ?? 0));
+            $approvedOvertime = ($row->overtime_status ?? null) === 'approved'
+                ? min(max(0, (int) ($row->approved_overtime_minutes ?? 0)), max(0, (int) ($row->overtime ?? 0)))
+                : 0;
+
+            $row->setAttribute('allowed_break_minutes', $allowedBreakMinutes);
+            $row->setAttribute('actual_break_minutes', $actualBreakMinutes);
+            $row->setAttribute('effective_break_minutes', $effectiveBreakMinutes);
+            $row->setAttribute('regular_minutes', $regularMinutes);
+            $row->setAttribute('payable_minutes', $regularMinutes + $approvedOvertime);
+
+            // Fallback shift window for older rows that pre-date shift snapshots.
+            if ((!$row->shift_start_snapshot || !$row->shift_end_snapshot) && $row->schedule) {
+                $date = $row->date?->toDateString() ?: ($row->clock_in?->copy()->setTimezone($clientZone)->toDateString());
+                if ($date) {
+                    $scheduleZone = $row->schedule->timezone ?: $clientZone;
+                    $start = Carbon::parse($date.' '.$row->schedule->start_time, $scheduleZone);
+                    $end = Carbon::parse($date.' '.$row->schedule->end_time, $scheduleZone);
+                    if ($end->lte($start)) $end->addDay();
+                    $row->setAttribute('scheduled_shift_start', $start->copy()->utc()->toIso8601ZuluString());
+                    $row->setAttribute('scheduled_shift_end', $end->copy()->utc()->toIso8601ZuluString());
+                }
+            }
+
             return $row;
         });
         return response()->json($attendance);
@@ -1220,7 +1262,7 @@ class AdminApiController extends Controller
     public function overtime(Request $request)
     {
         $query = Attendance::with('employee:id,first_name,last_name,employee_code')->where('overtime', '>', 0);
-        if (Schema::hasColumn('attendances', 'overtime_status')) $query->whereIn('overtime_status', ['pending', 'approved', 'rejected']);
+        if (Schema::hasColumn('attendances', 'overtime_status')) $query->whereIn('overtime_status', ['review_required', 'pending', 'approved', 'rejected']);
         if ($search = trim((string) $request->query('search'))) {
             $query->where(function ($q) use ($search) {
                 $q->where('date', 'like', "%{$search}%");
