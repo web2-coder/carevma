@@ -265,7 +265,7 @@ function scheduleRange(start,end,timeZone){
 
 export function EmployeeDashboard(){
   const [data,setData]=useState(null),[busy,setBusy]=useState(false),[checkInTarget,setCheckInTarget]=useState(null),[checkInComment,setCheckInComment]=useState('');const n=useNotice();
-  const load=async()=>{setBusy(true);try{const {data:response}=await api.get('/employee/dashboard');setData({...response,today_schedules:Array.isArray(response.today_schedules)?response.today_schedules:[]})}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+  const load=async({silent=false}={})=>{if(!silent)setBusy(true);try{const {data:response}=await api.get('/employee/dashboard');setData({...response,today_schedules:Array.isArray(response.today_schedules)?response.today_schedules:[]})}catch(e){if(!silent)n.error(messageFrom(e))}finally{if(!silent)setBusy(false)}};
   useEffect(()=>{load();const timer=setInterval(load,30000);const onRefresh=()=>load();const onVisibility=()=>{if(document.visibilityState==='visible')load()};window.addEventListener('focus',onRefresh);window.addEventListener('carevma:timezone-updated',onRefresh);document.addEventListener('visibilitychange',onVisibility);return()=>{clearInterval(timer);window.removeEventListener('focus',onRefresh);window.removeEventListener('carevma:timezone-updated',onRefresh);document.removeEventListener('visibilitychange',onVisibility)}},[]);
   const action=async(fn,payload={})=>{setBusy(true);try{const {data:r}=await api.post(fn,payload);n.success(r.message);await load();return true}catch(e){n.error(messageFrom(e));return false}finally{setBusy(false)}};
   const submitCheckIn=async()=>{if(!checkInTarget)return;const ok=await action('/employee/clock-in',{schedule_id:checkInTarget.id,comment:checkInComment.trim()||null});if(ok){setCheckInTarget(null);setCheckInComment('')}};
@@ -319,7 +319,19 @@ export function EmployeeDashboard(){
 export function EmployeeSchedule(){
   const [rows,setRows]=useState(null),[requests,setRequests]=useState([]),[filters,setFilters]=useState({search:'',day:'',status:'',timezone:''}),[requestOpen,setRequestOpen]=useState(false),[selected,setSelected]=useState(null),[busy,setBusy]=useState(false),[form,setForm]=useState({requested_date:'',requested_start_time:'',requested_end_time:'',reason:''});const n=useNotice();
   const load=async()=>{setBusy(true);try{const [scheduleResponse,requestResponse]=await Promise.all([api.get('/employee/schedules'),api.get('/employee/schedule-change-requests')]);setRows(Array.isArray(scheduleResponse.data)?scheduleResponse.data:[]);setRequests(Array.isArray(requestResponse.data)?requestResponse.data:[])}catch(e){n.error(messageFrom(e));setRows([])}finally{setBusy(false)}};
-  useEffect(()=>{load();const onTimezone=()=>load();window.addEventListener('carevma:timezone-updated',onTimezone);return()=>window.removeEventListener('carevma:timezone-updated',onTimezone)},[]);
+  useEffect(()=>{
+    load();
+    const onTimezone=()=>load();
+    // Keep check-in eligibility in sync with the Doctor-local 15-minute window.
+    // Without this poll, a VA who opened the dashboard before the window had to
+    // reload the page manually before the Check in action appeared.
+    const shiftWindowPoll=window.setInterval(()=>load({silent:true}),15000);
+    window.addEventListener('carevma:timezone-updated',onTimezone);
+    return()=>{
+      window.clearInterval(shiftWindowPoll);
+      window.removeEventListener('carevma:timezone-updated',onTimezone);
+    };
+  },[]);
   if(!rows)return <Loading/>;
   const timezoneOptions=[...new Set(rows.map(r=>r.client_timezone||r.client?.timezone).filter(Boolean))].sort();const search=filters.search.trim().toLowerCase();
   const filteredRows=rows.filter(row=>{const enabled=enabledValue(row.enabled);const matchesSearch=!search||[row.weekday,row.client?.name,row.client?.business_name,row.client_timezone,row.start_time,row.end_time].some(value=>String(value||'').toLowerCase().includes(search));const matchesDay=!filters.day||String(row.weekday||'')===filters.day;const matchesStatus=!filters.status||(filters.status==='enabled'?enabled:!enabled);const matchesTimezone=!filters.timezone||String(row.client_timezone||row.client?.timezone||'')===filters.timezone;return matchesSearch&&matchesDay&&matchesStatus&&matchesTimezone});
