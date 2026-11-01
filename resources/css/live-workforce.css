@@ -452,78 +452,36 @@
   .live-user-doctor-stack{grid-template-columns:1fr!important;width:100%}
 }
 
-/* 2026-10-31 - compact Live Workforce relationship cards */
-.live-user-card-profile-row{
-  align-items:center!important;
+/* 2026-10-31 Admin Live Workforce compact cards */
+/* Keep compact cards summary-only: detailed clocks/timers/end countdowns live in the expanded area. */
+.live-user-card-grid{
+  grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  gap:14px!important;
 }
-.live-user-profile-block{
-  justify-content:center;
+.live-user-card-profile-row{
+  grid-template-columns:minmax(92px,.8fr) 44px minmax(110px,1.2fr)!important;
+  align-items:center!important;
+  border-bottom:0!important;
+  padding-bottom:4px!important;
 }
 .live-user-doctor-stack{
-  display:flex!important;
-  flex-wrap:wrap;
+  grid-template-columns:repeat(auto-fit,minmax(92px,1fr))!important;
   align-items:center!important;
-  justify-content:center;
-  align-self:center;
-  gap:12px!important;
+  gap:8px!important;
 }
-.live-user-doctor-stack .live-user-profile-block.live-doctor-summary{
-  flex:0 1 118px;
-  max-width:132px;
-  padding:6px!important;
-  border:0!important;
-  background:transparent!important;
+.live-user-doctor-stack .live-user-profile-block{
+  padding:8px!important;
 }
-.live-user-doctor-stack .live-user-profile-photo,
-.live-doctor-summary .live-user-profile-photo{
-  width:64px!important;
-  height:64px!important;
+.live-user-doctor-stack .live-user-profile-photo{
+  width:52px!important;
+  height:52px!important;
 }
-.live-doctor-summary>span{margin-top:6px}
-.live-user-card-status .advanced-status-badge.is-live{
-  position:relative;
-  overflow:visible;
-  background:#ecfdf5;
-  color:#15803d;
-  border-color:#bbf7d0;
+@media(max-width:1180px){
+  .live-user-card-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
 }
-.live-user-card-status .advanced-status-badge.is-live i{
-  position:relative;
-  width:9px;
-  height:9px;
-  background:#22c55e;
-  box-shadow:none;
+@media(max-width:760px){
+  .live-user-card-grid{grid-template-columns:1fr!important}
 }
-.live-user-card-status .advanced-status-badge.is-live i::before,
-.live-user-card-status .advanced-status-badge.is-live i::after{
-  content:"";
-  position:absolute;
-  inset:50% auto auto 50%;
-  width:100%;
-  height:100%;
-  border:1.5px solid rgba(34,197,94,.55);
-  border-radius:50%;
-  transform:translate(-50%,-50%) scale(1);
-  animation:carevma-live-wave 1.8s ease-out infinite;
-  pointer-events:none;
-}
-.live-user-card-status .advanced-status-badge.is-live i::after{animation-delay:.7s}
-@keyframes carevma-live-wave{
-  0%{opacity:.85;transform:translate(-50%,-50%) scale(1)}
-  75%,100%{opacity:0;transform:translate(-50%,-50%) scale(3.2)}
-}
-.live-expanded-doctor-detail .dual-timezone-clock{
-  margin:4px 0 6px;
-}
-.live-expanded-timer-row{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:8px;
-}
-.live-expanded-timer-row .live-time-cell{min-width:0}
-.live-expanded-timer-row .live-duration-value{font-size:14px}
 @media(max-width:620px){
-  .live-user-doctor-stack{width:100%;justify-content:center}
-  .live-user-doctor-stack .live-user-profile-block.live-doctor-summary{flex:0 1 44%}
+  .live-user-card-profile-row{grid-template-columns:1fr!important}
 }
