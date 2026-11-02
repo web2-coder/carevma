@@ -10,6 +10,7 @@ import api from '../api';
 import { subscribeToCareVmaNotifications } from '../pusher';
 import BrandLogo from './BrandLogo';
 import LiveNavbarClock from './LiveNavbarClock';
+import TopbarSearch from './TopbarSearch';
 import BirthdayPopup from './BirthdayPopup';
 import { AvatarMedia } from './ui';
 import { formatDate } from '../timezone';
@@ -142,6 +143,7 @@ export default function AppShell() {
   const location = useLocation();
   const employeeProfileIncomplete = profileIncomplete(user);
   const nav = useMemo(() => navFor(user), [user]);
+  const pages = useMemo(() => nav.flatMap(item => item.children ? item.children.map(child => ({ label: child.label, to: child.to })) : (item.to ? [{ label: item.label, to: item.to }] : [])), [nav]);
 
   const notificationPath = user?.role === 'employee' ? '/employee/notifications' : user?.role === 'client' ? '/doctor/notifications' : user?.role === 'hr' ? '/hr/notifications' : '/admin/notifications';
   const loadNotificationDropdown = async () => {
@@ -348,6 +350,7 @@ export default function AppShell() {
           <button className="icon-btn desktop-only" onClick={() => setCollapsed(v => !v)} aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}>{collapsed ? <PanelLeftOpen size={20}/> : <PanelLeftClose size={20}/>}</button>
           <div className="topbar-context"><span>CareVMA</span><strong>{roleLabel}</strong></div>
         </div>
+        {!employeeProfileIncomplete && <TopbarSearch pages={pages}/>}
         <div className="topbar-right">
           <LiveNavbarClock user={user}/>
           {!employeeProfileIncomplete && <div className="notification-menu-wrap" ref={notificationMenuRef}>

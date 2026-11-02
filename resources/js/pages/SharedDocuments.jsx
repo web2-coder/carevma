@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { FileText } from 'lucide-react';
 import api, { messageFrom } from '../api';
 import { useAuth } from '../context/AuthContext';
-import { Card, Input, Notice, PageHeader, Pagination, Table, dateTime } from '../components/ui';
+import { Card, Input, Notice, PageHeader, Pagination, Table, dateTime, queryParam } from '../components/ui';
 
 function fileSize(bytes) {
   const value = Math.max(0, Number(bytes) || 0);
@@ -16,7 +16,7 @@ export default function SharedDocumentsPage() {
   const [rows, setRows] = useState([]);
   const [meta, setMeta] = useState(null);
   const [page, setPage] = useState(1);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(queryParam('search'));
   const [notice, setNotice] = useState(null);
 
   const load = async (nextPage = page, nextSearch = search) => {

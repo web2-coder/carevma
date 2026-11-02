@@ -183,6 +183,8 @@ export function Textarea({ label, error, ...props }) {
   return <label className="field"><span>{label}</span><textarea {...props}/>{error && <em>{error}</em>}</label>;
 }
 
+export const queryParam = key => { try { return new URLSearchParams(window.location.search).get(key) || ''; } catch { return ''; } };
+
 export function SearchBox({ value, onChange, placeholder = 'Search…' }) {
   return <div className="search-box"><Search size={17}/><input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}/>{value && <button onClick={() => onChange('')}><X size={15}/></button>}</div>;
 }

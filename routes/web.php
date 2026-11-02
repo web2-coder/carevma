@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\DoctorApiController;
 use App\Http\Controllers\Api\EmployeeApiController;
 use App\Http\Controllers\Api\InvoicePdfController;
 use App\Http\Controllers\Api\NotificationApiController;
+use App\Http\Controllers\Api\SearchApiController;
 use App\Http\Controllers\Api\NotebookApiController;
 use App\Http\Controllers\Auth\OrgGoogleController;
 use App\Http\Controllers\Admin\Client\ClientAuthController;
@@ -49,6 +50,7 @@ Route::prefix('api')->group(function () {
             Route::get('/notifications/unread-count', [NotificationApiController::class, 'unreadCount']);
             Route::post('/notifications/read-all', [NotificationApiController::class, 'readAll']);
             Route::post('/notifications/{notification}/read', [NotificationApiController::class, 'read']);
+            Route::get('/search', SearchApiController::class);
         });
 
         Route::middleware('role:admin,hr')->prefix('management')->group(function () {

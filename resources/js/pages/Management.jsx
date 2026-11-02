@@ -10,7 +10,7 @@ import { DEFAULT_TIMEZONE, formatDate, formatDateTime, formatTime as formatTimeI
 import { useAuth } from '../context/AuthContext';
 import {
   PageHeader, Card, MetricCard, Button, Input, Select, MaritalStatusSelect, SearchableSelect, SearchableMultiSelect, Textarea, SearchBox, Badge, statusTone,
-  EmptyState, Loading, useNotice, Modal, Table, Pagination, money, mins, durationHM, dateTime, AvatarMedia
+  EmptyState, Loading, useNotice, Modal, Table, Pagination, money, mins, durationHM, dateTime, AvatarMedia, queryParam
 } from '../components/ui';
 import TimezonePicker from '../components/TimezonePicker';
 import SalaryConverter from '../components/SalaryConverter';
@@ -354,7 +354,7 @@ function EmployeeFormModal({open,onClose,form,setForm,options,busy,onSave}){
 }
 export function EmployeesPage(){
   const {user}=useAuth(); const navigate=useNavigate(); const location=useLocation();
-  const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[search,setSearch]=useState(''),[page,setPage]=useState(1),[busy,setBusy]=useState(false),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[form,setForm]=useState(emptyEmployee),[options,setOptions]=useState({}),[inviteLink,setInviteLink]=useState(null),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'id',dir:'desc'}); const n=useNotice();
+  const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[search,setSearch]=useState(queryParam('search')),[page,setPage]=useState(1),[busy,setBusy]=useState(false),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[form,setForm]=useState(emptyEmployee),[options,setOptions]=useState({}),[inviteLink,setInviteLink]=useState(null),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'id',dir:'desc'}); const n=useNotice();
   const load=async()=>{setBusy(true);try{const [r,o]=await Promise.all([api.get('/management/employees',{params:{search,page,per_page:perPage,sort:sort.key,direction:sort.dir}}),api.get('/management/options')]);setRows(r.data.data);setMeta(r.data);setOptions(o.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
   useEffect(()=>{const t=setTimeout(load,220);return()=>clearTimeout(t)},[search,page,perPage,sort]);
   const openNew=()=>navigate(`${roleBase(user.role)}/employees/new`); const openEdit=row=>{setEdit(row);setForm(employeeForm(row));setModal(true)};
@@ -386,7 +386,7 @@ export function EmployeesPage(){
 const emptyClient={name:'',email:'',password:'',business_name:'',phone_number:'',country:'United States',timezone:'America/New_York',per_hour_charges:'',contract_type_id:'',service_id:'',ring_center:false};
 export function ClientsPage(){
  const navigate=useNavigate();
- const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[search,setSearch]=useState(''),[page,setPage]=useState(1),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[form,setForm]=useState(emptyClient),[options,setOptions]=useState({}),[busy,setBusy]=useState(false),[inviteLink,setInviteLink]=useState(null),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'id',dir:'desc'});const n=useNotice();
+ const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[search,setSearch]=useState(queryParam('search')),[page,setPage]=useState(1),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[form,setForm]=useState(emptyClient),[options,setOptions]=useState({}),[busy,setBusy]=useState(false),[inviteLink,setInviteLink]=useState(null),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'id',dir:'desc'});const n=useNotice();
  const load=async()=>{setBusy(true);try{const [r,o]=await Promise.all([api.get('/admin/clients',{params:{search,page,per_page:perPage,sort:sort.key,direction:sort.dir}}),api.get('/management/options')]);setRows(r.data.data);setMeta(r.data);setOptions(o.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};useEffect(()=>{const t=setTimeout(load,200);return()=>clearTimeout(t)},[search,page,perPage,sort]);
  const open=(r=null)=>{setEdit(r);setForm(r?{...emptyClient,...r,password:'',ring_center:!!r.ring_center}:emptyClient);setModal(true)};const set=(k,v)=>setForm(f=>({...f,[k]:v}));
  const save=async()=>{setBusy(true);try{const {data}=edit?await api.put(`/admin/clients/${edit.id}`,form):await api.post('/admin/clients',form);if(!edit&&data?.activation_url)setInviteLink({url:data.activation_url,label:form.name||form.email});data?.invitation_sent===false?n.error(data?.message||'Client created, but email delivery failed.'):n.success(data?.message||(edit?'Client updated.':'Client created.'));window.dispatchEvent(new CustomEvent('carevma:timezone-updated',{detail:{clientId:data?.client?.id||edit?.id||null,timezone:form.timezone,source:'admin-clients'}}));setModal(false);load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};const remove=async r=>{try{await api.delete(`/admin/clients/${r.id}`);n.success('Client deleted.');load()}catch(e){n.error(messageFrom(e))}};const resendInvite=async r=>{setBusy(true);try{const {data}=await api.post(`/admin/clients/${r.id}/resend-invite`);setInviteLink(data?.activation_url?{url:data.activation_url,label:r.name||r.email}:null);data?.invitation_sent?n.success(data.message):n.error(data.message)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};const copyClientInvite=async()=>{if(!inviteLink?.url)return;try{await navigator.clipboard.writeText(inviteLink.url);n.success('Activation link copied.')}catch{n.error('Could not copy the activation link. Please copy it manually.')}};
@@ -454,7 +454,7 @@ function Time12Field({label,value,onChange}){
 export function SchedulesPage(){
  const {user}=useAuth();
  const emptySchedule={employee_id:'',client_id:'',schedule_date:'',weekday:'Monday',start_time:'09:00',end_time:'17:00',break_allowed_hours:'0.30',timezone:'',enabled:true,repeat:true,per_hour_rate:''};
- const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[page,setPage]=useState(1),[search,setSearch]=useState(''),[perPage,setPerPage]=useState(50),[sort,setSort]=useState({key:'weekday',dir:'asc'}),[options,setOptions]=useState({}),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[busy,setBusy]=useState(false),[form,setForm]=useState(emptySchedule);const n=useNotice();
+ const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[page,setPage]=useState(1),[search,setSearch]=useState(queryParam('search')),[perPage,setPerPage]=useState(50),[sort,setSort]=useState({key:'weekday',dir:'asc'}),[options,setOptions]=useState({}),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[busy,setBusy]=useState(false),[form,setForm]=useState(emptySchedule);const n=useNotice();
 
  const dayFromDate=value=>weekdayFromDateOnly(value);
  const selectedClient=id=>(options.clients||[]).find(client=>String(client.id)===String(id));
@@ -659,14 +659,14 @@ export function EmployeeProfilePage(){
 }
 
 export function AttendancePage(){
- const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[options,setOptions]=useState({}),[filters,setFilters]=useState({employee_id:'',from:'',to:'',search:''}),[page,setPage]=useState(1),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'date',dir:'desc'}),[busy,setBusy]=useState(false);const n=useNotice();
+ const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[options,setOptions]=useState({}),[filters,setFilters]=useState({employee_id:queryParam('employee_id'),from:'',to:'',search:queryParam('search')}),[page,setPage]=useState(1),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'date',dir:'desc'}),[busy,setBusy]=useState(false);const n=useNotice();
  const load=async(nextFilters=filters,nextPage=page)=>{setBusy(true);try{const [r,o]=await Promise.all([api.get('/management/attendance',{params:{...nextFilters,page:nextPage,per_page:perPage,sort:sort.key,direction:sort.dir}}),api.get('/management/options')]);setRows(r.data.data);setMeta(r.data);setOptions(o.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};useEffect(()=>{load(filters,page)},[page,perPage,sort]);const apply=()=>{setPage(1);load(filters,1)};const reset=()=>{const clean={employee_id:'',from:'',to:'',search:''};setFilters(clean);setPage(1);load(clean,1)};
  const columns=[{key:'employee',label:'VA Name',render:r=>`${r.employee?.first_name||''} ${r.employee?.last_name||''}`.trim()||'—'},...attendanceColumns];
  return <><PageHeader eyebrow="Time operations" title="Attendance" description="Attendance dates and times are displayed in the Doctor / Client timezone used for calculation."/><Card><div className="filter-grid"><SearchableSelect label="Employee / VA" value={filters.employee_id} onChange={value=>setFilters({...filters,employee_id:value})} placeholder="All employees" searchPlaceholder="Search VA…" options={[{value:'',label:'All employees'},...(options.employees||[]).map(x=>({value:String(x.id),label:`${x.first_name||''} ${x.last_name||''}`.trim(),meta:x.employee_code||x.timezone||'',searchText:`${x.email||''} ${x.employee_code||''}`}))]}/><Input label="From date" type="date" value={filters.from} onChange={e=>setFilters({...filters,from:e.target.value})}/><Input label="To date" type="date" value={filters.to} onChange={e=>setFilters({...filters,to:e.target.value})}/><Input label="Search" value={filters.search} onChange={e=>setFilters({...filters,search:e.target.value})} placeholder="Date, time or employee"/><div className="filter-actions"><Button onClick={apply}>Filter</Button><Button variant="ghost" onClick={reset}>Reset</Button></div></div><Table columns={columns} rows={rows} emptyTitle="No attendance records" emptyDescription="No attendance matches these filters." meta={meta} onPage={setPage} perPage={perPage} onPerPage={v=>{setPerPage(v);setPage(1)}} sort={sort} onSort={s=>{setSort(s);setPage(1)}}/></Card></>;
 }
 
 export function ChangeRequestsPage(){
-  const [rows,setRows]=useState([]),[scheduleRows,setScheduleRows]=useState([]),[meta,setMeta]=useState(null),[scheduleMeta,setScheduleMeta]=useState(null),[page,setPage]=useState(1),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'id',dir:'desc'}),[schedulePage,setSchedulePage]=useState(1),[attendanceSearch,setAttendanceSearch]=useState(''),[scheduleSearch,setScheduleSearch]=useState(''),[busy,setBusy]=useState(false);
+  const [rows,setRows]=useState([]),[scheduleRows,setScheduleRows]=useState([]),[meta,setMeta]=useState(null),[scheduleMeta,setScheduleMeta]=useState(null),[page,setPage]=useState(1),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'id',dir:'desc'}),[schedulePage,setSchedulePage]=useState(1),[attendanceSearch,setAttendanceSearch]=useState(queryParam('search')),[scheduleSearch,setScheduleSearch]=useState(''),[busy,setBusy]=useState(false);
   const [reviewOpen,setReviewOpen]=useState(false),[selected,setSelected]=useState(null),[reviewType,setReviewType]=useState('attendance');
   const [reviewForm,setReviewForm]=useState({decision:'approved',approved_clock_in:'',approved_clock_out:'',approved_date:'',approved_start_time:'',approved_end_time:'',note:''});
   const n=useNotice();
@@ -683,7 +683,7 @@ export function ChangeRequestsPage(){
 }
 
 export function OvertimePage(){
- const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[page,setPage]=useState(1),[search,setSearch]=useState(''),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'date',dir:'desc'}),[busy,setBusy]=useState(false),[modal,setModal]=useState(false),[selected,setSelected]=useState(null),[form,setForm]=useState({decision:'approved',approved_minutes:'',overtime_amount:''});const n=useNotice();
+ const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[page,setPage]=useState(1),[search,setSearch]=useState(queryParam('search')),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'date',dir:'desc'}),[busy,setBusy]=useState(false),[modal,setModal]=useState(false),[selected,setSelected]=useState(null),[form,setForm]=useState({decision:'approved',approved_minutes:'',overtime_amount:''});const n=useNotice();
  const load=async(nextPage=page,nextSearch=search)=>{setBusy(true);try{const r=await api.get('/management/overtime',{params:{page:nextPage,per_page:perPage,sort:sort.key,direction:sort.dir,search:nextSearch}});setRows(r.data.data||[]);setMeta(r.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
  useEffect(()=>{load(page,search)},[page,perPage,sort]);
  useEffect(()=>{const timer=setTimeout(()=>{setPage(1);load(1,search)},220);return()=>clearTimeout(timer)},[search]);
@@ -721,7 +721,7 @@ export function InvoicesPage(){
   const [busy,setBusy]=useState(false);
   const [createForm,setCreateForm]=useState(()=>({client_id:'',...latestCompletedBillingCycle()}));
   const [editForm,setEditForm]=useState(null);
-  const [filters,setFilters]=useState({month:'',year:'',date_from:'',date_to:'',client_id:'',invoice_number:'',status:''});
+  const [filters,setFilters]=useState({month:'',year:'',date_from:'',date_to:'',client_id:'',invoice_number:queryParam('search'),status:''});
   const [bulkMonth,setBulkMonth]=useState(''); const [bulkClients,setBulkClients]=useState([]);
   const [perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'id',dir:'desc'});
   const n=useNotice();
@@ -1045,7 +1045,7 @@ export function AccountPage(){
 }
 
 export function HrTeamPage(){
- const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[page,setPage]=useState(1),[search,setSearch]=useState(''),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'id',dir:'desc'}),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[form,setForm]=useState({name:'',email:'',password:''}),[busy,setBusy]=useState(false),[inviteLink,setInviteLink]=useState(null);const n=useNotice();
+ const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[page,setPage]=useState(1),[search,setSearch]=useState(queryParam('search')),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'id',dir:'desc'}),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[form,setForm]=useState({name:'',email:'',password:''}),[busy,setBusy]=useState(false),[inviteLink,setInviteLink]=useState(null);const n=useNotice();
  const load=async(nextPage=page)=>{setBusy(true);try{const r=await api.get('/admin/hr-users',{params:{search,page:nextPage,per_page:perPage,sort:sort.key,direction:sort.dir}});setRows(r.data.data||[]);setMeta(r.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
  useEffect(()=>{const t=setTimeout(()=>load(page),180);return()=>clearTimeout(t)},[search,page,perPage,sort]);
  const open=r=>{setEdit(r||null);setForm(r?{name:r.name,email:r.email,password:''}:{name:'',email:'',password:''});setModal(true)};
