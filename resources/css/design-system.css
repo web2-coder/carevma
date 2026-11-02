@@ -566,3 +566,82 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
 .notification-dropdown-state { font-size: .75rem; }
 .notification-dropdown-state strong { font-family: inherit; font-size: .8125rem; font-weight: 700; }
 .notification-dropdown-footer { font-size: .75rem; font-weight: 700; }
+
+/* =========================================================================
+   Type scale floor. Three sizes carry every piece of text:
+     .8125rem (13px) body, table cells, menu items, values
+     .75rem   (12px) secondary copy, form labels, pagination, chips with words
+     .6875rem (11px) captions, eyebrows, badges, timestamps, timezone ids
+   Nothing readable goes below 11px; the older stylesheets set 7.5px to 10.5px
+   on the selectors below, so each is pinned here to its slot.
+   ========================================================================= */
+/* Shell and topbar */
+.brand-copy span, .workspace-chip small, .user-mini span { font-size: .6875rem; }
+.profile-menu-trigger-copy strong { font-size: .8125rem; font-weight: 600; }
+.profile-menu-trigger-copy small { font-size: .6875rem; }
+.profile-dropdown-head strong { font-size: .8125rem; font-weight: 700; color: var(--foreground); }
+.profile-dropdown-head span { font-size: .6875rem; color: var(--muted-foreground); }
+.profile-dropdown > button { min-height: 36px; font-size: .8125rem; font-weight: 600; }
+.navbar-live-clock-copy small, .navbar-live-clock-zone { font-size: .6875rem; }
+.notification-count, .live-count-badge-mini { font-size: .6875rem; }
+.metric-live-label { font-size: .625rem; letter-spacing: .08em; }
+.metric-copy small { font-size: .6875rem; }
+/* Forms, tables, pagination */
+.field > span { font-size: .75rem; }
+.field small { font-size: .6875rem; }
+.field em, .employee-wizard-page.carevma-onboarding .field em { font-size: .75rem; }
+.record-count, .table-result-count, .table-page-size, .table-filter-select, .table-page-size select, .table-reset-btn,
+.smart-table-pagination > span, .pagination > span, .smart-page-buttons button, .pagination-pages button, .smart-page-buttons span,
+.muted, .upload-button, .card-link, .employee-card-body p, .document-list a { font-size: .75rem; }
+.detail-list span { font-size: .75rem; }
+.detail-list strong { font-size: .8125rem; }
+.chart-value, .chart-label, .profile-photo-row small, .notification-count { font-size: .6875rem; }
+.sort-indicator { font-size: .625rem; }
+/* Cards and rows that carried 9px captions */
+.activity-row span, .agenda-row span, .session-stats span, .connection-card span, .live-banner span,
+.schedule-choice span, .schedule-choice small, .schedule-choice-copy span, .schedule-choice-copy small,
+.client-invite-note span, .salary-fx-note span, .salary-fx-note a, .table-subtext, .billing-cycle-copy small { font-size: .6875rem; }
+.session-stats strong { font-size: .8125rem; }
+.shift-end-status.compact strong { font-size: .75rem; }
+.shift-end-status.compact small { font-size: .6875rem; }
+/* Timezone picker and searchable selects */
+.timezone-trigger-copy strong, .timezone-option strong, .searchable-select-option strong { font-size: .8125rem; }
+.timezone-trigger-copy small, .timezone-option small, .timezone-option-time, .searchable-select-option small { font-size: .6875rem; }
+.timezone-browser span, .timezone-browser strong, .timezone-empty, .timezone-manual-link { font-size: .75rem; }
+.timezone-live, .timezone-live span { font-size: .6875rem; }
+.timezone-live strong { font-size: .75rem; }
+/* Dashboard clocks, shift cards, finance */
+.admin-timezone-clock-heading strong { font-size: .8125rem; }
+.admin-timezone-clock-heading span, .admin-timezone-clock-heading small,
+.assigned-timezone-clock span, .assigned-timezone-clock small, .dual-timezone-clock span, .dual-timezone-clock small,
+.shift-live-summary-head span:not(.pulse-dot), .shift-live-summary-head small, .shift-control .session-stats span,
+.shift-side-card > div > small, .finance-chart-column small, .finance-period-label span, .finance-main-column small { font-size: .6875rem; }
+.shift-side-card > div > span { font-size: .75rem; }
+/* Dual-timezone table cells */
+.dual-time-row strong, .dual-date-cell strong { font-size: .8125rem; }
+.dual-time-row small { font-size: .6875rem; }
+/* Client profile grids */
+.client-schedule-columns span, .assign-va-rate-summary span, .assign-va-selected-meta span, .assign-va-grid-head span, .assign-va-totals span,
+.client-schedule-cell:before, .client-row-menu:before { font-size: .6875rem; }
+/* Birthday banner */
+.birthday-banner-copy > span, .birthday-banner-avatar { font-size: .75rem; }
+.birthday-banner-person strong { font-size: .8125rem; }
+.birthday-banner-person span { font-size: .6875rem; }
+/* Onboarding wizard */
+.employee-wizard-page.carevma-onboarding .employee-wizard-head .eyebrow,
+.employee-wizard-page.carevma-onboarding .wizard-step small,
+.employee-wizard-page.carevma-onboarding .wizard-card-head > div:first-child > span { font-size: .6875rem; }
+.employee-wizard-page.carevma-onboarding .wizard-info-box p,
+.employee-wizard-page.carevma-onboarding .upload-card span,
+.employee-wizard-page.carevma-onboarding .upload-card em { font-size: .75rem; }
+/* VA live session timer */
+.live-counter-topline > span, .live-counter-segment span { font-size: .6875rem; }
+.live-session-counter > p { font-size: .75rem; }
+/* Live Workforce cards */
+.live-workforce-table td::before, .live-zone-chip, .live-user-profile-block > span, .live-user-profile-block > small,
+.live-user-profile-link span, .live-user-card-body > div > span:first-child, .live-user-card-body small,
+.live-user-card-body .live-break-cell span, .live-status-tab strong, .advanced-status-badge { font-size: .6875rem; }
+.live-zone-time-line span:not(.live-zone-chip), .live-status-tab { font-size: .75rem; }
+.live-user-profile-block strong, .live-user-card-body strong { font-size: .8125rem; }
+.assigned-timezone-clock.is-compact span, .assigned-timezone-clock.is-compact small { font-size: .6875rem; }
+.smart-table th .sort-indicator { font-size: .625rem; }
