@@ -233,6 +233,9 @@ class ListSortingAndPaginationTest extends TestCase
         $this->assertSame(['13:00', '11:00'], $starts($page['data']));
         $this->assertSame(2, $page['per_page']);
         $this->assertSame(4, $page['total']);
+        // The tiles above the table describe the whole filtered set, not the page.
+        $this->assertSame(['total', 'enabled', 'weekly_hours', 'clients', 'employees', 'timezones'], array_keys($page['summary']));
+        $this->assertSame(4, $page['summary']['total']);
 
         // No sort: calendar weekday order, then start time -- the composite default survives.
         $default = $this->actingAs($admin)->getJson('/api/management/schedules?paginate=1')->assertOk()->json('data');

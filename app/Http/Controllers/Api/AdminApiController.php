@@ -894,13 +894,26 @@ class AdminApiController extends Controller
         // The global schedules screen can contain thousands of rows; paginate it.
         // Client/employee-scoped callers keep the original array response for compatibility.
         if ($request->boolean('paginate')) {
+            $base = clone $query;
             $paginator = $this->sortAndPaginate($request, $query, [
                 'weekday' => [DB::raw("FIELD(weekday,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')"), 'start_time'],
                 'start_time' => 'start_time', 'end_time' => 'end_time', 'no_of_hours' => 'no_of_hours',
                 'timezone' => 'timezone', 'enabled' => 'enabled', 'schedule_date' => 'schedule_date', 'id' => 'id',
             ], 'weekday', 'asc', 50);
             $decorate($paginator->getCollection());
-            return response()->json($paginator);
+
+            // Tiles above the table: the same filtered set, before paging.
+            $live = fn () => (clone $base)->where(fn ($q) => $q->where('enabled', true)->orWhereNull('enabled'));
+            $summary = [
+                'total' => (clone $base)->count(),
+                'enabled' => $live()->count(),
+                'weekly_hours' => round((float) $live()->where('repeat', true)->sum('no_of_hours'), 2),
+                'clients' => (clone $base)->distinct()->count('client_id'),
+                'employees' => (clone $base)->distinct()->count('employee_id'),
+                'timezones' => (clone $base)->whereNotNull('timezone')->where('timezone', '!=', '')->distinct()->orderBy('timezone')->pluck('timezone')->values(),
+            ];
+
+            return response()->json(array_merge($paginator->toArray(), ['summary' => $summary]));
         }
 
         $rows = $query

@@ -548,6 +548,7 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
 .att-cell > span { color: var(--foreground); }
 .att-cell > small { font-size: .6875rem; color: var(--muted-foreground); text-transform: capitalize; }
 .att-cell .badge { align-self: flex-start; }
+.day-chip { display: inline-flex; align-items: center; padding: .25rem .625rem; border-radius: calc(var(--radius-field) - .25rem); background: var(--surface-2); color: var(--ink-soft); font-size: .75rem; font-weight: 600; white-space: nowrap; }
 .smart-table .badge { white-space: nowrap; }
 .smart-table .person-cell { min-width: 140px; }
 .smart-table th, .smart-table td { padding: .625rem .75rem; }

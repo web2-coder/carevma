@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   Users, Stethoscope, Clock3, TimerReset, ReceiptText, Plus, Pencil, Trash2, RefreshCw,
   CalendarDays, UserCheck, CircleDollarSign, Check, X, Bell, Save, KeyRound, Building2,
-  ShieldCheck, Send, Coffee, Activity, ClipboardCopy, Eye, ArrowLeft, UserRound, MapPin, Zap, CheckCircle2, FileText
+  ShieldCheck, Send, Coffee, Activity, ClipboardCopy, Eye, ArrowLeft, UserRound, MapPin, Zap, CheckCircle2, FileText, Globe
 } from 'lucide-react';
 import api, { messageFrom } from '../api';
 import { DEFAULT_TIMEZONE, formatDate, formatDateTime, formatTime as formatTimeInZone, todayInZone, weekdayFromDateOnly } from '../timezone';
@@ -454,7 +454,7 @@ function Time12Field({label,value,onChange}){
 export function SchedulesPage(){
  const {user}=useAuth();
  const emptySchedule={employee_id:'',client_id:'',schedule_date:'',weekday:'Monday',start_time:'09:00',end_time:'17:00',break_allowed_hours:'0.30',timezone:'',enabled:true,repeat:true,per_hour_rate:''};
- const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[page,setPage]=useState(1),[search,setSearch]=useState(queryParam('search')),[perPage,setPerPage]=useState(50),[sort,setSort]=useState({key:'weekday',dir:'asc'}),[options,setOptions]=useState({}),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[busy,setBusy]=useState(false),[form,setForm]=useState(emptySchedule);const n=useNotice();
+ const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[page,setPage]=useState(1),[search,setSearch]=useState(queryParam('search')),[perPage,setPerPage]=useState(50),[sort,setSort]=useState({key:'weekday',dir:'asc'}),[summary,setSummary]=useState(null),[options,setOptions]=useState({}),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[busy,setBusy]=useState(false),[form,setForm]=useState(emptySchedule);const n=useNotice();
 
  const dayFromDate=value=>weekdayFromDateOnly(value);
  const selectedClient=id=>(options.clients||[]).find(client=>String(client.id)===String(id));
@@ -464,7 +464,7 @@ export function SchedulesPage(){
  const doctorRange=row=>{const tz=row.client_timezone||row.client?.timezone;if(!row.client_shift_starts_at||!row.client_shift_ends_at||!tz)return 'Saved after timezone sync';return `${formatMoment(row.client_shift_starts_at,tz)} – ${formatTime(row.client_shift_ends_at,tz)}`};
  const vaRange=row=>{const tz=row.employee_timezone||row.employee?.timezone;if(!row.shift_starts_at||!row.shift_ends_at||!tz)return 'Saved after timezone sync';return `${formatMoment(row.shift_starts_at,tz)} – ${formatTime(row.shift_ends_at,tz)} · ${tz}`};
 
- const load=async(nextPage=page,nextSearch=search)=>{setBusy(true);try{const [r,o]=await Promise.all([api.get('/management/schedules',{params:{paginate:1,page:nextPage,per_page:perPage,sort:sort.key,direction:sort.dir,search:nextSearch}}),api.get('/management/options')]);setRows(r.data?.data||[]);setMeta(r.data||null);setOptions(o.data||{})}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+ const load=async(nextPage=page,nextSearch=search)=>{setBusy(true);try{const [r,o]=await Promise.all([api.get('/management/schedules',{params:{paginate:1,page:nextPage,per_page:perPage,sort:sort.key,direction:sort.dir,search:nextSearch}}),api.get('/management/options')]);setRows(r.data?.data||[]);setMeta(r.data||null);setSummary(r.data?.summary||null);setOptions(o.data||{})}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
  useEffect(()=>{load(page,search)},[page,perPage,sort]);
  useEffect(()=>{const timer=setTimeout(()=>{setPage(1);load(1,search)},220);return()=>clearTimeout(timer)},[search]);
  const refreshForTimezone=()=>load(page);
@@ -503,13 +503,13 @@ export function SchedulesPage(){
  const currentEmployee=selectedEmployee(form.employee_id);
  const currentClient=selectedClient(form.client_id);
  const columns=[
-   {key:'employee',label:'Employee',render:r=>`${r.employee?.first_name||''} ${r.employee?.last_name||''}`},
+   {key:'employee',label:'Employee',render:r=><div className="person-cell"><div className="avatar small"><AvatarMedia src={r.employee?.profile_picture} alt={fullName(r.employee)} fallback={`${r.employee?.first_name?.[0]||''}${r.employee?.last_name?.[0]||''}`||'?'}/></div><div><strong>{fullName(r.employee)}</strong><span>{r.employee?.employee_code||''}</span></div></div>},
    {key:'client',label:'Client / Doctor',render:r=>r.client?.name||'—'},
-   {key:'weekday',label:'Doctor day',sortKey:'weekday'},
+   {key:'weekday',label:'Doctor day',sortKey:'weekday',render:r=><span className="day-chip">{r.weekday}</span>},
    {key:'schedule_type',label:'Type',render:r=>r.repeat?<Badge tone="info">Weekly</Badge>:<Badge tone="neutral">{r.schedule_date?`Once · ${String(r.schedule_date).slice(0,10)}`:'Legacy weekly'}</Badge>},
    {key:'doctor_shift',label:'Doctor local shift',sortKey:'start_time',render:r=>`${formatStoredTime12(r.start_time)} – ${formatStoredTime12(r.end_time)}`},
-   {key:'va_local_shift',label:'VA local shift',render:r=>vaRange(r)},
-   {key:'doctor_timezone',label:'Doctor timezone',sortKey:'timezone',render:r=>r.client_timezone||r.client?.timezone||r.timezone||'Not specified'},
+   {key:'va_local_shift',label:'VA local shift (ref)',render:r=>{const [range,tz]=String(vaRange(r)).split(' · ');return tz?<AttCell sub={tz}>{range}</AttCell>:<span className="muted">{range}</span>}},
+   {key:'doctor_timezone',label:'Doctor timezone',sortKey:'timezone',render:r=>{const tz=r.client_timezone||r.client?.timezone||r.timezone;return tz?<AttCell sub={tzAbbr(tz)}>{attCity(tz)}</AttCell>:<span className="muted">Not specified</span>}},
    {key:'doctor_break',label:'Doctor break',render:r=><Badge tone="info">{breakCodeText(r.break_allowed_hours)}</Badge>},
    {key:'hours',label:'Duration (H.MM)',sortKey:'no_of_hours',render:r=><strong>{formatDurationHM(r.no_of_hours)}</strong>},
    {key:'status',label:'Status',sortKey:'enabled',render:r=><Badge tone={r.enabled?'success':'danger'}>{r.enabled?'Enabled':'Disabled'}</Badge>},
@@ -518,6 +518,12 @@ export function SchedulesPage(){
 
  return <>
    <PageHeader eyebrow="Assignment planning" title="Schedules" description="Doctor time remains the calculation source. VA local shift is shown only as a converted reference for Admin / HR and the assigned VA." actions={<><Link className="btn btn-secondary btn-link" to={`${roleBase(user?.role)}/change-requests`}>Change Requests</Link><Button icon={Plus} onClick={()=>open()}>Add schedule</Button></>}/>
+    {summary&&<div className="ep-metrics">
+      <StatTile label="Total schedules" value={summary.total} unit={summary.enabled===summary.total?'all active':`${summary.enabled} active`} icon={CalendarDays}><span>{summary.employees} VA{summary.employees===1?'':'s'} scheduled</span></StatTile>
+      <StatTile label="Scheduled billable" value={formatDurationHM(summary.weekly_hours)} unit="hours / week" icon={Clock3} tone="success"><span>Weekly shifts in doctor-local time</span></StatTile>
+      <StatTile label="Covered doctors" value={summary.clients} unit={summary.clients===1?'doctor':'doctors'} icon={Stethoscope}><span>Doctors with at least one VA</span></StatTile>
+      <StatTile label="Timezone coverage" value={summary.timezones.length} unit={summary.timezones.length===1?'zone':'zones'} icon={Globe}><span>{summary.timezones.map(tzAbbr).join(' · ')||'—'}</span></StatTile>
+    </div>}
    <Card><div className="toolbar"><SearchBox value={search} onChange={setSearch} placeholder="Search all schedules: VA, Doctor, date, day, time or timezone"/><span className="record-count">{meta?.total??rows.length} schedules</span></div>{busy&&!rows.length?<Loading inline/>:<><Table columns={columns} rows={rows} emptyTitle="No schedules configured" meta={meta} onPage={setPage} perPage={perPage} onPerPage={v=>{setPerPage(v);setPage(1)}} sort={sort} onSort={s=>{setSort(s);setPage(1)}}/></>}</Card>
    <Modal open={modal} onClose={()=>setModal(false)} title={edit?'Edit schedule':'New schedule'} footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={save}>Save schedule</Button></>}>
      <div className="form-grid">
@@ -576,7 +582,7 @@ const employeeScheduleColumns=[
   {key:'status',label:'Status',render:r=><Badge tone={r.enabled?'success':'danger'}>{r.enabled?'Enabled':'Disabled'}</Badge>},
 ];
 
-const ProfileMetric=({label,value,unit,icon:Icon,tone='',children})=><div className="ep-metric">
+const StatTile=({label,value,unit,icon:Icon,tone='',children})=><div className="ep-metric">
   <div className="ep-metric-head"><span className="eyebrow">{label}</span><i className={`ep-metric-icon ${tone}`}><Icon size={16}/></i></div>
   <div className="ep-metric-value"><strong>{value}</strong>{unit&&<span>{unit}</span>}</div>
   <div className="ep-metric-foot">{children}</div>
@@ -584,6 +590,7 @@ const ProfileMetric=({label,value,unit,icon:Icon,tone='',children})=><div classN
 const Row=({label,mono=false,children})=><div className="ep-row"><span>{label}</span><strong className={mono?'ep-mono':''}>{children===null||children===undefined||children===''?'—':children}</strong></div>;
 const splitMins=m=>{const parts=mins(m).split(' ');return [parts[0],parts.slice(1).join(' ')]};
 const initialsOf=name=>String(name||'').split(/\s+/).filter(w=>w&&!/^dr\.?$/i.test(w)).slice(0,2).map(w=>w[0]).join('').toUpperCase()||'?';
+const tzAbbr=tz=>{try{return new Intl.DateTimeFormat('en-US',{timeZone:tz,timeZoneName:'short'}).formatToParts(new Date()).find(p=>p.type==='timeZoneName')?.value||tz}catch{return tz}};
 const tzOffset=tz=>{try{return new Intl.DateTimeFormat('en-US',{timeZone:tz,timeZoneName:'longOffset'}).formatToParts(new Date()).find(p=>p.type==='timeZoneName')?.value||''}catch{return ''}};
 
 export function EmployeeProfilePage(){
@@ -642,10 +649,10 @@ export function EmployeeProfilePage(){
 
     {tab==='overview'&&<>
       <div className="ep-metrics">
-        <ProfileMetric label="Hours this month" value={hoursValue} unit={hoursUnit} icon={Clock3}><div className="ep-progress"><i style={{width:`${capPct}%`}}/></div><span>{capPct}% of 160h cap</span></ProfileMetric>
-        <ProfileMetric label="Active sessions" value={live?1:0} unit="session" icon={Zap}>{live?<span className="ep-live"><i/>Clocked in now</span>:<span>{summary.sessions||0} session{summary.sessions===1?'':'s'} this month</span>}</ProfileMetric>
-        <ProfileMetric label="Late minutes" value={summary.late_minutes||0} unit="min" icon={CheckCircle2} tone="success"><span>{punctuality===null?'No sessions yet this month':`${punctuality}% punctuality rating`}</span></ProfileMetric>
-        <ProfileMetric label="Overtime minutes" value={summary.overtime_minutes||0} unit="min" icon={Clock3}><span>{summary.pending_overtime_minutes?`${summary.pending_overtime_minutes} min awaiting review`:'No unapproved time'}</span></ProfileMetric>
+        <StatTile label="Hours this month" value={hoursValue} unit={hoursUnit} icon={Clock3}><div className="ep-progress"><i style={{width:`${capPct}%`}}/></div><span>{capPct}% of 160h cap</span></StatTile>
+        <StatTile label="Active sessions" value={live?1:0} unit="session" icon={Zap}>{live?<span className="ep-live"><i/>Clocked in now</span>:<span>{summary.sessions||0} session{summary.sessions===1?'':'s'} this month</span>}</StatTile>
+        <StatTile label="Late minutes" value={summary.late_minutes||0} unit="min" icon={CheckCircle2} tone="success"><span>{punctuality===null?'No sessions yet this month':`${punctuality}% punctuality rating`}</span></StatTile>
+        <StatTile label="Overtime minutes" value={summary.overtime_minutes||0} unit="min" icon={Clock3}><span>{summary.pending_overtime_minutes?`${summary.pending_overtime_minutes} min awaiting review`:'No unapproved time'}</span></StatTile>
       </div>
 
       <div className="ep-columns">
