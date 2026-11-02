@@ -659,3 +659,109 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
 .client-schedule-workspace > .card { margin-bottom: 0; }
 .client-va-schedule-card.is-collapsed .client-va-header { padding: .75rem 1.125rem !important; }
 .client-va-schedule-card.is-open .client-va-header { padding: 1rem 1.125rem !important; }
+
+/* =========================================================================
+   VA dashboard (My workday): one column; the shift-control card, the doctor
+   shifts card, the live doctor card and three status tiles.
+   ========================================================================= */
+.employee-dashboard-pro { gap: 1.25rem; }
+.va-live-pill { display: inline-flex; align-items: center; gap: .375rem; padding: .25rem .625rem; border-radius: var(--radius-pill); background: var(--success-soft); color: var(--success); font-size: .6875rem; font-weight: 700; white-space: nowrap; }
+.va-live-pill i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.shift-control { gap: 1rem; }
+.shift-control > * { min-width: 0; }   /* grid items may shrink below the digit row's natural width */
+/* live session counter */
+.shift-control .live-session-counter { padding: 1.125rem 1.25rem; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface-2); box-shadow: none; }
+.shift-control .live-session-counter.is-break { background: var(--warning-soft); border-color: var(--warning-soft); }
+.live-counter-topline { margin-bottom: 1rem; }
+.live-counter-topline > span { font-size: .6875rem; letter-spacing: .08em; color: var(--muted-foreground); }
+.live-counter-state strong { font-size: .75rem; color: var(--foreground); }
+.shift-control .live-counter-digits { display: flex; justify-content: center; align-items: flex-start; gap: .875rem; width: auto; max-width: none; }
+.live-counter-digits > b { margin-top: 1.25rem; font: 700 1.5rem/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted-foreground); transform: none; }
+.live-counter-segment { min-height: 0; gap: .5rem; }
+.live-counter-segment strong { display: grid; place-items: center; min-width: 104px; height: 76px; padding: 0 .75rem; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--card); box-shadow: var(--shadow-card); font: 700 2.5rem/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: -.02em; color: var(--foreground); }
+.live-counter-segment:last-child strong { color: var(--primary); }
+.live-counter-segment span { font-size: .6875rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-foreground); }
+.live-session-counter > p { margin: .875rem 0 0; font-size: .75rem; color: var(--muted-foreground); text-align: center; }
+/* break status, with the actions inside the same panel */
+.break-usage-wrap { padding: 1.125rem 1.25rem; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface-2); }
+.shift-control .break-usage-panel { margin: 0; padding: 0; border: 0; background: transparent; }
+.shift-control .break-usage-panel.is-active { background: transparent; }
+.break-usage-wrap:has(.break-usage-panel.is-active) { background: var(--warning-soft); border-color: var(--warning-soft); }
+.break-usage-head { margin-bottom: .875rem; }
+.break-usage-head span, .break-usage-grid span, .break-live-counter span { font-size: .6875rem; letter-spacing: .06em; color: var(--muted-foreground); }
+.break-usage-head strong { font-size: 1rem; color: var(--foreground); }
+.break-usage-grid > div { padding: .875rem 1rem; border: 1px solid var(--border); border-radius: var(--radius-field); background: var(--card); }
+.break-usage-grid strong { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 1rem; color: var(--foreground); }
+.break-usage-grid > div:last-child strong { color: var(--success); }
+.break-usage-wrap .shift-actions { margin-top: .875rem; }
+.shift-control .shift-actions .btn { min-width: 0; border-radius: var(--radius-pill); }
+.shift-control .shift-actions .btn-secondary { border: 1px solid var(--border); background: var(--card); color: var(--foreground); }
+.shift-control .shift-actions .btn-secondary:hover { border-color: var(--primary); color: var(--primary); }
+/* the three stats */
+.shift-control .session-stats > div { padding: .875rem 1rem; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--card); box-shadow: none; }
+.shift-control .session-stats span { font-size: .6875rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted-foreground); }
+.shift-control .session-stats strong { font-size: 1rem; color: var(--foreground); }
+.shift-control .session-stats > div.is-late span, .shift-control .session-stats > div.is-late strong { color: var(--warning); }
+/* doctor shifts in this session */
+.doctor-shifts-card .sync-note { font-size: .75rem; color: var(--muted-foreground); white-space: nowrap; }
+.va-agenda-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 1rem; align-items: center; padding: .875rem 0; }
+.va-agenda-row .agenda-time { display: grid; place-items: center; min-width: 64px; padding: .5rem .625rem; border-radius: var(--radius-field); background: var(--primary-soft); color: var(--primary); font-size: .75rem; font-weight: 700; line-height: 1.2; text-align: center; }
+.va-agenda-title { display: flex; align-items: center; gap: .5rem; margin-bottom: .125rem; }
+.va-agenda-title strong { font-size: .875rem; color: var(--foreground); }
+.va-agenda-main > span { display: block; font-size: .75rem; line-height: 1.5; color: var(--muted-foreground); }
+.va-agenda-side { display: grid; justify-items: end; gap: .25rem; text-align: right; }
+.va-agenda-side .shift-end-status { margin: 0; align-items: flex-end; }
+.late-chip { display: inline-flex; padding: .25rem .5rem; border-radius: calc(var(--radius-field) - .25rem); background: var(--warning-soft); color: var(--warning); font-size: .6875rem; font-weight: 700; white-space: nowrap; }
+/* live VA work session */
+.employee-dashboard-pro .doctor-live-session-section { margin-top: 0; gap: .75rem; }
+.doctor-live-session-heading > div { display: flex; flex-wrap: wrap; align-items: center; column-gap: .5rem; row-gap: .125rem; }
+.doctor-live-session-heading span { font-size: .6875rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-foreground); }
+.doctor-live-session-heading strong { font-size: .75rem; font-weight: 700; color: var(--success); }
+.doctor-live-session-heading strong::before { content: "•  "; color: var(--muted-foreground); }
+.doctor-live-session-heading small { flex-basis: 100%; font-size: .75rem; color: var(--muted-foreground); }
+.employee-dashboard-pro .doctor-live-card-grid { grid-template-columns: 1fr !important; gap: 1rem; }   /* the theme forces two columns with !important */
+.doctor-live-card { padding: 1.25rem 1.5rem; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--card); box-shadow: var(--shadow-card); gap: 1rem; }
+.doctor-live-card-head { align-items: center; padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
+.doctor-live-card-head > div { gap: .25rem; }
+.doctor-live-card-head > div > span { font-size: .6875rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-foreground); }
+.doctor-live-card-name { display: flex; align-items: center; gap: .5rem; }
+.doctor-live-card-name strong { font-size: 1.125rem; color: var(--foreground); }
+.doctor-live-card-head small { font-size: .75rem; color: var(--muted-foreground); }
+.doctor-live-card-head small b { font-weight: 600; color: var(--ink-soft); }
+.doctor-live-avatar { display: grid; place-items: center; flex: none; width: 40px; height: 40px; border-radius: var(--radius-pill); background: var(--primary-soft); color: var(--primary); font-size: .8125rem; font-weight: 700; }
+.doctor-live-card-grid-inner { gap: 1rem; }
+.doctor-live-card-grid-inner > div { gap: .375rem; padding: 1rem 1.125rem; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface-2); }
+.doctor-live-card-grid-inner > div > span { font-size: .6875rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-foreground); }
+.doctor-live-card-grid-inner strong { font-size: .9375rem; color: var(--foreground); }
+.doctor-live-card-grid-inner small { font-size: .75rem; color: var(--muted-foreground); }
+.doctor-live-card-grid-inner > div.is-timer { border-color: var(--primary-soft); background: var(--primary-soft); }
+.doctor-live-card-grid-inner > div.is-timer > span { color: var(--primary); }
+.doctor-segment-timer-value { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 1.5rem !important; letter-spacing: 0; color: var(--primary); }
+.doctor-live-card-grid-inner > div.is-late { border-color: var(--warning-soft); background: var(--warning-soft); }
+.doctor-live-card-grid-inner > div.is-late > span, .doctor-live-card-grid-inner > div.is-late strong { color: var(--warning); }
+.doctor-current-time-block { display: grid; gap: .125rem; }
+.doctor-current-time-block strong { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 1.5rem; }
+.doctor-current-time-block span, .doctor-current-time-block small { font-size: .75rem; color: var(--muted-foreground); }
+/* status tiles */
+.shift-side-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.shift-side-card { min-height: 0; padding: 1.125rem 1.25rem; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--card); box-shadow: var(--shadow-card); }
+.shift-side-icon { width: 40px; height: 40px; border: 1px solid var(--border); border-radius: var(--radius-field); background: var(--card); color: var(--primary); }
+.shift-side-card > div > span { font-size: .6875rem; color: var(--muted-foreground); }
+.shift-side-card > div > strong { font-size: .9375rem; color: var(--foreground); }
+.shift-side-card > div > small { font-size: .75rem; color: var(--muted-foreground); }
+.shift-side-card.is-ready { border-color: var(--border); background: var(--card); }
+.shift-side-card.is-live { border-color: var(--success-soft); background: var(--success-soft); }
+.shift-side-card.is-live > div > strong { color: var(--success); }
+.shift-side-card.is-live .shift-side-icon { border-color: transparent; color: var(--success); }
+@media (max-width: 900px) {
+  .shift-side-cards { grid-template-columns: 1fr; }
+  .va-agenda-row { grid-template-columns: auto minmax(0, 1fr); }
+  .va-agenda-side { grid-column: 1 / -1; justify-items: start; text-align: left; }
+  .live-counter-segment strong { min-width: 0; height: 64px; font-size: 2rem; }
+}
+@media (max-width: 640px) {
+  .shift-control .live-counter-digits { gap: .5rem; }
+  .live-counter-digits > b { margin-top: .9rem; font-size: 1.25rem; }
+  .live-counter-segment strong { height: 56px; padding: 0 .5rem; font-size: 1.75rem; }
+  .live-counter-segment span { font-size: .625rem; }
+}
