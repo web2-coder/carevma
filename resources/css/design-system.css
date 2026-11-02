@@ -551,3 +551,18 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
 .smart-table .badge { white-space: nowrap; }
 .smart-table .person-cell { min-width: 140px; }
 .smart-table th, .smart-table td { padding: .625rem .75rem; }
+
+/* Notifications: the page list and the topbar dropdown share one type scale */
+.notification-item strong { font-size: .8125rem; font-weight: 600; color: var(--foreground); }
+.notification-item p { margin: .1875rem 0 .25rem; font-size: .8125rem; line-height: 1.5; color: var(--ink-soft); }
+.notification-item span { font-size: .6875rem; color: var(--muted-foreground); }
+.notification-item .notification-action { display: inline-block; margin-top: .375rem; font-size: .75rem; font-weight: 600; color: var(--primary); }
+.notification-dropdown-head strong { font-family: inherit; font-size: .875rem; font-weight: 700; color: var(--foreground); }
+.notification-dropdown-head span { font-size: .75rem; color: var(--muted-foreground); }
+.notification-dropdown-head button { font-size: .6875rem; font-weight: 700; }
+.notification-dropdown-copy strong { font-size: .8125rem; font-weight: 600; color: var(--foreground); }
+.notification-dropdown-copy > span { font-size: .75rem; line-height: 1.5; color: var(--ink-soft); }
+.notification-dropdown-copy small { font-size: .6875rem; color: var(--muted-foreground); }
+.notification-dropdown-state { font-size: .75rem; }
+.notification-dropdown-state strong { font-family: inherit; font-size: .8125rem; font-weight: 700; }
+.notification-dropdown-footer { font-size: .75rem; font-weight: 700; }
