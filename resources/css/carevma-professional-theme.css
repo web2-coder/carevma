@@ -1995,7 +1995,7 @@ html, body, button, input, select, textarea, .app-shell {
 }
 
 .client-profile-tabs{
-  z-index:1000 !important;
+  z-index:5 !important; /* above page content, below the topbar (30) and its search results */
 }
 /* ============================================================
    CAREVMA
