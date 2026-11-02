@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import api, { messageFrom } from '../api';
 import { emitToast } from '../feedback';
+import { attendanceColumns, vaColumn } from '../attendanceColumns';
 import {
   Badge,
   Button,
@@ -40,15 +41,7 @@ import '../../css/client-profile.css';
 import '../../css/dual-timezone-tables.css';
 
 
-function tzDate(value,timeZone){return formatDate(value,timeZone||'UTC')}
 
-function DualTime({value,doctorTz,live=false}){
-  if(!value) return live?<Badge tone="warning">Live</Badge>:<span>—</span>;
-  return <div className="dual-time-cell"><div className="dual-time-row doctor-time"><strong>Doctor</strong><span>{dateTime(value,doctorTz||'UTC')}</span><small>{doctorTz||'UTC'}</small></div></div>;
-}
-function DualDate({value,doctorTz}){
-  return <div className="dual-date-cell"><span><strong>Doctor</strong> {tzDate(value,doctorTz||'UTC')}</span></div>;
-}
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -932,14 +925,10 @@ export default function ClientProfilePage() {
   };
 
   const reportColumns = [
-    { key: 'employee', label: 'VA', render: row => `${row.employee?.first_name || ''} ${row.employee?.last_name || ''}`.trim() || '—' },
-    { key: 'date', label: 'Date', render: row => <DualDate value={row.clock_in || row.date} doctorTz={row.client_timezone || client?.timezone || row.client?.timezone || 'UTC'} /> },
-    { key: 'clock_in', label: 'Clock in', render: row => <DualTime value={row.clock_in} doctorTz={row.client_timezone || client?.timezone || row.client?.timezone || 'UTC'} /> },
-    { key: 'clock_out', label: 'Clock out', render: row => <DualTime value={row.clock_out} doctorTz={row.client_timezone || client?.timezone || row.client?.timezone || 'UTC'} live={!row.clock_out} /> },
-    { key: 'worked', label: 'Worked', render: row => mins(row.total_minutes) },
-    { key: 'break', label: 'Break', render: row => `${billedBreakMinutes(row)} min` },
-    { key: 'late', label: 'Late', render: row => formatDurationHM(row.late_minutes) },
-    { key: 'overtime', label: 'Overtime', render: row => `${Math.round(Number(row.overtime || 0))} min` },
+    vaColumn,
+    ...attendanceColumns.filter(column => column.key !== 'client').map(column => column.key === 'breaks'
+      ? { ...column, label: 'Break (billed)', render: row => <span className="ep-mono">{billedBreakMinutes(row)} min</span> }
+      : column),
   ];
 
   const renderReport = () => (
