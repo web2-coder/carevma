@@ -542,3 +542,12 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
 .ep-empty span { font-size: .75rem; color: var(--muted-foreground); }
 @media (max-width: 1100px) { .ep-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ep-columns { grid-template-columns: 1fr; } }
 @media (max-width: 640px) { .ep-metrics { grid-template-columns: 1fr; } .ep-header .page-actions { width: 100%; } .ep-tabs { width: 100%; } .ep-tabs button { flex: 1; justify-content: center; } }
+
+/* Attendance table cells: one value per line, context in muted small text */
+.att-cell { display: flex; flex-direction: column; gap: 2px; white-space: nowrap; line-height: 1.25; }
+.att-cell > span { color: var(--foreground); }
+.att-cell > small { font-size: .6875rem; color: var(--muted-foreground); text-transform: capitalize; }
+.att-cell .badge { align-self: flex-start; }
+.smart-table .badge { white-space: nowrap; }
+.smart-table .person-cell { min-width: 140px; }
+.smart-table th, .smart-table td { padding: .625rem .75rem; }
