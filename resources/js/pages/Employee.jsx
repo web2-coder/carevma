@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import '../../css/live-session-timer.css';
 import '../../css/dual-timezone-shift.css';
 import '../../css/dual-timezone-tables.css';
-import { Coffee, LogIn, Pause, Power, TimerReset, Upload, Save, KeyRound, Link2, CalendarDays, Clock3, Zap } from 'lucide-react';
+import { Coffee, LogIn, Pause, Power, TimerReset, Upload, Save, KeyRound, Link2, CalendarDays, Clock3, Zap, RefreshCw } from 'lucide-react';
 import api, { messageFrom } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { formatDate, formatDateTime, formatTime, formatWeekday, zonedNowParts } from '../timezone';
@@ -162,52 +162,67 @@ function BreakUsagePanel({active,activeBreak,serverNow}){
   </div>;
 }
 
-function LiveSessionCounter({active, serverNow, activeBreak}){
-  const initialElapsed=Math.max(0,Number(active?.session_elapsed_seconds??active?.elapsed_seconds??0));
-  const [elapsed,setElapsed]=useState(initialElapsed);
+const MONO_HMS=s=>{s=Math.max(0,Math.floor(Number(s)||0));return {h:Math.floor(s/3600),m:Math.floor((s%3600)/60),s:s%60}};
+const hmText=(secs,withSeconds=false)=>{const {h,m,s}=MONO_HMS(secs);return `${h}h ${String(m).padStart(2,'0')}m${withSeconds?` ${String(s).padStart(2,'0')}s`:''}`};
 
+function LiveSessionCounter({active, serverNow, activeBreak, employeeTimezone}){
+  // One ticking offset (seconds since this payload) drives every figure, so a
+  // refresh or a 30s reload never restarts anything: the backend measures the
+  // bases from the original clock-in in UTC.
+  const [offset,setOffset]=useState(0);
   useEffect(()=>{
-    if(!active?.clock_in){setElapsed(0);return undefined}
-
-    // Never restart from zero after refresh, Start Break or End Break.
-    // Backend session_elapsed_seconds is measured from the original clock-in.
-    let baseSeconds=Math.max(0,Number(active?.session_elapsed_seconds??active?.elapsed_seconds??0));
-
-    // Compatibility fallback for an older API response: both values represent
-    // absolute instants, so their difference is timezone-independent.
-    if(baseSeconds===0){
-      const nowMs=Date.parse(serverNow||'');
-      const clockInMs=Date.parse(active?.clock_in_utc||active?.clock_in||'');
-      if(Number.isFinite(nowMs)&&Number.isFinite(clockInMs)&&nowMs>=clockInMs){
-        baseSeconds=Math.floor((nowMs-clockInMs)/1000);
-      }
-    }
-
     const anchor=performance.now();
-    const tick=()=>setElapsed(baseSeconds+Math.max(0,Math.floor((performance.now()-anchor)/1000)));
-    tick();
-    const timer=setInterval(tick,1000);
-    return()=>clearInterval(timer);
-  },[active?.id,active?.clock_in,active?.clock_in_utc,active?.session_elapsed_seconds,active?.elapsed_seconds,serverNow]);
+    const tick=()=>setOffset(Math.max(0,Math.floor((performance.now()-anchor)/1000)));
+    tick();const id=setInterval(tick,1000);return()=>clearInterval(id);
+  },[active?.id,serverNow]);
 
-  const hours=Math.floor(elapsed/3600);
-  const minutes=Math.floor((elapsed%3600)/60);
-  const seconds=elapsed%60;
+  const serverMs=Date.parse(serverNow||'');
+  const nowMs=(Number.isFinite(serverMs)?serverMs:Date.now())+offset*1000;
+  let base=Math.max(0,Number(active?.session_elapsed_seconds??active?.elapsed_seconds??0));
+  if(base===0){const clockInMs=Date.parse(active?.clock_in_utc||active?.clock_in||'');if(Number.isFinite(serverMs)&&Number.isFinite(clockInMs)&&serverMs>=clockInMs)base=Math.floor((serverMs-clockInMs)/1000)}
+  const elapsed=base+offset;
+  const segment=(activeBreak?Math.max(0,Number(active?.current_break_elapsed_seconds||0)):Math.max(0,Number(active?.segment_elapsed_seconds??base)))+offset;
+  const startMs=Date.parse(active?.shift_start_snapshot||''),endMs=Date.parse(active?.shift_end_utc||active?.shift_end_snapshot||'');
+  const total=Number.isFinite(startMs)&&Number.isFinite(endMs)&&endMs>startMs?Math.floor((endMs-startMs)/1000):0;
+  const left=Number.isFinite(endMs)?Math.max(0,Math.floor((endMs-nowMs)/1000)):null;
+  const pct=total?Math.min(100,Math.round(elapsed/total*100)):0;
+  const doctorTz=active?.doctor_timezone||active?.client?.timezone||'UTC';
+  const {h:hours,m:minutes,s:seconds}=MONO_HMS(segment);
   const pad=value=>String(value).padStart(2,'0');
+  const R=54,C=2*Math.PI*R;
 
   return <div className={`live-session-counter${activeBreak?' is-break':''}`}>
-    <div className="live-counter-topline">
-      <div className="live-counter-state"><span className="pulse-dot"/><strong>{activeBreak?'On break':'Working now'}</strong></div>
-      <span>Live session time</span>
+    <div className="session-hub">
+      <div className="session-ring" role="img" aria-label={`${pct}% of the shift completed, ${durationText(elapsed)} elapsed`}>
+        <svg viewBox="0 0 120 120" aria-hidden="true">
+          <defs><linearGradient id="session-ring-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" style={{stopColor:'var(--primary)'}}/><stop offset="100%" style={{stopColor:'color-mix(in srgb, var(--primary) 45%, #fff)'}}/></linearGradient></defs>
+          <circle className="ring-track" cx="60" cy="60" r={R}/>
+          <circle className="ring-bar" cx="60" cy="60" r={R} strokeDasharray={C} strokeDashoffset={C*(1-pct/100)}/>
+        </svg>
+        <div className="session-ring-center">
+          <span className="ring-pct">{pct}% completed</span>
+          <strong>{durationText(elapsed)}</strong>
+          <span className="ring-label">Elapsed time</span>
+          {left!==null&&<em><i/>{left?`${hmText(left)} left`:'Shift end reached'}</em>}
+        </div>
+      </div>
+      <div className="session-counter">
+        <span className="eyebrow">{activeBreak?'Current break counter':'Current work session counter'}</span>
+        <h3>{activeBreak?'Break Elapsed':'Active Segment Elapsed'}</h3>
+        <div className="live-counter-digits" aria-label={`${hours} hours ${minutes} minutes ${seconds} seconds`}>
+          <div className="live-counter-segment"><strong>{pad(hours)}</strong><span>Hours</span></div>
+          <b>:</b>
+          <div className="live-counter-segment"><strong>{pad(minutes)}</strong><span>Minutes</span></div>
+          <b>:</b>
+          <div className="live-counter-segment"><strong>{pad(seconds)}</strong><span>Seconds</span></div>
+        </div>
+        <div className="session-end-tiles">
+          <div><span>Scheduled end</span><strong>{Number.isFinite(endMs)?<>{formatZoneTime(active.shift_end_utc||active.shift_end_snapshot,doctorTz)} (Doctor) · {formatZoneTime(active.shift_end_utc||active.shift_end_snapshot,employeeTimezone)} (You)</>:'—'}</strong></div>
+          <div><span>Remaining duration</span><strong className="is-left">{left===null?'—':hmText(left,true)}</strong></div>
+        </div>
+      </div>
     </div>
-    <div className="live-counter-digits" aria-label={`${hours} hours ${minutes} minutes ${seconds} seconds`}>
-      <div className="live-counter-segment"><strong>{pad(hours)}</strong><span>Hours</span></div>
-      <b>:</b>
-      <div className="live-counter-segment"><strong>{pad(minutes)}</strong><span>Minutes</span></div>
-      <b>:</b>
-      <div className="live-counter-segment"><strong>{pad(seconds)}</strong><span>Seconds</span></div>
-    </div>
-    <p>{activeBreak?'Break is active. Session time continues from your original clock-in.':'Counter continues from your original clock-in and survives page refreshes.'}</p>
+    <p className="session-hub-note"><RefreshCw size={13} aria-hidden="true"/>{activeBreak?'Break is active. The ring keeps counting from your original clock-in.':'Radial ring and counter continue from your original clock-in and survive page refreshes.'}</p>
   </div>;
 }
 
@@ -270,13 +285,13 @@ export function EmployeeDashboard(){
   const action=async(fn,payload={})=>{setBusy(true);try{const {data:r}=await api.post(fn,payload);n.success(r.message);await load();return true}catch(e){n.error(messageFrom(e));return false}finally{setBusy(false)}};
   const submitCheckIn=async()=>{if(!checkInTarget)return;const ok=await action('/employee/clock-in',{schedule_id:checkInTarget.id,comment:checkInComment.trim()||null});if(ok){setCheckInTarget(null);setCheckInComment('')}};
   if(!data)return <Loading/>;
-  const active=data.active_attendance;const activeBreak=active?.breaks?.find(b=>!b.end_time);const activeClientTimezone=active?.client?.timezone||null;const employeeTimezone=data.timezone||data.employee?.timezone||'UTC';const doctorSegments=Array.isArray(active?.active_doctors)?active.active_doctors:[];const activeDoctors=doctorSegments.filter(x=>x.status==='active');const doctorNames=(activeDoctors.length?activeDoctors:doctorSegments).map(x=>x.client_name).filter(Boolean);
+  const active=data.active_attendance;const activeBreak=active?.breaks?.find(b=>!b.end_time);const activeClientTimezone=active?.client?.timezone||null;const employeeTimezone=data.timezone||data.employee?.timezone||'UTC';const doctorSegments=Array.isArray(active?.active_doctors)?active.active_doctors:[];const activeDoctors=doctorSegments.filter(x=>x.status==='active');const doctorNames=(activeDoctors.length?activeDoctors:doctorSegments).map(x=>x.client_name).filter(Boolean);const shiftTotal=active?Math.max(0,Math.floor((Date.parse(active.shift_end_utc||active.shift_end_snapshot||'')-Date.parse(active.shift_start_snapshot||''))/1000))||0:0;
   return <>
     <PageHeader eyebrow="My workday" title={`Welcome, ${data.employee.first_name}`} description="One VA check-in controls your work session. Each assigned Doctor shift is calculated independently in that Doctor's timezone."/>
     <div className="employee-dashboard-pro">
-      <Card className="shift-control-card" title="Shift control" subtitle={active?'Your VA work session is active':'Check-in appears 15 minutes before the Doctor-local shift start'} actions={active?<span className="va-live-pill"><i/>{activeBreak?'On break · Live':'Working now · Live'}</span>:null}>
+      <Card className="shift-control-card" title={active?<span className={`session-state-pill${activeBreak?' is-break':''}`}><i/>{activeBreak?'Break in Progress':'Shift Session in Progress'}</span>:'Shift control'} subtitle={active?null:'Check-in appears 15 minutes before the Doctor-local shift start'} actions={active?<div className="session-hub-actions">{shiftTotal>0&&<span className="shift-total-chip"><Clock3 size={13} aria-hidden="true"/>Shift: {hmText(shiftTotal)} Total</span>}<span className="hub-label">Live session hub</span></div>:null}>
           {active?<div className="shift-control">
-            <LiveSessionCounter active={active} serverNow={data.now_utc||data.now} activeBreak={activeBreak}/>
+            <LiveSessionCounter active={active} serverNow={data.now_utc||data.now} activeBreak={activeBreak} employeeTimezone={employeeTimezone}/>
             <div className="break-usage-wrap">
             <BreakUsagePanel active={active} activeBreak={activeBreak} serverNow={data.now_utc||data.now}/>
             <div className="shift-actions">{activeBreak?<Button variant="warning" loading={busy} icon={Coffee} onClick={()=>action('/employee/break/end')}>End break</Button>:<Button variant="secondary" loading={busy} icon={Pause} onClick={()=>action('/employee/break/start',{notes:'Employee break'})}>Start break</Button>}<Button variant="danger" loading={busy} icon={Power} onClick={()=>action('/employee/clock-out')}>Clock out</Button></div>

@@ -665,22 +665,45 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
    shifts card, the live doctor card and three status tiles.
    ========================================================================= */
 .employee-dashboard-pro { gap: 1.25rem; }
-.va-live-pill { display: inline-flex; align-items: center; gap: .375rem; padding: .25rem .625rem; border-radius: var(--radius-pill); background: var(--success-soft); color: var(--success); font-size: .6875rem; font-weight: 700; white-space: nowrap; }
-.va-live-pill i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+/* header: state pill on the left, shift total + hub label on the right */
+.session-state-pill { display: inline-flex; align-items: center; gap: .5rem; padding: .375rem .75rem; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--card); font-size: .75rem; font-weight: 700; line-height: 1; color: var(--foreground); }
+.session-state-pill i { width: 7px; height: 7px; border-radius: 50%; background: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+.session-state-pill.is-break i { background: var(--warning); box-shadow: 0 0 0 3px var(--warning-soft); }
+.session-hub-actions { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; justify-content: flex-end; }
+.shift-total-chip { display: inline-flex; align-items: center; gap: .375rem; padding: .3125rem .75rem; border-radius: var(--radius-pill); background: var(--primary-soft); color: var(--primary); font-size: .75rem; font-weight: 700; white-space: nowrap; }
+.hub-label { font-size: .6875rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-foreground); white-space: nowrap; }
 .shift-control { gap: 1rem; }
 .shift-control > * { min-width: 0; }   /* grid items may shrink below the digit row's natural width */
-/* live session counter */
-.shift-control .live-session-counter { padding: 1.125rem 1.25rem; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface-2); box-shadow: none; }
+/* session hub: radial ring + segment counter */
+.shift-control .live-session-counter { padding: 0; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface-2); box-shadow: none; }
 .shift-control .live-session-counter.is-break { background: var(--warning-soft); border-color: var(--warning-soft); }
-.live-counter-topline { margin-bottom: 1rem; }
-.live-counter-topline > span { font-size: .6875rem; letter-spacing: .08em; color: var(--muted-foreground); }
-.live-counter-state strong { font-size: .75rem; color: var(--foreground); }
-.shift-control .live-counter-digits { display: flex; justify-content: center; align-items: flex-start; gap: .875rem; width: auto; max-width: none; }
+.session-hub { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 1.5rem 2rem; align-items: center; padding: 1.5rem 1.5rem 1.25rem; }
+.session-ring { position: relative; width: 272px; height: 272px; justify-self: center; }
+.session-ring svg { display: block; width: 100%; height: 100%; transform: rotate(-90deg); }
+.session-ring .ring-track { fill: none; stroke: var(--border); stroke-width: 9; }
+.session-ring .ring-bar { fill: none; stroke: url(#session-ring-grad); stroke-width: 9; stroke-linecap: round; transition: stroke-dashoffset .6s ease; }
+.session-ring-center { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: .3125rem; text-align: center; }
+.ring-pct { padding: .25rem .625rem; border-radius: var(--radius-pill); background: var(--primary-soft); color: var(--primary); font-size: .6875rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.session-ring-center strong { font: 700 1.75rem/1.1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--foreground); }
+.ring-label { font-size: .6875rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-foreground); }
+.session-ring-center em { display: inline-flex; align-items: center; gap: .375rem; font-style: normal; font-size: .75rem; font-weight: 700; color: var(--success); }
+.session-ring-center em i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.session-counter { display: grid; gap: .75rem; min-width: 0; }
+.session-counter > .eyebrow { font-size: .6875rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-foreground); }
+.session-counter h3 { margin: -.375rem 0 0; font-size: 1.125rem; font-weight: 700; color: var(--foreground); }
+.shift-control .live-counter-digits { display: flex; justify-content: flex-start; align-items: flex-start; gap: .875rem; width: auto; max-width: none; }
 .live-counter-digits > b { margin-top: 1.25rem; font: 700 1.5rem/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted-foreground); transform: none; }
 .live-counter-segment { min-height: 0; gap: .5rem; }
 .live-counter-segment strong { display: grid; place-items: center; min-width: 104px; height: 76px; padding: 0 .75rem; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--card); box-shadow: var(--shadow-card); font: 700 2.5rem/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: -.02em; color: var(--foreground); }
 .live-counter-segment:last-child strong { color: var(--primary); }
 .live-counter-segment span { font-size: .6875rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-foreground); }
+.session-end-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: .25rem; }
+.session-end-tiles > div { display: grid; gap: .375rem; padding: .875rem 1rem; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--card); }
+.session-end-tiles span { font-size: .6875rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted-foreground); }
+.session-end-tiles strong { font-size: .9375rem; color: var(--foreground); }
+.session-end-tiles strong.is-left { color: var(--success); font-variant-numeric: tabular-nums; }
+.live-session-counter > .session-hub-note { display: flex; align-items: center; justify-content: center; gap: .5rem; margin: 0; padding: .875rem 1.25rem; border-top: 1px solid var(--border); font-size: .75rem; color: var(--muted-foreground); text-align: center; }
+.live-session-counter.is-break > .session-hub-note { border-top-color: rgba(0,0,0,.06); }
 .live-session-counter > p { margin: .875rem 0 0; font-size: .75rem; color: var(--muted-foreground); text-align: center; }
 /* break status, with the actions inside the same panel */
 .break-usage-wrap { padding: 1.125rem 1.25rem; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface-2); }
@@ -758,10 +781,16 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
   .va-agenda-row { grid-template-columns: auto minmax(0, 1fr); }
   .va-agenda-side { grid-column: 1 / -1; justify-items: start; text-align: left; }
   .live-counter-segment strong { min-width: 0; height: 64px; font-size: 2rem; }
+  .session-hub { grid-template-columns: 1fr; gap: 1.25rem; padding: 1.25rem 1rem 1rem; }
+  .session-ring { width: 232px; height: 232px; }
 }
 @media (max-width: 640px) {
   .shift-control .live-counter-digits { gap: .5rem; }
   .live-counter-digits > b { margin-top: .9rem; font-size: 1.25rem; }
   .live-counter-segment strong { height: 56px; padding: 0 .5rem; font-size: 1.75rem; }
   .live-counter-segment span { font-size: .625rem; }
+  .session-ring { width: 200px; height: 200px; }
+  .session-ring-center strong { font-size: 1.375rem; }
+  .session-end-tiles { grid-template-columns: 1fr; }
+  .shift-control-card .card-head { flex-wrap: wrap; }
 }

@@ -74,6 +74,10 @@ class EmployeeApiController extends Controller
             $active->setAttribute('elapsed_seconds', $elapsedSeconds);
             $active->setAttribute('completed_break_seconds', $completedBreakSeconds);
             $active->setAttribute('current_break_elapsed_seconds', $currentBreakSeconds);
+            // Working time since the last break ended (or since clock-in); 0 while a break is open.
+            $lastEndedBreak = $breakCollection->whereNotNull('end_time')->sortByDesc('end_time')->first();
+            $segmentStart = max($clockInUtc->timestamp, $lastEndedBreak ? Carbon::parse($lastEndedBreak->end_time)->utc()->timestamp : 0);
+            $active->setAttribute('segment_elapsed_seconds', $openBreak ? 0 : max(0, $nowUtc->timestamp - $segmentStart));
             $active->setAttribute('clock_in_utc', $clockInUtc->toIso8601ZuluString());
             $active->setAttribute('active_work_session_id', $workSession?->id);
             $active->setAttribute('check_in_comment', $workSession?->check_in_comment ?: $active->check_in_comment);
