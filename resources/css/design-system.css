@@ -646,3 +646,12 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
 .live-user-profile-block strong, .live-user-card-body strong { font-size: .8125rem; }
 .assigned-timezone-clock.is-compact span, .assigned-timezone-clock.is-compact small { font-size: .6875rem; }
 .smart-table th .sort-indicator { font-size: .625rem; }
+
+/* Client profile: VA schedule blocks are an accordion, one open at a time */
+.client-va-toggle { display: flex; align-items: center; gap: .875rem; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.client-va-toggle .client-va-identity { pointer-events: none; }
+.client-va-chevron { display: grid; place-items: center; flex: none; width: 28px; height: 28px; border-radius: var(--radius-pill); background: var(--surface-2); color: var(--muted-foreground); transition: transform .18s ease, background-color .18s ease, color .18s ease; }
+.client-va-toggle:hover .client-va-chevron, .client-va-toggle[aria-expanded="true"] .client-va-chevron { background: var(--primary-soft); color: var(--primary); }
+.client-va-toggle[aria-expanded="true"] .client-va-chevron { transform: rotate(180deg); }
+.client-va-toggle:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; border-radius: var(--radius-field); }
+.client-va-schedule-card.is-collapsed .client-va-header { border-bottom: 0 !important; }

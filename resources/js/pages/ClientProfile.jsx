@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
   CalendarDays,
+  ChevronDown,
   Clock3,
   ClipboardList,
   MoreVertical,
@@ -164,6 +165,9 @@ export default function ClientProfilePage() {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleSearch, setScheduleSearch] = useState('');
   const [scheduleStatus, setScheduleStatus] = useState('all');
+  // One VA block open at a time: null = the first block, '' = all collapsed, otherwise the open block's key.
+  const [openVaKey, setOpenVaKey] = useState(null);
+  const groupKey = group => String(group?.employee?.id || group?.employee?.employee_code || group?.employee?.email || group?.schedules?.[0]?.id || '');
   const [editingSchedule, setEditingSchedule] = useState(null);
   const [scheduleForm, setScheduleForm] = useState(emptySchedule);
   const [weeklyAssign, setWeeklyAssign] = useState({
@@ -731,9 +735,14 @@ export default function ClientProfilePage() {
       ) : filteredScheduleGroups.map(group => {
         const initials = `${group.employee?.first_name?.[0] || ''}${group.employee?.last_name?.[0] || ''}`.toUpperCase() || 'VA';
         const enabledCount = group.schedules.filter(schedule => !!schedule.enabled).length;
+        const key = groupKey(group);
+        const isOpen = openVaKey === null ? key === groupKey(filteredScheduleGroups[0]) : openVaKey === key;
+        const panelId = `va-schedules-${key}`;
         return (
-          <Card key={group.employee?.id || group.employee?.employee_code || `${group.employee?.email}-${group.schedules[0]?.id}`} className="client-va-schedule-card">
+          <Card key={key} className={`client-va-schedule-card ${isOpen ? 'is-open' : 'is-collapsed'}`}>
             <div className="client-va-header">
+              <button type="button" className="client-va-toggle" aria-expanded={isOpen} aria-controls={panelId} onClick={() => setOpenVaKey(isOpen ? '' : key)}>
+              <span className="client-va-chevron" aria-hidden="true"><ChevronDown size={16} /></span>
               <div className="client-va-identity">
                 <div className="client-va-avatar">{initials}</div>
                 <div>
@@ -744,6 +753,7 @@ export default function ClientProfilePage() {
                   <span>{group.employee?.employee_code ? `${group.employee.employee_code} · ` : ''}{group.employee?.email || 'Assigned VA'}</span>
                 </div>
               </div>
+              </button>
               <div className="client-va-header-right">
                 <div className="client-va-timezone"><Clock3 size={15} /><span>{client?.timezone || group.schedules[0]?.client_timezone || group.schedules[0]?.timezone || 'Doctor timezone not set'}</span></div>
                 <div className="client-va-rate">{group.rate !== null && group.rate !== '' ? `${money(group.rate)}/hr` : 'Rate not set'}</div>
@@ -751,6 +761,7 @@ export default function ClientProfilePage() {
               </div>
             </div>
 
+            {isOpen && <div id={panelId} className="client-va-panel">
             <div className="client-schedule-columns" aria-hidden="true">
               <span>Doctor day</span>
               <span>Doctor local time</span>
@@ -777,6 +788,7 @@ export default function ClientProfilePage() {
                 </div>
               ))}
             </div>
+            </div>}
           </Card>
         );
       })}
