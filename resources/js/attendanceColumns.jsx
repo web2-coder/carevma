@@ -5,6 +5,8 @@ import { AvatarMedia, Badge, durationHM, mins } from './components/ui';
 export const inZone=(value,tz,opts)=>{if(!value)return '';try{return new Intl.DateTimeFormat('en-US',{timeZone:tz||'UTC',...opts}).format(new Date(value))}catch{return ''}};
 export const attTime=(value,tz)=>inZone(value,tz,{hour:'numeric',minute:'2-digit',hour12:true});
 export const attDay=(value,tz)=>inZone(value,tz,{month:'short',day:'numeric'});
+export const attDate=(value,tz)=>inZone(value,tz,{weekday:'short',month:'short',day:'numeric'});
+export const tzAbbr=tz=>{try{return new Intl.DateTimeFormat('en-US',{timeZone:tz,timeZoneName:'short'}).formatToParts(new Date()).find(p=>p.type==='timeZoneName')?.value||tz}catch{return tz}};
 export const attZone=r=>r.client_timezone||r.timezone_snapshot||r.client?.timezone||'UTC';
 export const attCity=tz=>String(tz||'UTC').split('/').pop().replaceAll('_',' ');
 export const AttCell=({children,sub,mono=false})=><div className={`att-cell ${mono?'ep-mono':''}`}><span>{children}</span>{sub&&<small>{sub}</small>}</div>;

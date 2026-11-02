@@ -6,7 +6,7 @@ import {
   ShieldCheck, Send, Coffee, Activity, ClipboardCopy, Eye, ArrowLeft, UserRound, MapPin, Zap, CheckCircle2, FileText, Globe
 } from 'lucide-react';
 import api, { messageFrom } from '../api';
-import { attendanceColumns, vaColumn, AttCell, attCity } from '../attendanceColumns';
+import { attendanceColumns, vaColumn, AttCell, attCity, tzAbbr } from '../attendanceColumns';
 import { DEFAULT_TIMEZONE, formatDate, formatDateTime, formatTime as formatTimeInZone, todayInZone, weekdayFromDateOnly } from '../timezone';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -574,7 +574,6 @@ const StatTile=({label,value,unit,icon:Icon,tone='',children})=><div className="
 const Row=({label,mono=false,children})=><div className="ep-row"><span>{label}</span><strong className={mono?'ep-mono':''}>{children===null||children===undefined||children===''?'—':children}</strong></div>;
 const splitMins=m=>{const parts=mins(m).split(' ');return [parts[0],parts.slice(1).join(' ')]};
 const initialsOf=name=>String(name||'').split(/\s+/).filter(w=>w&&!/^dr\.?$/i.test(w)).slice(0,2).map(w=>w[0]).join('').toUpperCase()||'?';
-const tzAbbr=tz=>{try{return new Intl.DateTimeFormat('en-US',{timeZone:tz,timeZoneName:'short'}).formatToParts(new Date()).find(p=>p.type==='timeZoneName')?.value||tz}catch{return tz}};
 const tzOffset=tz=>{try{return new Intl.DateTimeFormat('en-US',{timeZone:tz,timeZoneName:'longOffset'}).formatToParts(new Date()).find(p=>p.type==='timeZoneName')?.value||''}catch{return ''}};
 
 export function EmployeeProfilePage(){
