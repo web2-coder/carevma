@@ -167,7 +167,20 @@ class EmployeeApiController extends Controller
             'time_source' => $this->clock->source(),
             'server_weekday' => $employeeNow->format('l'),
             'completed_today' => $this->hasCompletedAttendanceOnCurrentClientDay($employee->id),
+            'recent_completed' => $this->recentCompletedAttendance($employee->id),
         ]);
+    }
+
+    /** Segments clocked out in the last 24 hours, newest first: the dashboard sums them after clock-out. */
+    private function recentCompletedAttendance(int $employeeId)
+    {
+        return Attendance::with('client:id,name,business_name,timezone')
+            ->where('employee_id', $employeeId)
+            ->whereNotNull('clock_out')
+            ->where('clock_out', '>=', $this->clock->now('UTC')->copy()->subDay())
+            ->latest('clock_out')
+            ->limit(10)
+            ->get(['id', 'client_id', 'date', 'clock_in', 'clock_out', 'total_minutes', 'break_taken', 'late_minutes', 'overtime', 'overtime_status']);
     }
 
     private function hasCompletedAttendanceOnCurrentClientDay(int $employeeId): bool

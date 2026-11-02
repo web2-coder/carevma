@@ -800,3 +800,13 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
 .smart-table .row-actions .btn-ghost { border: 1px solid var(--border); background: var(--card); color: var(--foreground); }
 .smart-table .row-actions .btn-ghost:hover { border-color: var(--primary); color: var(--primary); }
 .smart-table td .ep-mono { white-space: nowrap; }
+/* VA dashboard: what was worked, shown in place of the timer after clock-out */
+.worked-summary { display: grid; gap: .875rem; margin-bottom: 1rem; padding: 1.125rem 1.25rem; border: 1px solid var(--success-soft); border-radius: var(--radius-card); background: var(--success-soft); }
+.worked-summary-head { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
+.worked-summary-head > div { display: grid; gap: .25rem; }
+.worked-summary-head .eyebrow { font-size: .6875rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-foreground); }
+.worked-summary-head strong { font-size: 1rem; color: var(--foreground); }
+.worked-summary-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 0; }
+.session-end-tiles small { font-size: .6875rem; color: var(--muted-foreground); }
+@media (max-width: 900px) { .worked-summary-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .worked-summary-tiles { grid-template-columns: 1fr; } }
