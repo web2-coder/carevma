@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   Users, Stethoscope, Clock3, TimerReset, ReceiptText, Plus, Pencil, Trash2, RefreshCw,
   CalendarDays, UserCheck, CircleDollarSign, Check, X, Bell, Save, KeyRound, Building2,
-  ShieldCheck, Send, Coffee, Activity, ClipboardCopy, Eye, ArrowLeft, UserRound, AlarmClock
+  ShieldCheck, Send, Coffee, Activity, ClipboardCopy, Eye, ArrowLeft, UserRound, MapPin, Zap, CheckCircle2, FileText
 } from 'lucide-react';
 import api, { messageFrom } from '../api';
 import { DEFAULT_TIMEZONE, formatDate, formatDateTime, formatTime as formatTimeInZone, todayInZone, weekdayFromDateOnly } from '../timezone';
@@ -560,6 +560,16 @@ const employeeScheduleColumns=[
   {key:'status',label:'Status',render:r=><Badge tone={r.enabled?'success':'danger'}>{r.enabled?'Enabled':'Disabled'}</Badge>},
 ];
 
+const ProfileMetric=({label,value,unit,icon:Icon,tone='',children})=><div className="ep-metric">
+  <div className="ep-metric-head"><span className="eyebrow">{label}</span><i className={`ep-metric-icon ${tone}`}><Icon size={16}/></i></div>
+  <div className="ep-metric-value"><strong>{value}</strong>{unit&&<span>{unit}</span>}</div>
+  <div className="ep-metric-foot">{children}</div>
+</div>;
+const Row=({label,mono=false,children})=><div className="ep-row"><span>{label}</span><strong className={mono?'ep-mono':''}>{children===null||children===undefined||children===''?'—':children}</strong></div>;
+const splitMins=m=>{const parts=mins(m).split(' ');return [parts[0],parts.slice(1).join(' ')]};
+const initialsOf=name=>String(name||'').split(/\s+/).filter(w=>w&&!/^dr\.?$/i.test(w)).slice(0,2).map(w=>w[0]).join('').toUpperCase()||'?';
+const tzOffset=tz=>{try{return new Intl.DateTimeFormat('en-US',{timeZone:tz,timeZoneName:'longOffset'}).formatToParts(new Date()).find(p=>p.type==='timeZoneName')?.value||''}catch{return ''}};
+
 export function EmployeeProfilePage(){
   const {user}=useAuth(); const {employeeId}=useParams(); const navigate=useNavigate(); const n=useNotice();
   const base=`${roleBase(user.role)}/employees`;
@@ -576,88 +586,125 @@ export function EmployeeProfilePage(){
   const summary=employee.month_summary||{};
   const docs=Array.isArray(employee.upload_documents)?employee.upload_documents:[];
   const status=employee.employee_status?.name;
+  const live=!!employee.is_live;
+  const name=fullName(employee);
+  const initials=`${employee.first_name?.[0]||''}${employee.last_name?.[0]||''}`.toUpperCase()||'?';
+  const [hoursValue,hoursUnit]=splitMins(summary.minutes||0);
+  const capPct=Math.min(100,Math.round((summary.minutes||0)/(160*60)*100));
+  const punctuality=summary.sessions?Math.round((summary.sessions-(summary.late_sessions||0))/summary.sessions*100):null;
+  const lastSeen=employee.user?.last_seen_at?dateTime(employee.user.last_seen_at,user?.assigned_timezone):'Never';
   const clients=Object.values((schedules||[]).reduce((acc,s)=>{if(s.client){const c=acc[s.client.id]||(acc[s.client.id]={...s.client,hours:0,days:new Set()});c.hours+=Number(s.no_of_hours)||0;c.days.add(s.weekday)}return acc},{}));
   const fileName=url=>String(url).split('/').pop().split('?')[0];
 
   return <>
-    <PageHeader eyebrow="Workforce" title={fullName(employee)} description={[employee.employee_code,employee.designation?.name,employee.department?.name].filter(Boolean).join(' · ')||'Employee profile'} actions={<><Button variant="ghost" icon={ArrowLeft} onClick={()=>navigate(base)}>Employees</Button><Button variant="secondary" icon={Send} loading={busy} onClick={resendInvite}>Resend invite</Button><Button icon={Pencil} onClick={()=>{setForm(employeeForm(employee));setModal(true)}}>Edit</Button></>}/>
-    <div className="client-profile-shell">
-      <aside className="client-profile-tabs" aria-label="Employee profile sections">
-        <div className="employee-profile-identity">
-          <div className="avatar"><AvatarMedia src={employee.profile_picture} alt={fullName(employee)} fallback={`${employee.first_name?.[0]||''}${employee.last_name?.[0]||''}`||'?'}/></div>
-          <strong>{fullName(employee)}</strong><span>{employee.email}</span>
-          <Badge tone={statusTone(status)}>{status||'Not set'}</Badge>
-        </div>
-        {EMPLOYEE_TABS.map(t=>{const Icon=t.icon;return <button key={t.key} type="button" className={tab===t.key?'active':''} onClick={()=>setTab(t.key)}><Icon size={18}/><span>{t.label}</span></button>})}
-      </aside>
-      <main className="client-profile-content">
-        {tab==='overview'&&<>
-          <div className="metrics-grid employee-profile-metrics">
-            <MetricCard label="Hours this month" value={mins(summary.minutes||0)} icon={Clock3}/>
-            <MetricCard label="Sessions" value={summary.sessions||0} icon={Activity}/>
-            <MetricCard label="Late minutes" value={summary.late_minutes||0} icon={AlarmClock}/>
-            <MetricCard label="Overtime minutes" value={summary.overtime_minutes||0} icon={TimerReset}/>
+    <section className="card ep-header">
+      <div className="ep-header-top">
+        <div>
+          <div className="ep-title">
+            <h1>{name}</h1>
+            <span className={`ep-status ${live?'is-live':''}`}><i/>{[status||'Not set',live?'On shift':null].filter(Boolean).join(' · ')}</span>
+            {employee.employee_code&&<span className="ep-chip">ID: {employee.employee_code}</span>}
           </div>
-          <div className="two-col profile-layout">
-            <Card title="Personal" subtitle="Contact and personal details.">
-              <div className="detail-list">
-                <div><span>Email</span><strong>{text(employee.email)}</strong></div>
-                <div><span>Phone</span><strong>{text(employee.phone)}</strong></div>
-                <div><span>Date of birth</span><strong>{dateOnly(employee.date_of_birth)}</strong></div>
-                <div><span>Age</span><strong>{text(employee.age)}</strong></div>
-                <div><span>Gender</span><strong>{titleCase(employee.gender)}</strong></div>
-                <div><span>Marital status</span><strong>{titleCase(employee.marital_status)}</strong></div>
-                <div><span>Location</span><strong>{text(employee.location)}</strong></div>
-                <div><span>Timezone</span><strong>{text(employee.timezone)}</strong></div>
-                <div><span>Last seen</span><strong>{employee.user?.last_seen_at?dateTime(employee.user.last_seen_at,user?.assigned_timezone):'Never'}</strong></div>
-                <div><span>Profile</span><strong>{employee.profile_completed?'Completed':'Incomplete'}</strong></div>
-              </div>
-              {employee.about_me_notes&&<p className="employee-profile-notes">{employee.about_me_notes}</p>}
-            </Card>
-            <div className="stack">
-              <Card title="Work profile" subtitle="Organisation, role and employment terms.">
-                <div className="detail-list">
-                  <div><span>Employee #</span><strong>{text(employee.employee_code)}</strong></div>
-                  <div><span>Department</span><strong>{text(employee.department?.name)}</strong></div>
-                  <div><span>Role</span><strong>{text(employee.role?.name)}</strong></div>
-                  <div><span>Designation</span><strong>{text(employee.designation?.name)}</strong></div>
-                  <div><span>Employment type</span><strong>{text(employee.employment_type?.name)}</strong></div>
-                  <div><span>Shift type</span><strong>{text(employee.shift_type?.name)}</strong></div>
-                  <div><span>Status</span><strong><Badge tone={statusTone(status)}>{status||'Not set'}</Badge></strong></div>
-                  <div><span>Expertise</span><strong>{text(employee.expertise?.name)}</strong></div>
-                  <div><span>Reporting manager</span><strong>{text(employee.reporting_manager?.name)}</strong></div>
-                  <div><span>Joining date</span><strong>{dateOnly(employee.date_of_joining)}</strong></div>
-                  <div><span>Regularisation date</span><strong>{dateOnly(employee.date_of_regularisation)}</strong></div>
-                  <div><span>Source of hire</span><strong>{text(employee.source_of_hire)}</strong></div>
-                </div>
-              </Card>
-              <Card title="Compensation" subtitle="Monthly salary on record.">
-                <div className="detail-list">
-                  <div><span>Salary (PKR)</span><strong>{employee.salary_pkr?Number(employee.salary_pkr).toLocaleString():'—'}</strong></div>
-                  <div><span>Salary (USD)</span><strong>{employee.salary_usd?money(employee.salary_usd):'—'}</strong></div>
-                </div>
-              </Card>
-              <Card title="Documents" subtitle={docs.length?`${docs.length} file(s) uploaded by the VA.`:'Files the VA uploads from their profile appear here.'}>
-                {docs.length?<div className="document-list">{docs.map((d,i)=><div key={d}><a href={d} target="_blank" rel="noreferrer">Document {i+1}</a><span className="muted">{fileName(d)}</span></div>)}</div>:<EmptyState title="No documents" description="Nothing has been uploaded yet."/>}
-              </Card>
-              <Card title="Assigned clients" subtitle="Derived from this VA's schedule.">
-                {clients.length?<div className="detail-list">{clients.map(c=><div key={c.id}><span>{user.role==='hr'?c.name:<Link to={`/admin/client/${c.id}/profile`}>{c.name}</Link>}</span><strong>{c.days.size} day(s) · {formatDurationHM(c.hours)} h/week</strong></div>)}</div>:<EmptyState title="No clients assigned" description="Add a schedule to assign this VA to a client."/>}
-              </Card>
+          <p className="ep-subtitle">{[employee.employee_code,employee.designation?.name,employee.department?.name].filter(Boolean).join('  •  ')||'Employee profile'}</p>
+        </div>
+        <div className="page-actions">
+          <Button variant="secondary" icon={ArrowLeft} onClick={()=>navigate(base)}>Back to Employees</Button>
+          <Button variant="secondary" icon={Send} loading={busy} onClick={resendInvite}>Resend Invite</Button>
+          <Button icon={Pencil} onClick={()=>{setForm(employeeForm(employee));setModal(true)}}>Edit Profile</Button>
+        </div>
+      </div>
+      <div className="ep-header-bottom">
+        <div className="ep-identity">
+          <div className="avatar ep-avatar"><AvatarMedia src={employee.profile_picture} alt={name} fallback={initials}/></div>
+          <div><div className="ep-identity-name"><strong>{name}</strong><Badge tone={statusTone(status)}>{status||'Not set'}</Badge></div><span className="ep-mono">{employee.email}</span></div>
+        </div>
+        <div className="ep-tabs" role="tablist" aria-label="Employee profile sections">
+          {EMPLOYEE_TABS.map(t=>{const Icon=t.icon;return <button key={t.key} type="button" role="tab" aria-selected={tab===t.key} className={tab===t.key?'active':''} onClick={()=>setTab(t.key)}><Icon size={15}/><span>{t.label}</span></button>})}
+        </div>
+      </div>
+    </section>
+
+    {tab==='overview'&&<>
+      <div className="ep-metrics">
+        <ProfileMetric label="Hours this month" value={hoursValue} unit={hoursUnit} icon={Clock3}><div className="ep-progress"><i style={{width:`${capPct}%`}}/></div><span>{capPct}% of 160h cap</span></ProfileMetric>
+        <ProfileMetric label="Active sessions" value={live?1:0} unit="session" icon={Zap}>{live?<span className="ep-live"><i/>Clocked in now</span>:<span>{summary.sessions||0} session{summary.sessions===1?'':'s'} this month</span>}</ProfileMetric>
+        <ProfileMetric label="Late minutes" value={summary.late_minutes||0} unit="min" icon={CheckCircle2} tone="success"><span>{punctuality===null?'No sessions yet this month':`${punctuality}% punctuality rating`}</span></ProfileMetric>
+        <ProfileMetric label="Overtime minutes" value={summary.overtime_minutes||0} unit="min" icon={Clock3}><span>{summary.pending_overtime_minutes?`${summary.pending_overtime_minutes} min awaiting review`:'No unapproved time'}</span></ProfileMetric>
+      </div>
+
+      <div className="ep-columns">
+        <div className="stack">
+          <Card title="Personal" subtitle="Contact and verified personal details.">
+            <div className="ep-rows">
+              <Row label="Email" mono>{employee.email}</Row>
+              <Row label="Phone" mono>{employee.phone}</Row>
+              <Row label="Date of birth" mono>{employee.date_of_birth?dateOnly(employee.date_of_birth):null}</Row>
+              <Row label="Age">{employee.age}</Row>
+              <Row label="Gender">{employee.gender?titleCase(employee.gender):null}</Row>
+              <Row label="Marital status">{employee.marital_status?titleCase(employee.marital_status):null}</Row>
+              <Row label="Location">{employee.location?<><MapPin size={13}/>{employee.location}</>:null}</Row>
+              <Row label="Timezone">{employee.timezone?<span className="ep-chip">{employee.timezone} ({tzOffset(employee.timezone)})</span>:null}</Row>
+              <Row label="Last seen" mono>{lastSeen}</Row>
+              <Row label="Profile status"><Badge tone={employee.profile_completed?'success':'warning'}>{employee.profile_completed?'Completed 100%':'Incomplete'}</Badge></Row>
+            </div>
+            {employee.about_me_notes&&<p className="employee-profile-notes">{employee.about_me_notes}</p>}
+          </Card>
+          <div className="ep-callout">
+            <i><ShieldCheck size={18}/></i>
+            <div>
+              <strong>{employee.profile_completed?'Portal access active':'Invitation pending'}</strong>
+              <span>{employee.profile_completed?`Profile completed. Last signed in ${lastSeen}.`:'This VA has not finished first-login setup. Resend the invite if the link expired.'}</span>
             </div>
           </div>
-        </>}
-        {tab==='schedule'&&<Card title="Weekly schedule" subtitle="Doctor-local shifts with the VA conversion." actions={<Button variant="secondary" icon={CalendarDays} onClick={()=>navigate(`${roleBase(user.role)}/schedules`)}>Manage schedules</Button>}>
-          {schedules===null?<Loading inline/>:<Table columns={employeeScheduleColumns} rows={schedules} emptyTitle="No schedules" emptyDescription="This VA has no shifts configured yet."/>}
-        </Card>}
-        {tab==='attendance'&&<Card title="Attendance" subtitle="Every session recorded for this VA.">
-          {attendanceBusy&&!rows.length?<Loading inline/>:<Table columns={attendanceColumns} rows={rows} emptyTitle="No attendance records" emptyDescription="No sessions have been recorded yet." meta={meta} onPage={setPage} perPage={perPage} onPerPage={v=>{setPerPage(v);setPage(1)}} sort={sort} onSort={s=>{setSort(s);setPage(1)}}/>}
-        </Card>}
-      </main>
-    </div>
+        </div>
+
+        <div className="stack">
+          <Card title="Work profile" subtitle="Organisation, role and employment terms." actions={employee.employee_code?<span className="ep-chip">{employee.employee_code}</span>:null}>
+            <div className="ep-rows">
+              <Row label="Employee #" mono>{employee.employee_code}</Row>
+              <Row label="Department">{employee.department?.name}</Row>
+              <Row label="Role">{employee.role?.name}</Row>
+              <Row label="Designation">{employee.designation?.name}</Row>
+              <Row label="Employment type">{employee.employment_type?.name}</Row>
+              <Row label="Shift type">{employee.shift_type?.name}</Row>
+              <Row label="Status"><Badge tone={statusTone(status)}>{status||'Not set'}</Badge></Row>
+              <Row label="Expertise">{employee.expertise?.name}</Row>
+              <Row label="Reporting manager">{employee.reporting_manager?.name}</Row>
+              <Row label="Joining date" mono>{employee.date_of_joining?dateOnly(employee.date_of_joining):null}</Row>
+              <Row label="Regularisation date" mono>{employee.date_of_regularisation?dateOnly(employee.date_of_regularisation):null}</Row>
+              <Row label="Source of hire">{employee.source_of_hire}</Row>
+            </div>
+          </Card>
+          <Card title="Compensation" subtitle="Monthly salary on record." actions={employee.salary_usd?<span className="ep-chip ep-chip-primary">USD payout</span>:null}>
+            <div className="ep-rows">
+              <Row label="Salary (PKR)" mono>{employee.salary_pkr?Number(employee.salary_pkr).toLocaleString():null}</Row>
+              <Row label="Salary (USD)" mono>{employee.salary_usd?money(employee.salary_usd):null}</Row>
+            </div>
+          </Card>
+          <Card title="Assigned clients" subtitle="Derived from this Virtual Assistant's active schedule.">
+            {clients.length?<div className="ep-clients">{clients.map(c=><div key={c.id} className="ep-client">
+              <span className="avatar client-avatar">{initialsOf(c.name)}</span>
+              <div>{user.role==='hr'?<strong>{c.name}</strong>:<Link to={`/admin/client/${c.id}/profile`}><strong>{c.name}</strong></Link>}<small>{c.business_name||c.timezone||''}</small></div>
+              <em className="ep-mono">{c.days.size} day(s) · {formatDurationHM(c.hours)} h/week</em>
+            </div>)}</div>:<EmptyState title="No clients assigned" description="Add a schedule to assign this VA to a client."/>}
+          </Card>
+          <Card title="Documents" subtitle={docs.length?`${docs.length} file(s) uploaded from their portal.`:'Files and certifications uploaded from their portal.'}>
+            {docs.length?<div className="document-list">{docs.map((d,i)=><div key={d}><a href={d} target="_blank" rel="noreferrer">Document {i+1}</a><span className="muted">{fileName(d)}</span></div>)}</div>
+              :<div className="ep-empty"><i><FileText size={18}/></i><strong>No documents</strong><span>Nothing has been uploaded yet. Files will appear here once submitted.</span></div>}
+          </Card>
+        </div>
+      </div>
+    </>}
+
+    {tab==='schedule'&&<Card title="Weekly schedule" subtitle="Doctor-local shifts with the VA conversion." actions={<Button variant="secondary" icon={CalendarDays} onClick={()=>navigate(`${roleBase(user.role)}/schedules`)}>Manage schedules</Button>}>
+      {schedules===null?<Loading inline/>:<Table columns={employeeScheduleColumns} rows={schedules} emptyTitle="No schedules" emptyDescription="This VA has no shifts configured yet."/>}
+    </Card>}
+    {tab==='attendance'&&<Card title="Attendance" subtitle="Every session recorded for this VA.">
+      {attendanceBusy&&!rows.length?<Loading inline/>:<Table columns={attendanceColumns} rows={rows} emptyTitle="No attendance records" emptyDescription="No sessions have been recorded yet." meta={meta} onPage={setPage} perPage={perPage} onPerPage={v=>{setPerPage(v);setPage(1)}} sort={sort} onSort={s=>{setSort(s);setPage(1)}}/>}
+    </Card>}
     <EmployeeFormModal open={modal} onClose={()=>setModal(false)} form={form} setForm={setForm} options={options} busy={busy} onSave={save}/>
   </>;
 }
-
 export function AttendancePage(){
  const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[options,setOptions]=useState({}),[filters,setFilters]=useState({employee_id:queryParam('employee_id'),from:'',to:'',search:queryParam('search')}),[page,setPage]=useState(1),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'date',dir:'desc'}),[busy,setBusy]=useState(false);const n=useNotice();
  const load=async(nextFilters=filters,nextPage=page)=>{setBusy(true);try{const [r,o]=await Promise.all([api.get('/management/attendance',{params:{...nextFilters,page:nextPage,per_page:perPage,sort:sort.key,direction:sort.dir}}),api.get('/management/options')]);setRows(r.data.data);setMeta(r.data);setOptions(o.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};useEffect(()=>{load(filters,page)},[page,perPage,sort]);const apply=()=>{setPage(1);load(filters,1)};const reset=()=>{const clean={employee_id:'',from:'',to:'',search:''};setFilters(clean);setPage(1);load(clean,1)};

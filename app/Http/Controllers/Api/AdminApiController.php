@@ -561,14 +561,17 @@ class AdminApiController extends Controller
         $month = Attendance::query()
             ->where('employee_id', $employee->id)
             ->whereBetween('date', [$today->copy()->startOfMonth()->toDateString(), $today->toDateString()])
-            ->selectRaw('COUNT(*) AS sessions, COALESCE(SUM(total_minutes), 0) AS minutes, COALESCE(SUM(late_minutes), 0) AS late_minutes, COALESCE(SUM(overtime), 0) AS overtime_minutes')
+            ->selectRaw("COUNT(*) AS sessions, COALESCE(SUM(total_minutes), 0) AS minutes, COALESCE(SUM(late_minutes), 0) AS late_minutes, COALESCE(SUM(overtime), 0) AS overtime_minutes, COALESCE(SUM(late_minutes > 0), 0) AS late_sessions, COALESCE(SUM(CASE WHEN overtime_status IN ('pending', 'review_required') THEN overtime ELSE 0 END), 0) AS pending_overtime_minutes")
             ->first();
         $employee->setAttribute('month_summary', [
             'sessions' => (int) $month->sessions,
             'minutes' => (int) $month->minutes,
             'late_minutes' => (int) $month->late_minutes,
             'overtime_minutes' => (int) $month->overtime_minutes,
+            'late_sessions' => (int) $month->late_sessions,
+            'pending_overtime_minutes' => (int) $month->pending_overtime_minutes,
         ]);
+        $employee->setAttribute('is_live', Attendance::query()->where('employee_id', $employee->id)->whereNull('clock_out')->exists());
 
         return response()->json($employee);
     }

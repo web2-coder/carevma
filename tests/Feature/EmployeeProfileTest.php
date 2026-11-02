@@ -57,7 +57,8 @@ class EmployeeProfileTest extends TestCase
             ->assertOk()
             ->json();
 
-        $this->assertSame(['sessions' => 2, 'minutes' => 600, 'late_minutes' => 5, 'overtime_minutes' => 30], $json['month_summary']);
+        $this->assertSame(['sessions' => 2, 'minutes' => 600, 'late_minutes' => 5, 'overtime_minutes' => 30, 'late_sessions' => 1, 'pending_overtime_minutes' => 0], $json['month_summary']);
+        $this->assertFalse($json['is_live']);
         $this->assertSame(['/storage/employee_documents/cv.pdf'], $json['upload_documents']);
         $this->assertSame('Alice', $json['user']['name']);
     }
