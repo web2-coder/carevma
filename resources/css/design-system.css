@@ -655,3 +655,7 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
 .client-va-toggle[aria-expanded="true"] .client-va-chevron { transform: rotate(180deg); }
 .client-va-toggle:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; border-radius: var(--radius-field); }
 .client-va-schedule-card.is-collapsed .client-va-header { border-bottom: 0 !important; }
+.client-schedule-workspace { gap: .75rem; }
+.client-schedule-workspace > .card { margin-bottom: 0; }
+.client-va-schedule-card.is-collapsed .client-va-header { padding: .75rem 1.125rem !important; }
+.client-va-schedule-card.is-open .client-va-header { padding: 1rem 1.125rem !important; }
