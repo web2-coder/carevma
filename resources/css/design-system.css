@@ -167,7 +167,9 @@ p { text-wrap: pretty; }
   background-repeat: no-repeat;
   background-size: 100% 28px, 100% 28px, 100% 12px, 100% 12px;
   background-attachment: local, local, scroll, scroll;
+  scrollbar-width: none;             /* the fades above say "more below"; no bar */
 }
+.sidebar-nav::-webkit-scrollbar { display: none; }
 .nav-group-label { padding: .5rem .75rem .25rem; }
 .sidebar-nav > .nav-group-label:first-child { padding-top: .125rem; }
 .nav-group-separator { height: 1px; margin: .375rem .5rem; background: var(--border); }
