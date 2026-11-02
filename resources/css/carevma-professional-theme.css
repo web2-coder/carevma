@@ -2381,12 +2381,12 @@ html, body, button, input, select, textarea, .app-shell {
 @media (min-width: 1025px) {
 
     .sidebar {
-        width: 300px !important;
+        width: 232px !important;
 
-        min-width: 300px !important;
-        max-width: 300px !important;
+        min-width: 232px !important;
+        max-width: 232px !important;
 
-        flex: 0 0 300px !important;
+        flex: 0 0 232px !important;
 
         transition-property:
             background-color,
@@ -2399,12 +2399,12 @@ html, body, button, input, select, textarea, .app-shell {
     .sidebar:hover,
     .sidebar:focus,
     .sidebar:focus-within {
-        width: 300px !important;
+        width: 232px !important;
 
-        min-width: 300px !important;
-        max-width: 300px !important;
+        min-width: 232px !important;
+        max-width: 232px !important;
 
-        flex-basis: 300px !important;
+        flex-basis: 232px !important;
     }
 
 }
@@ -2860,14 +2860,14 @@ html, body, button, input, select, textarea, .app-shell {
    ========================================================= */
 @media (min-width: 901px) {
   .app-shell:not(.sidebar-collapsed) {
-    grid-template-columns: 300px minmax(0, 1fr) !important;
+    grid-template-columns: 232px minmax(0, 1fr) !important;
   }
 
   .app-shell:not(.sidebar-collapsed) > .sidebar {
-    width: 300px !important;
-    min-width: 300px !important;
-    max-width: 300px !important;
-    flex-basis: 300px !important;
+    width: 232px !important;
+    min-width: 232px !important;
+    max-width: 232px !important;
+    flex-basis: 232px !important;
     grid-column: 1 !important;
     grid-row: 1 !important;
   }

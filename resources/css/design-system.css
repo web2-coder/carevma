@@ -125,7 +125,7 @@ p { text-wrap: pretty; }
   height: 100dvh;
   min-height: 0;
   display: grid;
-  grid-template-columns: 264px minmax(0, 1fr);
+  grid-template-columns: 232px minmax(0, 1fr);
   gap: 1rem;
   padding: 1rem;
   background: var(--sidebar-background);
@@ -180,8 +180,7 @@ p { text-wrap: pretty; }
   color: var(--ink-soft);
   font-size: .8125rem;
   font-weight: 600;
-  transform: none;
-}
+  transform: none; white-space: nowrap; }
 .nav-link:hover { color: var(--primary); background: var(--primary-soft); border-color: transparent; transform: none; }
 .nav-link.active { color: var(--primary-foreground); background: var(--primary); border-color: transparent; box-shadow: none; }
 .nav-link.active .nav-icon { color: inherit; }
@@ -219,7 +218,7 @@ p { text-wrap: pretty; }
 .topbar-left, .topbar-right { gap: .875rem; }
 .topbar-context span { color: var(--muted-foreground); font-size: .6875rem; letter-spacing: .08em; }
 .topbar-context strong { color: var(--foreground); font-size: .875rem; }
-.content { width: 100%; max-width: 1680px; margin: 0 auto; padding: 1.5rem 1.75rem; }   /* same side inset as the bar, so title and controls share a left line */
+.content { width: 100%; max-width: 1920px; margin: 0 auto; padding: 1.5rem 1.75rem; }   /* same side inset as the bar, so title and controls share a left line */
 
 .icon-btn { width: 40px; height: 40px; border: 1px solid var(--border); border-radius: var(--radius-field); background: var(--card); color: var(--ink-soft); }
 .icon-btn:hover { background: var(--surface-2); color: var(--foreground); }
