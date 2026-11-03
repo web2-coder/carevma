@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { useNavigate, Link, useSearchParams, useParams } from 'react-router-dom';
-import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Box, Check, Eye, EyeOff, Lock, LockKeyhole, Mail, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api, { messageFrom } from '../api';
 import { Button, Input, Notice } from '../components/ui';
 import BrandLogo from '../components/BrandLogo';
 import '../../css/carevma-brand-clock.css';
+
+const TRUST = ['HIPAA Ready', 'SOC-2 Type II Certified', '99.9% High Availability'];
 
 export function LoginPage() {
   const { login } = useAuth(); const navigate = useNavigate();
@@ -13,8 +15,30 @@ export function LoginPage() {
   const [show, setShow] = useState(false); const [error, setError] = useState(''); const [loading, setLoading] = useState(false);
   const submit = async e => { e.preventDefault(); setLoading(true); setError(''); try { const data = await login(form); navigate(data.redirect, { replace: true }); } catch (e) { setError(messageFrom(e)); } finally { setLoading(false); } };
   return <div className="auth-page">
-    <section className="auth-visual"><img className="auth-hero-image" src="/VMA-Hero_Image.jpg" alt="CareVMA virtual medical assistant operations"/><div className="auth-visual-overlay"/><div className="auth-orb orb-one"/><div className="auth-orb orb-two"/><div className="auth-brand"><BrandLogo/></div><div className="auth-hero"><span className="auth-kicker"><ShieldCheck size={16}/> Secure workforce operations</span><h1>One workspace for your people, time, approvals and billing.</h1><p>Run employee schedules, attendance, corrections, overtime reviews and client visibility from a single role-aware platform.</p><div className="auth-stats"><div><strong>4</strong><span>Role portals</span></div><div><strong>1</strong><span>Connected workflow</span></div><div><strong>24/7</strong><span>Operational visibility</span></div></div></div></section>
-    <section className="auth-panel"><div className="login-card"><div className="mobile-brand"><BrandLogo/></div><div className="auth-copy"><span className="eyebrow">Welcome back</span><h2>Sign in to your workspace</h2><p>Your destination is selected automatically based on your role.</p></div>{error && <Notice type="error" onClose={() => setError('')}>{error}</Notice>}<form onSubmit={submit} className="auth-form"><label className="field icon-field"><span>Email address</span><div><Mail size={17}/><input type="email" autoComplete="email" required value={form.email} onChange={e => setForm({...form, email:e.target.value})} placeholder="you@company.com"/></div></label><label className="field icon-field"><span>Password</span><div><LockKeyhole size={17}/><input type={show ? 'text' : 'password'} autoComplete="current-password" required value={form.password} onChange={e => setForm({...form,password:e.target.value})} placeholder="Enter your password"/><button type="button" onClick={() => setShow(v => !v)}>{show ? <EyeOff size={17}/> : <Eye size={17}/>}</button></div></label><div className="auth-row"><label className="check"><input type="checkbox" checked={form.remember} onChange={e => setForm({...form,remember:e.target.checked})}/><span>Keep me signed in</span></label><Link to="/forgot-password">Forgot password?</Link></div><Button loading={loading} className="wide" icon={ArrowRight}>Sign in</Button></form><div className="auth-footnote">Authorized users only · Protected by Laravel session authentication</div></div></section>
+    <section className="auth-visual">
+      <div className="auth-brand"><span className="auth-brand-mark"><Box size={26} strokeWidth={2.2}/></span><span className="auth-brand-name">CARE <em>VMA</em></span><span className="auth-brand-tag">Clinical suite</span></div>
+      <span className="auth-kicker"><ShieldCheck size={16}/> Secure workforce operations</span>
+      <div className="auth-hero">
+        <h1>One workspace for<br/><em>people, time,</em><br/><em className="is-sky">approvals</em><br/>and billing.</h1>
+        <p>Run employee schedules, real-time attendance, shift corrections, overtime approvals, and client visibility directly from a unified, role-aware healthcare platform.</p>
+        <div className="auth-stats"><div><strong>4</strong><span>Role portals</span></div><div><strong>1</strong><span>Connected core</span></div><div><strong>24/7</strong><span>Operational visibility</span></div></div>
+      </div>
+      <div className="auth-trust">{TRUST.map(t => <span key={t}><i><Check size={13} strokeWidth={3}/></i>{t}</span>)}</div>
+    </section>
+    <section className="auth-panel"><div className="login-card">
+      <div className="mobile-brand"><BrandLogo/></div>
+      <div className="auth-copy"><span className="eyebrow">Welcome back</span><h2>Sign in to your workspace</h2><p>Your destination is selected automatically based on your role (VA, Doctor, Administrator).</p></div>
+      {error && <Notice type="error" onClose={() => setError('')}>{error}</Notice>}
+      <a className="auth-google" href="/auth/google/redirect"><img src="/google-symbol.png" alt=""/>Continue with Google Workspace</a>
+      <div className="auth-divider">Or continue with email</div>
+      <form onSubmit={submit} className="auth-form">
+        <label className="field icon-field"><span>Work email address</span><div><Mail size={18}/><input type="email" autoComplete="email" required value={form.email} onChange={e => setForm({...form, email:e.target.value})} placeholder="you@carevma.com"/></div></label>
+        <label className="field icon-field"><span>Password</span><div><LockKeyhole size={18}/><input type={show ? 'text' : 'password'} autoComplete="current-password" required value={form.password} onChange={e => setForm({...form,password:e.target.value})} placeholder="Enter your security password"/><button type="button" onClick={() => setShow(v => !v)} aria-label={show ? 'Hide password' : 'Show password'}>{show ? <EyeOff size={18}/> : <Eye size={18}/>}</button></div></label>
+        <div className="auth-row"><label className="check"><input type="checkbox" checked={form.remember} onChange={e => setForm({...form,remember:e.target.checked})}/><span>Keep me signed in</span></label><Link to="/forgot-password">Forgot password?</Link></div>
+        <Button loading={loading} className="wide">Sign in to Workspace <ArrowRight size={18}/></Button>
+      </form>
+      <div className="auth-footnote"><span><Lock size={14}/> Authorized personnel only • Protected by Laravel session authentication</span><small>256-bit SSL • HIPAA Compliant • Multi-factor Enabled</small></div>
+    </div></section>
   </div>;
 }
 
