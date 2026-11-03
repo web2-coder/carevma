@@ -546,6 +546,10 @@ class AdminApiController extends Controller
                     ->orWhere('employee_code', 'like', "%{$search}%");
             });
         }
+        foreach (['department_id', 'designation_id', 'employee_status_id'] as $column) {
+            if ($request->filled($column)) $query->where($column, $request->integer($column));
+        }
+        if ($request->filled('timezone')) $query->where('timezone', (string) $request->query('timezone'));
         return response()->json($this->sortAndPaginate($request, $query, [
             'id' => 'id', 'employee_code' => 'employee_code', 'first_name' => 'first_name', 'last_name' => 'last_name',
             'email' => 'email', 'timezone' => 'timezone', 'salary_usd' => 'salary_usd', 'created_at' => 'created_at',
