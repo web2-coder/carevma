@@ -787,7 +787,7 @@ export function InvoicesPage(){
   const [createOpen,setCreateOpen]=useState(false);
   const [editOpen,setEditOpen]=useState(false);
   const [busy,setBusy]=useState(false);
-  const [createForm,setCreateForm]=useState(()=>({client_id:'',...latestCompletedBillingCycle()}));
+  const emptyInvoiceForm=()=>({client_id:'',scope:'all',employee_ids:[],...latestCompletedBillingCycle()});const [createForm,setCreateForm]=useState(emptyInvoiceForm);const [assignedVas,setAssignedVas]=useState([]);
   const [editForm,setEditForm]=useState(null);
   const [filters,setFilters]=useState({month:'',year:'',date_from:'',date_to:'',client_id:'',invoice_number:queryParam('search'),status:''});
   const [bulkMonth,setBulkMonth]=useState(''); const [bulkClients,setBulkClients]=useState([]);
@@ -813,13 +813,16 @@ export function InvoicesPage(){
 
   const filterYears=Array.from({length:9},(_,i)=>String(new Date().getFullYear()+2-i));
 
+  const chooseInvoiceClient=async value=>{setCreateForm(f=>({...f,client_id:value,employee_ids:[]}));setAssignedVas([]);if(!value)return;try{const {data}=await api.get('/management/schedules',{params:{client_id:value}});const rows=Array.isArray(data)?data:(data.data||[]);const map=new Map();rows.forEach(s=>{if(s.employee?.id)map.set(String(s.employee.id),s.employee)});setAssignedVas([...map.values()])}catch(e){n.error(messageFrom(e))}};
   const generate=async()=>{
     setBusy(true);
     try{
-      await api.post('/admin/invoices/generate',createForm);
+      if(createForm.scope==='selected'&&!createForm.employee_ids.length){n.error('Select at least one VA.');return}
+      const {scope,employee_ids,...payload}=createForm;
+      await api.post('/admin/invoices/generate',scope==='selected'?{...payload,employee_ids}:payload);
       n.success('Invoice generated as an editable draft.');
       setCreateOpen(false);
-      setCreateForm({client_id:'',...latestCompletedBillingCycle()});
+      setCreateForm(emptyInvoiceForm());
       setPage(1);
       await load(1);
     }catch(e){n.error(messageFrom(e))}finally{setBusy(false)}
@@ -929,7 +932,7 @@ export function InvoicesPage(){
       eyebrow="Client billing"
       title="Invoices"
       description="Billing periods run from the 26th through the 25th of the following month. Drafts auto-generate on the 26th after the cycle closes; invoices generated after the 20th are assigned to the next invoice month."
-      actions={<Button icon={Plus} onClick={()=>{setCreateForm({client_id:'',...latestCompletedBillingCycle()});setCreateOpen(true)}}>Generate invoice</Button>}
+      actions={<Button icon={Plus} onClick={()=>{setCreateForm(emptyInvoiceForm());setAssignedVas([]);setCreateOpen(true)}}>Generate invoice</Button>}
     />
     <Card title="Bulk invoice actions" subtitle="Choose an invoice month and one or more Doctors / Clients. Existing exact-cycle invoices are safely skipped by the server."><div className="form-grid invoice-bulk-grid"><Input label="Invoice month" type="month" value={bulkMonth} onChange={e=>setBulkMonth(e.target.value)}/><SearchableMultiSelect label="Doctors / Clients" values={bulkClients} onChange={setBulkClients} placeholder="Select Doctors / Clients" searchPlaceholder="Search Doctors / Clients…" options={(options.clients||[]).map(x=>({value:String(x.id),label:x.name||x.business_name||x.email,meta:x.timezone||'',searchText:`${x.business_name||''} ${x.email||''}`}))}/><div className="bulk-invoice-actions"><Button loading={busy} onClick={bulkGenerate}>Generate selected</Button><Button loading={busy} variant="secondary" icon={Send} onClick={bulkEmail}>Email selected PDFs</Button></div></div></Card>
     <Card title="Invoice filters" subtitle="Filter invoices by month, year, custom date range, Doctor / Client, invoice number or status. Filters can be combined.">
@@ -948,7 +951,9 @@ export function InvoicesPage(){
 
     <Modal open={createOpen} onClose={()=>setCreateOpen(false)} title="Generate invoice" footer={<><Button variant="ghost" onClick={()=>setCreateOpen(false)}>Cancel</Button><Button loading={busy} onClick={generate}>Generate draft</Button></>}>
       <div className="form-grid one-col">
-        <SearchableSelect label="Client / Doctor *" value={createForm.client_id} onChange={value=>setCreateForm({...createForm,client_id:value})} placeholder="Search and select Doctor" searchPlaceholder="Search Doctor name, business or timezone…" options={(options.clients||[]).map(x=>({value:String(x.id),label:x.name||x.business_name||x.email,meta:x.timezone||'',searchText:`${x.business_name||''} ${x.email||''}`}))}/>
+        <SearchableSelect label="Client / Doctor *" value={createForm.client_id} onChange={chooseInvoiceClient} placeholder="Search and select Doctor" searchPlaceholder="Search Doctor name, business or timezone…" options={(options.clients||[]).map(x=>({value:String(x.id),label:x.name||x.business_name||x.email,meta:x.timezone||'',searchText:`${x.business_name||''} ${x.email||''}`}))}/>
+        {createForm.client_id&&<div className="field"><span>Invoice for</span><div className="invoice-scope"><label className="check"><input type="radio" name="invoice-scope" checked={createForm.scope==='all'} onChange={()=>setCreateForm({...createForm,scope:'all'})}/><span>All assigned VAs ({assignedVas.length})</span></label><label className="check"><input type="radio" name="invoice-scope" checked={createForm.scope==='selected'} onChange={()=>setCreateForm({...createForm,scope:'selected'})}/><span>Selected VAs only</span></label></div></div>}
+        {createForm.client_id&&createForm.scope==='selected'&&<SearchableMultiSelect label="VAs *" values={createForm.employee_ids} onChange={employee_ids=>setCreateForm({...createForm,employee_ids})} placeholder={assignedVas.length?'Select one or more VAs':'No VAs are assigned to this Doctor'} searchPlaceholder="Search VA name or code…" options={assignedVas.map(e=>({value:String(e.id),label:`${e.first_name||''} ${e.last_name||''}`.trim()||e.email,meta:e.employee_code||'',searchText:e.email||''}))}/>}
         <Input label="Start date *" type="date" value={createForm.period_start} onChange={e=>setCreateForm({...createForm,period_start:e.target.value})}/>
         <Input label="End date *" type="date" min={createForm.period_start||undefined} value={createForm.period_end} onChange={e=>setCreateForm({...createForm,period_end:e.target.value})}/>
         <div className="invoice-cycle-hint">Manual invoices can use any custom date range. Automatic billing runs on the 26th → next month 25th cycle. Any invoice generated after the 20th is assigned to the next invoice month.</div>

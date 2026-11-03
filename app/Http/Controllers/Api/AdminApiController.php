@@ -1531,18 +1531,14 @@ class AdminApiController extends Controller
             'client_id' => ['required', 'exists:clients,id'],
             'period_start' => ['required', 'date'],
             'period_end' => ['required', 'date', 'after_or_equal:period_start'],
+            'employee_ids' => ['nullable', 'array', 'min:1'],
+            'employee_ids.*' => ['integer', 'exists:employees,id'],
         ]);
-
-        if (Invoice::where('client_id', $data['client_id'])
-            ->where('period_start', $data['period_start'])
-            ->where('period_end', $data['period_end'])
-            ->exists()) {
-            return response()->json(['message' => 'An invoice already exists for this client and exact billing period.'], 422);
-        }
+        $employeeIds = $data['employee_ids'] ?? null;
 
         $client = Client::findOrFail($data['client_id']);
         try {
-            $invoice = $generator->generate($client, $data['period_start'], $data['period_end'], false);
+            $invoice = $generator->generate($client, $data['period_start'], $data['period_end'], false, $employeeIds);
         } catch (\Throwable $e) {
             Log::error('Manual invoice generation failed', [
                 'client_id' => $client->id,
@@ -1557,7 +1553,8 @@ class AdminApiController extends Controller
         }
 
         if (!$invoice) {
-            return response()->json(['message' => 'No completed, unbilled attendance exists for this client in the selected client-local date range.'], 422);
+            $who = $employeeIds ? 'the selected VAs' : 'this client';
+            return response()->json(['message' => "No completed, unbilled attendance exists for {$who} in the selected client-local date range. VAs already invoiced for these dates are excluded."], 422);
         }
 
         return response()->json([

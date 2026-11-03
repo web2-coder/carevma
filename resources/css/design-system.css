@@ -894,3 +894,8 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
 .day-chip.is-today em { margin-left: .375rem; padding: .0625rem .375rem; border-radius: var(--radius-pill); background: rgba(255, 255, 255, .22); font-style: normal; font-size: .625rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .smart-table tbody tr.is-today td { background: var(--primary-soft); }
 .smart-table tbody tr.is-today td:first-child { box-shadow: inset 3px 0 0 var(--primary); }
+
+/* Generate-invoice modal: VA scope radios */
+.invoice-scope { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; align-items: center; min-height: 41px; }
+.invoice-scope .check { font-size: .8125rem; color: var(--foreground); }
+.invoice-scope input { width: 16px; height: 16px; margin: 0; }

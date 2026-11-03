@@ -26,7 +26,6 @@ class GenerateMonthlyInvoices extends Command
         ClientTimezoneService $timezones,
     ): int {
         $created = collect();
-        $skipped = 0;
         $noBillableAttendance = 0;
         $failed = 0;
         $notDue = 0;
@@ -66,14 +65,8 @@ class GenerateMonthlyInvoices extends Command
             $periodEnd = $cycleEnd->toDateString();
             $periodStart = $cycleEnd->copy()->subMonthNoOverflow()->day(26)->toDateString();
 
-            if (Invoice::where('client_id', $client->id)
-                ->whereDate('period_start', $periodStart)
-                ->whereDate('period_end', $periodEnd)
-                ->exists()) {
-                $skipped++;
-                continue;
-            }
-
+            // No exact-cycle skip here: the generator bills only VAs not yet on an invoice
+            // for these dates, so a partial manual invoice does not strand the rest.
             try {
                 $invoice = $generator->generate($client, $periodStart, $periodEnd, true);
                 if ($invoice) {
@@ -102,7 +95,7 @@ class GenerateMonthlyInvoices extends Command
 
             $message = "Monthly invoice run: {$invoiceCount} draft invoice(s), {$vaCount} VA(s), total $"
                 .number_format($totalAmount, 2)
-                .". {$skipped} duplicate(s) skipped, {$noBillableAttendance} client(s) had no completed unbilled attendance"
+                .". {$noBillableAttendance} client(s) had no completed unbilled attendance"
                 .($failed ? ", {$failed} failed" : '').'. Each client was evaluated in its assigned timezone.';
 
             $admins = User::query()->whereIn('role', ['admin', 'superadmin'])->get();
@@ -124,7 +117,7 @@ class GenerateMonthlyInvoices extends Command
             }
         }
 
-        $this->info("Invoice run complete: {$created->count()} created, {$skipped} duplicate(s), {$noBillableAttendance} without billable attendance, {$notDue} not due, {$failed} failed.");
+        $this->info("Invoice run complete: {$created->count()} created, {$noBillableAttendance} without billable attendance, {$notDue} not due, {$failed} failed.");
         return $failed > 0 ? self::FAILURE : self::SUCCESS;
     }
 }
