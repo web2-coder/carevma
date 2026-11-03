@@ -888,3 +888,9 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
 .live-user-modal-body small { font-size: .75rem; }
 .live-user-modal-body .live-duration-value { font-size: 1.125rem; }
 @media (max-width: 760px) { .live-user-modal-body { grid-template-columns: 1fr; } }
+
+/* VA My schedule: today's shifts stand out. */
+.day-chip.is-today { background: var(--primary); color: var(--primary-foreground); }
+.day-chip.is-today em { margin-left: .375rem; padding: .0625rem .375rem; border-radius: var(--radius-pill); background: rgba(255, 255, 255, .22); font-style: normal; font-size: .625rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.smart-table tbody tr.is-today td { background: var(--primary-soft); }
+.smart-table tbody tr.is-today td:first-child { box-shadow: inset 3px 0 0 var(--primary); }

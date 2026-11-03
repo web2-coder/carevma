@@ -244,6 +244,7 @@ export function Table({
   columns,
   rows,
   rowKey = 'id',
+  rowClassName,
   emptyTitle,
   emptyDescription,
   searchable,
@@ -354,7 +355,7 @@ export function Table({
         onKeyDown={sortable ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); apply(); } } : undefined}>
         {c.label}{sortable && <span className="sort-indicator" aria-hidden="true">{active ? (sort.dir === 'asc' ? '▲' : '▼') : '⇅'}</span>}
       </th>;
-    })}</tr></thead><tbody>{visibleRows.map((row, index) => <tr key={row?.[rowKey] ?? `${currentPage}-${index}`}>{columns.map(c => <td key={c.key} data-label={c.label}>{c.render ? c.render(row) : row?.[c.key] ?? '—'}</td>)}</tr>)}</tbody></table></div> : <EmptyState title="No matching records" description="Change the search or filter to see more results."/>}
+    })}</tr></thead><tbody>{visibleRows.map((row, index) => <tr key={row?.[rowKey] ?? `${currentPage}-${index}`} className={rowClassName?.(row) || undefined}>{columns.map(c => <td key={c.key} data-label={c.label}>{c.render ? c.render(row) : row?.[c.key] ?? '—'}</td>)}</tr>)}</tbody></table></div> : <EmptyState title="No matching records" description="Change the search or filter to see more results."/>}
 
     {useLocalPager && total > effectivePageSize && <div className="smart-table-pagination">
       <span>Showing {from}–{to} of {total}</span>
