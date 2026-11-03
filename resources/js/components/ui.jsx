@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { LoaderCircle, Search, X, CheckCircle2, AlertCircle, ChevronDown, Check } from 'lucide-react';
 import { formatDateTime, formatTime24 } from '../timezone';
 import { emitToast } from '../feedback';
@@ -41,10 +41,11 @@ export function Card({ children, className = '', title, subtitle, actions }) {
   </section>;
 }
 
-export function MetricCard({ label, value, hint, icon: Icon, live = false }) {
+export function MetricCard({ label, value, hint, icon: Icon, live = false, to }) {
   const liveActive = live && Number(value || 0) > 0;
+  const Wrapper = to ? Link : 'div';
 
-  return <div className={`metric-card${live ? ' metric-card-live' : ''}${liveActive ? ' is-live-active' : live ? ' is-live-idle' : ''}`}>
+  return <Wrapper to={to} className={`metric-card${live ? ' metric-card-live' : ''}${liveActive ? ' is-live-active' : live ? ' is-live-idle' : ''}`}>
     <div className="metric-icon">
       {live && <><span className="metric-live-ring metric-live-ring-one"/><span className="metric-live-ring metric-live-ring-two"/></>}
       {Icon && <Icon size={20}/>}
@@ -55,7 +56,7 @@ export function MetricCard({ label, value, hint, icon: Icon, live = false }) {
       <strong key={live ? String(value ?? 0) : 'metric-value'} className={`tabular${live ? ' metric-live-value' : ''}`}>{value ?? '—'}</strong>
       {hint && <small>{hint}</small>}
     </div>
-  </div>;
+  </Wrapper>;
 }
 
 export function Button({ children, variant = 'primary', loading, icon: Icon, className = '', ...props }) {

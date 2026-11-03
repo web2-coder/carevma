@@ -99,16 +99,17 @@ export function ManagementDashboard(){
   const finance=data?.finance||{};
   const financeTrend=Array.isArray(data?.finance_trend)?data.finance_trend:[];
   const financeMax=Math.max(...financeTrend.flatMap(x=>[Number(x.income)||0,Number(x.outgoing)||0]),1);
+  const base=user.role==='hr'?'/hr':'/admin';
 
   return <>
     <PageHeader eyebrow={user.role==='hr'?'Human Resources':'Administration'} title="Operations dashboard" description="Workforce, attendance and billing at a glance." actions={<Button variant="secondary" icon={RefreshCw} onClick={()=>load()}>Refresh</Button>}/>
 
     <div className="metrics-grid">
-      <MetricCard label="Employees" value={m.employees} icon={Users}/>
-      <MetricCard label="Clients" value={m.clients} icon={Stethoscope}/>
-      <MetricCard label="Live employees" value={m.active||0} icon={Activity} live/>
-      <MetricCard label="Pending overtime" value={m.pending_overtime} icon={TimerReset}/>
-      {user.role!=='hr'&&<MetricCard label="Invoices" value={m.invoices} icon={ReceiptText}/>}
+      <MetricCard label="Employees" value={m.employees} icon={Users} to={`${base}/employees`}/>
+      <MetricCard label="Clients" value={m.clients} icon={Stethoscope} to={user.role==='hr'?undefined:'/admin/clients'}/>
+      <MetricCard label="Live employees" value={m.active||0} icon={Activity} live to={`${base}/live-users`}/>
+      <MetricCard label="Pending overtime" value={m.pending_overtime} icon={TimerReset} to={`${base}/overtime`}/>
+      {user.role!=='hr'&&<MetricCard label="Invoices" value={m.invoices} icon={ReceiptText} to="/admin/invoices"/>}
     </div>
 
     {user.role==='admin'&&<Card className="admin-timezone-clocks-card" title="Team time zone clocks" subtitle="Live clocks for every timezone assigned to a VA or Doctor">
