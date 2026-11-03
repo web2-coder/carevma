@@ -9,6 +9,8 @@ export const attDay=(value,tz)=>inZone(value,tz,{month:'short',day:'numeric'});
 export const attDate=(value,tz)=>inZone(value,tz,{weekday:'short',month:'short',day:'numeric'});
 export const tzAbbr=tz=>{try{return new Intl.DateTimeFormat('en-US',{timeZone:tz,timeZoneName:'short'}).formatToParts(new Date()).find(p=>p.type==='timeZoneName')?.value||tz}catch{return tz}};
 export const attZone=r=>r.client_timezone||r.timezone_snapshot||r.client?.timezone||'UTC';
+// "13:31:36", "13:31" or "2026-11-02 13:31:36" -> "1:31 PM"; stored times, not instants, so no timezone.
+export const clock12=v=>{const m=/(\d{1,2}):(\d{2})/.exec(String(v||''));if(!m)return '—';const h=Number(m[1])%24;return `${h%12||12}:${m[2]} ${h>=12?'PM':'AM'}`};
 export const attCity=tz=>String(tz||'UTC').split('/').pop().replaceAll('_',' ');
 export const AttCell=({children,sub,mono=false})=><div className={`att-cell ${mono?'ep-mono':''}`}><span>{children}</span>{sub&&<small>{sub}</small>}</div>;
 export const attendanceColumns=[
