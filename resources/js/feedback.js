@@ -77,8 +77,7 @@ function defaultConfirmation(config) {
 
   if (method === 'post' && (
     /\/profile(?:$|\?)/.test(url) ||
-    /\/review(?:$|\?)/.test(url) ||
-    /\/read-all(?:$|\?)/.test(url)
+    /\/review(?:$|\?)/.test(url)
   )) {
     return {
       title: `Confirm ${resource} update`,
