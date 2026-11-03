@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   Users, Stethoscope, Clock3, TimerReset, ReceiptText, Plus, Pencil, Trash2, RefreshCw,
@@ -11,6 +11,7 @@ import { ClientLink, EmployeeLink, InvoiceLink } from '../recordLinks';
 import { NotificationIcon } from '../notificationIcon';
 import { DEFAULT_TIMEZONE, formatDate, formatDateTime, formatTime as formatTimeInZone, todayInZone, weekdayFromDateOnly } from '../timezone';
 import { useAuth } from '../context/AuthContext';
+import { can } from '../permissions';
 import {
   PageHeader, Card, MetricCard, Button, Input, Select, MaritalStatusSelect, SearchableSelect, SearchableMultiSelect, Textarea, SearchBox, Badge, statusTone,
   EmptyState, Loading, useNotice, Modal, Table, Pagination, money, mins, durationHM, dateTime, AvatarMedia, queryParam
@@ -106,10 +107,10 @@ export function ManagementDashboard(){
 
     <div className="metrics-grid">
       <MetricCard label="Employees" value={m.employees} icon={Users} to={`${base}/employees`}/>
-      <MetricCard label="Clients" value={m.clients} icon={Stethoscope} to={user.role==='hr'?undefined:'/admin/clients'}/>
+      <MetricCard label="Clients" value={m.clients} icon={Stethoscope} to={can(user,'clients')?'/admin/clients':undefined}/>
       <MetricCard label="Live employees" value={m.active||0} icon={Activity} live to={`${base}/live-users`}/>
       <MetricCard label="Pending overtime" value={m.pending_overtime} icon={TimerReset} to={`${base}/overtime`}/>
-      {user.role!=='hr'&&<MetricCard label="Invoices" value={m.invoices} icon={ReceiptText} to="/admin/invoices"/>}
+      {can(user,'invoices')&&<MetricCard label="Invoices" value={m.invoices} icon={ReceiptText} to="/admin/invoices"/>}
     </div>
 
     {user.role==='admin'&&<Card className="admin-timezone-clocks-card" title="Team time zone clocks" subtitle="Live clocks for every timezone assigned to a VA or Doctor">
@@ -126,7 +127,7 @@ export function ManagementDashboard(){
     </Card>}
 
     <div className="dashboard-notice-grid">
-      <Card className={`billing-cycle-card ${billingGenerated?'is-generated':''}`} title="Automatic monthly invoices" subtitle={`${cycleLabel(billing.cycle_start_day)} · drafts generate after the cycle closes`} actions={user.role!=='hr'&&<Link className="btn btn-ghost btn-link" to="/admin/invoice-settings">Settings</Link>}>
+      <Card className={`billing-cycle-card ${billingGenerated?'is-generated':''}`} title="Automatic monthly invoices" subtitle={`${cycleLabel(billing.cycle_start_day)} · drafts generate after the cycle closes`} actions={can(user,'invoice-settings')&&<Link className="btn btn-ghost btn-link" to="/admin/invoice-settings">Settings</Link>}>
         <div className="billing-cycle-status-row">
           <div className="billing-cycle-icon"><ReceiptText size={21}/></div>
           <div className="billing-cycle-copy">
@@ -143,7 +144,7 @@ export function ManagementDashboard(){
         </div>
         <div className="billing-cycle-foot">
           <span>{billingGenerated?`Last auto generation: ${billing.last_generated_at?dateTime(billing.last_generated_at,user?.assigned_timezone):'completed'}`:'CareVMA will generate duplicate-safe editable drafts automatically.'}</span>
-          {user.role!=='hr'&&<Link className="btn btn-secondary btn-link" to="/admin/invoices">Review invoices</Link>}
+          {can(user,'invoices')&&<Link className="btn btn-secondary btn-link" to="/admin/invoices">Review invoices</Link>}
         </div>
       </Card>
 
@@ -164,7 +165,7 @@ export function ManagementDashboard(){
       </Card>
     </div>
 
-    {user.role!=='hr'&&<Card className="dashboard-finance-card" title="Company finance" subtitle="Current month cash position with a six-month income/outgoing trend">
+    {can(user,'company-finance')&&<Card className="dashboard-finance-card" title="Company finance" subtitle="Current month cash position with a six-month income/outgoing trend">
       <div className="dashboard-finance-top">
         <div className="finance-kpi-row">
           <div><span>Money in</span><strong>{money(finance.incoming||0)}</strong></div>
@@ -691,7 +692,7 @@ export function EmployeeProfilePage(){
           <Card title="Assigned clients" subtitle="Derived from this Virtual Assistant's active schedule.">
             {clients.length?<div className="ep-clients">{clients.map(c=><div key={c.id} className="ep-client">
               <span className="avatar client-avatar">{initialsOf(c.name)}</span>
-              <div>{user.role==='hr'?<strong>{c.name}</strong>:<Link to={`/admin/client/${c.id}/profile`}><strong>{c.name}</strong></Link>}<small>{c.business_name||c.timezone||''}</small></div>
+              <div>{can(user,'clients')?<Link to={`/admin/client/${c.id}/profile`}><strong>{c.name}</strong></Link>:<strong>{c.name}</strong>}<small>{c.business_name||c.timezone||''}</small></div>
               <em className="ep-mono">{c.days.size} day(s) · {formatDurationHM(c.hours)} h/week</em>
             </div>)}</div>:<EmptyState title="No clients assigned" description="Add a schedule to assign this VA to a client."/>}
           </Card>
@@ -715,7 +716,7 @@ export function EmployeeProfilePage(){
             <div className="client-va-header-right">
               {tz&&<div className="client-va-timezone"><Clock3 size={15}/><span>{tz}</span></div>}
               <div className="client-va-rate">{formatDurationHM(g.hours)} <small>H.MM</small></div>
-              {user.role!=='hr'&&g.client?.id&&<Link className="btn btn-secondary" to={`/admin/client/${g.client.id}/profile`}>Doctor profile</Link>}
+              {can(user,'clients')&&g.client?.id&&<Link className="btn btn-secondary" to={`/admin/client/${g.client.id}/profile`}>Doctor profile</Link>}
             </div>
           </div>
           {isOpen&&<div id={panelId} className="client-va-panel"><Table columns={employeeScheduleColumns.filter(c=>c.key!=='client')} rows={g.rows}/></div>}
@@ -1197,4 +1198,22 @@ export function InvoiceSettingsPage(){
         </dl>
       </Card>
     </div></>;
+}
+
+export function RolesPermissionsPage(){
+  const [data,setData]=useState(null),[grants,setGrants]=useState({}),[busy,setBusy]=useState(false);const n=useNotice();
+  const load=async()=>{try{const {data}=await api.get('/admin/roles');setData(data);setGrants(data.grants||{})}catch(e){n.error(messageFrom(e))}};
+  useEffect(()=>{load()},[]);
+  if(!data)return <Loading/>;
+  const has=(role,key)=>(grants[role]||[]).includes(key);
+  const toggle=(role,key)=>setGrants(g=>({...g,[role]:has(role,key)?(g[role]||[]).filter(k=>k!==key):[...(g[role]||[]),key]}));
+  const changed=role=>JSON.stringify([...(grants[role]||[])].sort())!==JSON.stringify([...(data.grants?.[role]||[])].sort());
+  const save=async role=>{setBusy(true);try{const {data:res}=await api.put(`/admin/roles/${role}`,{modules:grants[role]||[]});setData(res);setGrants(res.grants||{});n.success(res.message||'Access updated.')}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+  const groups=[...new Set(data.modules.map(m=>m.group))];
+  return <><PageHeader eyebrow="Access control" title="Roles & Permissions" description="Choose which modules each staff role can open. Administrators always have every module; employees and doctors use their own portals."/>
+    <Card title="Module access" subtitle="Tick a module to add it to a role's navigation and API access, then save that role's column.">
+      <div className="table-wrap"><table className="permissions-matrix"><thead><tr><th>Module</th><th>Administrator</th>{data.roles.map(r=><th key={r.key}>{r.label}</th>)}</tr></thead>
+        <tbody>{groups.map(group=><Fragment key={group}><tr className="permissions-group"><td colSpan={2+data.roles.length}>{group}</td></tr>{data.modules.filter(m=>m.group===group).map(m=><tr key={m.key}><td>{m.label}</td><td><span className="permissions-locked"><Check size={15}/> Always</span></td>{data.roles.map(r=><td key={r.key}><label className="check"><input type="checkbox" checked={has(r.key,m.key)} onChange={()=>toggle(r.key,m.key)}/><span>{has(r.key,m.key)?'Allowed':'No access'}</span></label></td>)}</tr>)}</Fragment>)}</tbody>
+        <tfoot><tr><td/><td/>{data.roles.map(r=><td key={r.key}><Button loading={busy} icon={Save} disabled={!changed(r.key)} onClick={()=>save(r.key)}>Save {r.label}</Button></td>)}</tr></tfoot></table></div>
+    </Card></>;
 }

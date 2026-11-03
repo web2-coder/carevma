@@ -19,6 +19,8 @@ import {
 } from 'lucide-react';
 import api, { messageFrom } from '../api';
 import { emitToast } from '../feedback';
+import { useAuth } from '../context/AuthContext';
+import { employeePath } from '../recordLinks';
 import { attendanceColumns, vaColumn } from '../attendanceColumns';
 import {
   Badge,
@@ -146,6 +148,7 @@ export default function ClientProfilePage() {
   const { clientId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
+  const { user: authUser } = useAuth();
   const activeTab = tabFromPath(location.pathname);
 
   const [client, setClient] = useState(null);
@@ -750,7 +753,7 @@ export default function ClientProfilePage() {
               <div className="client-va-header-right">
                 <div className="client-va-timezone"><Clock3 size={15} /><span>{client?.timezone || group.schedules[0]?.client_timezone || group.schedules[0]?.timezone || 'Doctor timezone not set'}</span></div>
                 <div className="client-va-rate">{group.rate !== null && group.rate !== '' ? `${money(group.rate)}/hr` : 'Rate not set'}</div>
-                {group.employee?.id && <Link className="btn btn-secondary" to={`/admin/employees/${group.employee.id}`}>Profile</Link>}
+                {employeePath(authUser?.role, group.employee?.id) && <Link className="btn btn-secondary" to={employeePath(authUser?.role, group.employee.id)}>Profile</Link>}
                 <Button variant="secondary" icon={Plus} onClick={() => openAddSchedule(group.employee?.id)}>Add shift</Button>
               </div>
             </div>

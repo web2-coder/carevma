@@ -917,3 +917,11 @@ a.metric-card:focus-visible { outline: 2px solid var(--primary); outline-offset:
 .invoice-settings-preview div:last-child { padding-bottom: 0; border-bottom: 0; }
 .invoice-settings-preview dt { font-size: .6875rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-foreground); }
 .invoice-settings-preview dd { margin: 0; font-size: .875rem; color: var(--foreground); font-variant-numeric: tabular-nums; }
+
+/* Roles & Permissions matrix */
+.permissions-matrix { min-width: 0; }
+.permissions-matrix th:not(:first-child), .permissions-matrix td:not(:first-child) { width: 9rem; white-space: nowrap; }
+.permissions-matrix tbody tr.permissions-group td { padding: .875rem .8125rem .375rem; font-size: .6875rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-foreground); background: var(--surface-2); }
+.permissions-locked { display: inline-flex; align-items: center; gap: .375rem; color: var(--success); font-weight: 600; font-size: .8125rem; }
+.permissions-matrix .check { font-size: .8125rem; color: var(--foreground); }
+.permissions-matrix tfoot td { padding-top: 1rem; border-top: 1px solid var(--border); }

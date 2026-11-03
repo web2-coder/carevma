@@ -35,6 +35,7 @@ function humanResource(url = '') {
   if (path.includes('clients')) return 'client';
   if (path.includes('schedules')) return 'schedule';
   if (path.includes('invoice-settings')) return 'invoice settings';
+  if (path.includes('/roles/')) return 'role permissions';
   if (path.includes('invoices')) return 'invoice';
   if (path.includes('hr-users')) return 'HR account';
   if (path.includes('references')) return 'configuration item';

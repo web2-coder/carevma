@@ -12,6 +12,7 @@ use App\Models\EmployeeClientSchedule;
 use App\Models\ScheduleChangeRequest;
 use App\Models\Invoice;
 use App\Models\User;
+use App\Services\Modules;
 use App\Services\OperationalNotifier;
 use Closure;
 use Illuminate\Http\Request;
@@ -341,11 +342,11 @@ class OperationalActivityNotifier
         $actorClientId = $actor?->role === 'client' ? $actor->client?->id : null;
 
         if (str_contains($path, 'invoice-settings')) {
-            return $isAdmin ? '/admin/invoice-settings' : null;
+            return Modules::allows($recipient, 'invoice-settings') ? '/admin/invoice-settings' : null;
         }
 
         if (str_contains($path, 'invoices')) {
-            return $isAdmin ? $hl('/admin/invoices', 'invoice') : null;
+            return Modules::allows($recipient, 'invoices') ? $hl('/admin/invoices', 'invoice') : null;
         }
 
         if (str_contains($path, 'schedule-change-requests')) {
@@ -396,7 +397,7 @@ class OperationalActivityNotifier
         }
 
         if (str_contains($path, 'hr-users')) {
-            return $isAdmin ? $hl('/admin/hr-team', 'user') : null;
+            return Modules::allows($recipient, 'hr-team') ? $hl('/admin/hr-team', 'user') : null;
         }
 
         if (str_contains($path, 'employees')) {
@@ -412,11 +413,8 @@ class OperationalActivityNotifier
 
         if (str_contains($path, 'clients')) {
             $clientId = $record && $record[0] === 'client' ? $record[1] : null;
-            return match ($role) {
-                'client' => '/doctor/profile',
-                'admin', 'superadmin' => $clientId ? "/admin/client/{$clientId}/profile" : '/admin/clients',
-                default => null,
-            };
+            if ($role === 'client') return '/doctor/profile';
+            return Modules::allows($recipient, 'clients') ? ($clientId ? "/admin/client/{$clientId}/profile" : '/admin/clients') : null;
         }
 
         if (str_contains($path, 'profile') || str_contains($path, 'account') || str_contains($path, 'password')) {
@@ -428,7 +426,7 @@ class OperationalActivityNotifier
                     default => null,
                 };
             }
-            return $actorClientId && $isAdmin ? "/admin/client/{$actorClientId}/profile" : null;
+            return $actorClientId && Modules::allows($recipient, 'clients') ? "/admin/client/{$actorClientId}/profile" : null;
         }
 
         if (str_contains($path, 'notebook')) {
@@ -442,7 +440,7 @@ class OperationalActivityNotifier
         }
 
         if (str_contains($path, 'company-finance')) {
-            return $isAdmin ? '/admin/company-finance' : null;
+            return Modules::allows($recipient, 'company-finance') ? '/admin/company-finance' : null;
         }
 
         if (preg_match('#references/([a-z-]+)#', $path, $m)) {

@@ -13,6 +13,7 @@ use App\Http\Controllers\Admin\Client\ClientAuthController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\ActivityLogApiController;
 use App\Http\Controllers\Api\InvoiceSettingsController;
+use App\Http\Controllers\Api\RolePermissionsController;
 use App\Http\Middleware\OperationalActivityNotifier;
 
 /*
@@ -40,9 +41,9 @@ Route::prefix('api')->group(function () {
         Route::post('/birthday-popup/seen', [AuthApiController::class, 'markBirthdayPopupSeen']);
 
         Route::middleware('role:admin,hr')->group(function () {
-            Route::get('/notebook', [NotebookApiController::class, 'index']);
-            Route::post('/notebook', [NotebookApiController::class, 'store']);
-            Route::delete('/notebook/{document}', [NotebookApiController::class, 'destroy']);
+            Route::get('/notebook', [NotebookApiController::class, 'index'])->middleware('module:notebook');
+            Route::post('/notebook', [NotebookApiController::class, 'store'])->middleware('module:notebook');
+            Route::delete('/notebook/{document}', [NotebookApiController::class, 'destroy'])->middleware('module:notebook');
         });
         Route::get('/shared-documents', [NotebookApiController::class, 'sharedIndex']);
         Route::get('/shared-documents/{document}/download', [NotebookApiController::class, 'download']);
@@ -58,32 +59,32 @@ Route::prefix('api')->group(function () {
         Route::middleware('role:admin,hr')->prefix('management')->group(function () {
             Route::get('/dashboard', [AdminApiController::class, 'dashboard']);
             Route::get('/invoice-settings', [InvoiceSettingsController::class, 'show']);
-            Route::get('/live-users', [AdminApiController::class, 'liveUsers']);
-            Route::get('/employees', [AdminApiController::class, 'employees']);
-            Route::post('/employees', [AdminApiController::class, 'storeEmployee']);
-            Route::post('/employees/{employee}/resend-invite', [AdminApiController::class, 'resendEmployeeInvitation']);
-            Route::get('/employees/{employee}', [AdminApiController::class, 'employee']);
-            Route::put('/employees/{employee}', [AdminApiController::class, 'updateEmployee']);
-            Route::delete('/employees/{employee}', [AdminApiController::class, 'destroyEmployee']);
+            Route::get('/live-users', [AdminApiController::class, 'liveUsers'])->middleware('module:live-users');
+            Route::get('/employees', [AdminApiController::class, 'employees'])->middleware('module:employees');
+            Route::post('/employees', [AdminApiController::class, 'storeEmployee'])->middleware('module:employees');
+            Route::post('/employees/{employee}/resend-invite', [AdminApiController::class, 'resendEmployeeInvitation'])->middleware('module:employees');
+            Route::get('/employees/{employee}', [AdminApiController::class, 'employee'])->middleware('module:employees');
+            Route::put('/employees/{employee}', [AdminApiController::class, 'updateEmployee'])->middleware('module:employees');
+            Route::delete('/employees/{employee}', [AdminApiController::class, 'destroyEmployee'])->middleware('module:employees');
 
-            Route::get('/schedules', [AdminApiController::class, 'schedules']);
-            Route::post('/schedules', [AdminApiController::class, 'storeSchedule']);
-            Route::post('/schedules/batch', [AdminApiController::class, 'storeScheduleBatch']);
-            Route::put('/schedules/{schedule}', [AdminApiController::class, 'updateSchedule']);
-            Route::delete('/schedules/{schedule}', [AdminApiController::class, 'destroySchedule']);
+            Route::get('/schedules', [AdminApiController::class, 'schedules'])->middleware('module:schedules');
+            Route::post('/schedules', [AdminApiController::class, 'storeSchedule'])->middleware('module:schedules');
+            Route::post('/schedules/batch', [AdminApiController::class, 'storeScheduleBatch'])->middleware('module:schedules');
+            Route::put('/schedules/{schedule}', [AdminApiController::class, 'updateSchedule'])->middleware('module:schedules');
+            Route::delete('/schedules/{schedule}', [AdminApiController::class, 'destroySchedule'])->middleware('module:schedules');
 
-            Route::get('/attendance', [AdminApiController::class, 'attendance']);
-            Route::get('/change-requests', [AdminApiController::class, 'changeRequests']);
-            Route::post('/change-requests/{changeRequest}/review', [AdminApiController::class, 'reviewChangeRequest']);
-            Route::get('/schedule-change-requests', [AdminApiController::class, 'scheduleChangeRequests']);
-            Route::post('/schedule-change-requests/{scheduleChangeRequest}/review', [AdminApiController::class, 'reviewScheduleChangeRequest']);
-            Route::get('/overtime', [AdminApiController::class, 'overtime']);
-            Route::post('/overtime/{attendance}/review', [AdminApiController::class, 'reviewOvertime']);
+            Route::get('/attendance', [AdminApiController::class, 'attendance'])->middleware('module:attendance');
+            Route::get('/change-requests', [AdminApiController::class, 'changeRequests'])->middleware('module:change-requests');
+            Route::post('/change-requests/{changeRequest}/review', [AdminApiController::class, 'reviewChangeRequest'])->middleware('module:change-requests');
+            Route::get('/schedule-change-requests', [AdminApiController::class, 'scheduleChangeRequests'])->middleware('module:change-requests');
+            Route::post('/schedule-change-requests/{scheduleChangeRequest}/review', [AdminApiController::class, 'reviewScheduleChangeRequest'])->middleware('module:change-requests');
+            Route::get('/overtime', [AdminApiController::class, 'overtime'])->middleware('module:overtime');
+            Route::post('/overtime/{attendance}/review', [AdminApiController::class, 'reviewOvertime'])->middleware('module:overtime');
 
-            Route::get('/references/{type}', [AdminApiController::class, 'references']);
-            Route::post('/references/{type}', [AdminApiController::class, 'storeReference']);
-            Route::put('/references/{type}/{id}', [AdminApiController::class, 'updateReference']);
-            Route::delete('/references/{type}/{id}', [AdminApiController::class, 'destroyReference']);
+            Route::get('/references/{type}', [AdminApiController::class, 'references'])->middleware('module:configuration');
+            Route::post('/references/{type}', [AdminApiController::class, 'storeReference'])->middleware('module:configuration');
+            Route::put('/references/{type}/{id}', [AdminApiController::class, 'updateReference'])->middleware('module:configuration');
+            Route::delete('/references/{type}/{id}', [AdminApiController::class, 'destroyReference'])->middleware('module:configuration');
             Route::get('/options', [AdminApiController::class, 'options']);
             Route::get('/fx/pkr-usd', [AdminApiController::class, 'pkrUsdRate']);
 
@@ -92,28 +93,33 @@ Route::prefix('api')->group(function () {
             Route::put('/account/password', [AdminApiController::class, 'changePassword'])->middleware('throttle:6,1');
         });
 
-        Route::middleware('role:admin')->prefix('admin')->group(function () {
-            Route::get('/activity-logs', ActivityLogApiController::class);
-            Route::get('/hr-users', [AdminApiController::class, 'hrUsers']);
-            Route::post('/hr-users', [AdminApiController::class, 'storeHrUser']);
-            Route::put('/hr-users/{user}', [AdminApiController::class, 'updateHrUser']);
-            Route::delete('/hr-users/{user}', [AdminApiController::class, 'destroyHrUser']);
-            Route::get('/clients', [AdminApiController::class, 'clients']);
-            Route::post('/clients', [AdminApiController::class, 'storeClient']);
-            Route::get('/clients/{client}', [AdminApiController::class, 'client']);
-            Route::put('/clients/{client}', [AdminApiController::class, 'updateClient']);
-            Route::delete('/clients/{client}', [AdminApiController::class, 'destroyClient']);
-            Route::post('/clients/{client}/resend-invite', [AdminApiController::class, 'resendClientInvitation']);
-            Route::get('/invoices', [AdminApiController::class, 'invoices']);
-            Route::post('/invoices/generate', [AdminApiController::class, 'generateInvoice']);
-            Route::put('/invoice-settings', [InvoiceSettingsController::class, 'update']);
-            Route::get('/invoices/{invoice}', [AdminApiController::class, 'invoice']);
-            Route::put('/invoices/{invoice}', [AdminApiController::class, 'updateInvoice']);
-            Route::delete('/invoices/{invoice}', [AdminApiController::class, 'destroyInvoice']);
-            Route::post('/invoices/{invoice}/send', [AdminApiController::class, 'sendInvoicePdf']);
-            Route::get('/company-finance', [AdminApiController::class, 'companyFinance']);
-            Route::post('/company-finance/entries', [AdminApiController::class, 'storeCompanyFinanceEntry']);
-            Route::delete('/company-finance/entries/{entry}', [AdminApiController::class, 'destroyCompanyFinanceEntry']);
+        // Every staff role may enter this group; each module checks its own grant (admins hold all).
+        Route::middleware('role:admin,hr')->prefix('admin')->group(function () {
+            Route::middleware('role:admin')->group(function () {
+                Route::get('/roles', [RolePermissionsController::class, 'index']);
+                Route::put('/roles/{role}', [RolePermissionsController::class, 'update']);
+            });
+            Route::get('/activity-logs', ActivityLogApiController::class)->middleware('module:activity-logs');
+            Route::get('/hr-users', [AdminApiController::class, 'hrUsers'])->middleware('module:hr-team');
+            Route::post('/hr-users', [AdminApiController::class, 'storeHrUser'])->middleware('module:hr-team');
+            Route::put('/hr-users/{user}', [AdminApiController::class, 'updateHrUser'])->middleware('module:hr-team');
+            Route::delete('/hr-users/{user}', [AdminApiController::class, 'destroyHrUser'])->middleware('module:hr-team');
+            Route::get('/clients', [AdminApiController::class, 'clients'])->middleware('module:clients');
+            Route::post('/clients', [AdminApiController::class, 'storeClient'])->middleware('module:clients');
+            Route::get('/clients/{client}', [AdminApiController::class, 'client'])->middleware('module:clients');
+            Route::put('/clients/{client}', [AdminApiController::class, 'updateClient'])->middleware('module:clients');
+            Route::delete('/clients/{client}', [AdminApiController::class, 'destroyClient'])->middleware('module:clients');
+            Route::post('/clients/{client}/resend-invite', [AdminApiController::class, 'resendClientInvitation'])->middleware('module:clients');
+            Route::get('/invoices', [AdminApiController::class, 'invoices'])->middleware('module:invoices');
+            Route::post('/invoices/generate', [AdminApiController::class, 'generateInvoice'])->middleware('module:invoices');
+            Route::put('/invoice-settings', [InvoiceSettingsController::class, 'update'])->middleware('module:invoice-settings');
+            Route::get('/invoices/{invoice}', [AdminApiController::class, 'invoice'])->middleware('module:invoices');
+            Route::put('/invoices/{invoice}', [AdminApiController::class, 'updateInvoice'])->middleware('module:invoices');
+            Route::delete('/invoices/{invoice}', [AdminApiController::class, 'destroyInvoice'])->middleware('module:invoices');
+            Route::post('/invoices/{invoice}/send', [AdminApiController::class, 'sendInvoicePdf'])->middleware('module:invoices');
+            Route::get('/company-finance', [AdminApiController::class, 'companyFinance'])->middleware('module:company-finance');
+            Route::post('/company-finance/entries', [AdminApiController::class, 'storeCompanyFinanceEntry'])->middleware('module:company-finance');
+            Route::delete('/company-finance/entries/{entry}', [AdminApiController::class, 'destroyCompanyFinanceEntry'])->middleware('module:company-finance');
         });
 
         Route::middleware('role:employee')->prefix('employee')->group(function () {

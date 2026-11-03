@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\Modules;
 use App\Models\Attendance;
 use App\Models\AttendanceChangeRequest;
 use App\Models\Client;
@@ -35,8 +36,8 @@ class SearchApiController extends Controller
 
         $user = $request->user();
         $groups = match ($user->role) {
-            'admin', 'superadmin' => $this->management($q, '/admin', true),
-            'hr' => $this->management($q, '/hr', false),
+            'admin', 'superadmin' => $this->management($q, '/admin', $user),
+            'hr' => $this->management($q, '/hr', $user),
             'employee' => $this->employee($user, $q),
             'client' => $this->doctor($user, $q),
             default => [],
@@ -47,8 +48,10 @@ class SearchApiController extends Controller
         ]);
     }
 
-    private function management(string $q, string $base, bool $admin): array
+    private function management(string $q, string $base, User $user): array
     {
+        // Admin-only groups keep their /admin links; any staff role granted the module may open them.
+        $admin = Modules::allows($user, 'clients') || Modules::allows($user, 'hr-team') || Modules::allows($user, 'invoices');
         $like = $this->like($q);
         $param = '?search='.rawurlencode($q);
 
@@ -135,7 +138,10 @@ class SearchApiController extends Controller
             "{$base}/notebook"
         )));
 
-        return $groups;
+        // Only the modules this role holds are searchable; a group without a module is for all staff.
+        $moduleFor = ['Employees' => 'employees', 'Clients' => 'clients', 'HR Team' => 'hr-team', 'Invoices' => 'invoices', 'Schedules' => 'schedules', 'Attendance' => 'attendance', 'Change Requests' => 'change-requests', 'Overtime' => 'overtime', 'Notebook' => 'notebook'];
+
+        return array_values(array_filter($groups, fn (array $group) => !isset($moduleFor[$group['module']]) || Modules::allows($user, $moduleFor[$group['module']])));
     }
 
     private function employee(User $user, string $q): array

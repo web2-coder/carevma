@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Services\Modules;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Employee;
@@ -161,6 +162,7 @@ class AuthApiController extends Controller
             'name' => $user->name,
             'email' => $user->email,
             'role' => $user->role,
+            'permissions' => Modules::for($user),
             'profile_picture' => $user->profile_picture,
             'last_seen_at' => optional($user->last_seen_at)->toIso8601String(),
             'employee' => $user->employee,

@@ -1,4 +1,5 @@
 import React from 'react';
+import { can } from './permissions';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -7,7 +8,7 @@ import { Loading } from './components/ui';
 import { LoginPage, ForgotPasswordPage, ResetPasswordPage } from './pages/Login';
 import {
   ManagementDashboard, LiveUsersPage, EmployeesPage, EmployeeProfilePage, ClientsPage, SchedulesPage, AttendancePage,
-  ChangeRequestsPage, OvertimePage, InvoicesPage, CompanyFinancePage, ReferencePage, NotificationsPage, AccountPage, HrTeamPage, ActivityLogsPage, InvoiceSettingsPage
+  ChangeRequestsPage, OvertimePage, InvoicesPage, CompanyFinancePage, ReferencePage, NotificationsPage, AccountPage, HrTeamPage, ActivityLogsPage, InvoiceSettingsPage, RolesPermissionsPage
 } from './pages/Management';
 import { EmployeeDashboard, EmployeeSchedule, EmployeeAttendance, EmployeeProfile, EmployeeSettings } from './pages/Employee';
 import { DoctorDashboard, DoctorEmployeeAttendance, DoctorProfile } from './pages/Doctor';
@@ -33,12 +34,14 @@ function dashboardFor(user) {
   return '/login';
 }
 
-function Protected({ roles, children }) {
+function Protected({ roles, module, children }) {
   const { user, loading } = useAuth();
   const location = useLocation();
   if (loading) return <div className="content"><Loading/></div>;
   if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }}/>;
   if (roles && !roles.includes(user.role) && !(roles.includes('admin') && user.role === 'superadmin')) return <Navigate to={dashboardFor(user)} replace/>;
+  // A module route also needs the grant from Roles & Permissions (admins always have it).
+  if (module && !can(user, module)) return <Navigate to={dashboardFor(user)} replace/>;
   const incompleteEmployee = user.role === 'employee' && (user?.employee?.profile_completed === false || user?.employee?.profile_completed === 0 || user?.employee?.profile_completed === '0');
   if (incompleteEmployee && location.pathname !== '/employee/profile') return <Navigate to="/employee/profile" replace/>;
   return children;
@@ -75,42 +78,43 @@ function AppRoutes() {
 
     <Route element={<Protected roles={['admin','hr']}><AppShell/></Protected>}>
       <Route path="/admin/dashboard" element={<Protected roles={['admin']}><ManagementDashboard/></Protected>}/>
-      <Route path="/admin/live-users" element={<Protected roles={['admin']}><LiveUsersPage/></Protected>}/>
-      <Route path="/admin/activity-logs" element={<Protected roles={['admin']}><ActivityLogsPage/></Protected>}/>
-      <Route path="/admin/invoice-settings" element={<Protected roles={['admin']}><InvoiceSettingsPage/></Protected>}/>
+      <Route path="/admin/live-users" element={<Protected roles={['admin']} module="live-users"><LiveUsersPage/></Protected>}/>
+      <Route path="/admin/activity-logs" element={<Protected roles={['admin','hr']} module="activity-logs"><ActivityLogsPage/></Protected>}/>
+      <Route path="/admin/invoice-settings" element={<Protected roles={['admin','hr']} module="invoice-settings"><InvoiceSettingsPage/></Protected>}/>
+      <Route path="/admin/roles-permissions" element={<Protected roles={['admin']}><RolesPermissionsPage/></Protected>}/>
       <Route path="/hr/dashboard" element={<Protected roles={['hr']}><ManagementDashboard/></Protected>}/>
-      <Route path="/hr/live-users" element={<Protected roles={['hr']}><LiveUsersPage/></Protected>}/>
-      <Route path="/admin/employees" element={<Protected roles={['admin']}><EmployeesPage/></Protected>}/>
-      <Route path="/admin/employees/new" element={<Protected roles={['admin']}><EmployeeWizardPage/></Protected>}/>
-      <Route path="/admin/employees/:employeeId" element={<Protected roles={['admin']}><EmployeeProfilePage/></Protected>}/>
-      <Route path="/admin/hr-team" element={<Protected roles={['admin']}><HrTeamPage/></Protected>}/>
-      <Route path="/hr/employees" element={<Protected roles={['hr']}><EmployeesPage/></Protected>}/>
-      <Route path="/hr/employees/new" element={<Protected roles={['hr']}><EmployeeWizardPage/></Protected>}/>
-      <Route path="/hr/employees/:employeeId" element={<Protected roles={['hr']}><EmployeeProfilePage/></Protected>}/>
-      <Route path="/admin/schedules" element={<Protected roles={['admin']}><SchedulesPage/></Protected>}/>
-      <Route path="/hr/schedules" element={<Protected roles={['hr']}><SchedulesPage/></Protected>}/>
-      <Route path="/admin/attendance" element={<Protected roles={['admin']}><AttendancePage/></Protected>}/>
-      <Route path="/hr/attendance" element={<Protected roles={['hr']}><AttendancePage/></Protected>}/>
-      <Route path="/admin/change-requests" element={<Protected roles={['admin']}><ChangeRequestsPage/></Protected>}/>
-      <Route path="/hr/change-requests" element={<Protected roles={['hr']}><ChangeRequestsPage/></Protected>}/>
-      <Route path="/admin/overtime" element={<Protected roles={['admin']}><OvertimePage/></Protected>}/>
-      <Route path="/hr/overtime" element={<Protected roles={['hr']}><OvertimePage/></Protected>}/>
-      <Route path="/admin/options/:type" element={<Protected roles={['admin']}><ReferencePage/></Protected>}/>
-      <Route path="/hr/options/:type" element={<Protected roles={['hr']}><ReferencePage/></Protected>}/>
+      <Route path="/hr/live-users" element={<Protected roles={['hr']} module="live-users"><LiveUsersPage/></Protected>}/>
+      <Route path="/admin/employees" element={<Protected roles={['admin']} module="employees"><EmployeesPage/></Protected>}/>
+      <Route path="/admin/employees/new" element={<Protected roles={['admin']} module="employees"><EmployeeWizardPage/></Protected>}/>
+      <Route path="/admin/employees/:employeeId" element={<Protected roles={['admin']} module="employees"><EmployeeProfilePage/></Protected>}/>
+      <Route path="/admin/hr-team" element={<Protected roles={['admin','hr']} module="hr-team"><HrTeamPage/></Protected>}/>
+      <Route path="/hr/employees" element={<Protected roles={['hr']} module="employees"><EmployeesPage/></Protected>}/>
+      <Route path="/hr/employees/new" element={<Protected roles={['hr']} module="employees"><EmployeeWizardPage/></Protected>}/>
+      <Route path="/hr/employees/:employeeId" element={<Protected roles={['hr']} module="employees"><EmployeeProfilePage/></Protected>}/>
+      <Route path="/admin/schedules" element={<Protected roles={['admin']} module="schedules"><SchedulesPage/></Protected>}/>
+      <Route path="/hr/schedules" element={<Protected roles={['hr']} module="schedules"><SchedulesPage/></Protected>}/>
+      <Route path="/admin/attendance" element={<Protected roles={['admin']} module="attendance"><AttendancePage/></Protected>}/>
+      <Route path="/hr/attendance" element={<Protected roles={['hr']} module="attendance"><AttendancePage/></Protected>}/>
+      <Route path="/admin/change-requests" element={<Protected roles={['admin']} module="change-requests"><ChangeRequestsPage/></Protected>}/>
+      <Route path="/hr/change-requests" element={<Protected roles={['hr']} module="change-requests"><ChangeRequestsPage/></Protected>}/>
+      <Route path="/admin/overtime" element={<Protected roles={['admin']} module="overtime"><OvertimePage/></Protected>}/>
+      <Route path="/hr/overtime" element={<Protected roles={['hr']} module="overtime"><OvertimePage/></Protected>}/>
+      <Route path="/admin/options/:type" element={<Protected roles={['admin']} module="configuration"><ReferencePage/></Protected>}/>
+      <Route path="/hr/options/:type" element={<Protected roles={['hr']} module="configuration"><ReferencePage/></Protected>}/>
       <Route path="/admin/notifications" element={<Protected roles={['admin']}><NotificationsPage/></Protected>}/>
       <Route path="/hr/notifications" element={<Protected roles={['hr']}><NotificationsPage/></Protected>}/>
       <Route path="/admin/account" element={<Protected roles={['admin']}><AccountPage/></Protected>}/>
       <Route path="/hr/account" element={<Protected roles={['hr']}><AccountPage/></Protected>}/>
-      <Route path="/admin/clients" element={<Protected roles={['admin']}><ClientsPage/></Protected>}/>
-      <Route path="/admin/client/:clientId/profile" element={<Protected roles={['admin']}><ClientProfilePage/></Protected>}/>
-      <Route path="/admin/client/:clientId/profile-timezone" element={<Protected roles={['admin']}><ClientProfilePage/></Protected>}/>
-      <Route path="/admin/client/:clientId/schedule" element={<Protected roles={['admin']}><ClientProfilePage/></Protected>}/>
-      <Route path="/admin/client/:clientId/assign-employee" element={<Protected roles={['admin']}><ClientProfilePage/></Protected>}/>
-      <Route path="/admin/client/:clientId/daily-work-report" element={<Protected roles={['admin']}><ClientProfilePage/></Protected>}/>
-      <Route path="/admin/invoices" element={<Protected roles={['admin']}><InvoicesPage/></Protected>}/>
-      <Route path="/admin/company-finance" element={<Protected roles={['admin']}><CompanyFinancePage/></Protected>}/>
-      <Route path="/admin/notebook" element={<Protected roles={['admin']}><NotebookPage/></Protected>}/>
-      <Route path="/hr/notebook" element={<Protected roles={['hr']}><NotebookPage/></Protected>}/>
+      <Route path="/admin/clients" element={<Protected roles={['admin','hr']} module="clients"><ClientsPage/></Protected>}/>
+      <Route path="/admin/client/:clientId/profile" element={<Protected roles={['admin','hr']} module="clients"><ClientProfilePage/></Protected>}/>
+      <Route path="/admin/client/:clientId/profile-timezone" element={<Protected roles={['admin','hr']} module="clients"><ClientProfilePage/></Protected>}/>
+      <Route path="/admin/client/:clientId/schedule" element={<Protected roles={['admin','hr']} module="clients"><ClientProfilePage/></Protected>}/>
+      <Route path="/admin/client/:clientId/assign-employee" element={<Protected roles={['admin','hr']} module="clients"><ClientProfilePage/></Protected>}/>
+      <Route path="/admin/client/:clientId/daily-work-report" element={<Protected roles={['admin','hr']} module="clients"><ClientProfilePage/></Protected>}/>
+      <Route path="/admin/invoices" element={<Protected roles={['admin','hr']} module="invoices"><InvoicesPage/></Protected>}/>
+      <Route path="/admin/company-finance" element={<Protected roles={['admin','hr']} module="company-finance"><CompanyFinancePage/></Protected>}/>
+      <Route path="/admin/notebook" element={<Protected roles={['admin']} module="notebook"><NotebookPage/></Protected>}/>
+      <Route path="/hr/notebook" element={<Protected roles={['hr']} module="notebook"><NotebookPage/></Protected>}/>
     </Route>
 
     <Route element={<Protected roles={['employee']}><AppShell/></Protected>}>

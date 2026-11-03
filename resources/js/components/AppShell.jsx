@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState, Fragment } from 'react';
+import { can, ADMIN_ROLES } from '../permissions';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, UserRoundCog, CalendarDays, Clock3, FileCheck2, TimerReset,
   ReceiptText, SlidersHorizontal, Bell, UserCircle2, Settings, LogOut, Menu, X, BriefcaseBusiness,
-  Stethoscope, ClipboardList, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, Activity, CircleDollarSign, BookOpenText, ScrollText, Settings2
+  Stethoscope, ClipboardList, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, Activity, CircleDollarSign, BookOpenText, ScrollText, Settings2, ShieldCheck
 } from 'lucide-react';
 import { NotificationIcon } from '../notificationIcon';
 import { useAuth } from '../context/AuthContext';
@@ -31,56 +32,47 @@ function profileIncomplete(user) {
   return value === false || value === 0 || value === '0';
 }
 
+const ADMIN_CONFIG = [
+  ['Departments','departments'], ['Roles','roles'], ['Employment Types','employment-types'],
+  ['Shift Types','shift-types'], ['Designations','designations'], ['Employee Status','employee-statuses'],
+  ['Expertise','expertises'], ['Reporting Managers','reporting-managers'], ['Services','services'], ['Contract Types','contracts'],
+];
+const HR_CONFIG = ADMIN_CONFIG.filter(([, slug]) => !['services', 'contracts'].includes(slug));
+
+// Staff navigation is driven by module grants (Roles & Permissions). Shared modules live under the
+// role's own prefix; admin-only modules keep their /admin paths and appear for any role granted them.
+function staffNav(user) {
+  const admin = ADMIN_ROLES.includes(user.role);
+  const base = admin ? '/admin' : '/hr';
+  const allow = module => can(user, module);
+  return [
+    { group: 'Overview', label: 'Dashboard', to: `${base}/dashboard`, icon: LayoutDashboard },
+    allow('live-users') && { group: 'Overview', label: 'Live Workforce', to: `${base}/live-users`, icon: Activity },
+    allow('employees') && { group: 'People', label: 'Employees', to: `${base}/employees`, icon: Users },
+    allow('hr-team') && { group: 'People', label: 'HR Team', to: '/admin/hr-team', icon: UserRoundCog },
+    allow('clients') && { group: 'People', label: 'Clients', to: '/admin/clients', icon: Stethoscope },
+    allow('schedules') && { group: 'Time', label: 'Schedules', to: `${base}/schedules`, icon: CalendarDays },
+    allow('attendance') && { group: 'Time', label: 'Attendance', to: `${base}/attendance`, icon: Clock3 },
+    allow('change-requests') && { group: 'Time', label: 'Change Requests', to: `${base}/change-requests`, icon: FileCheck2 },
+    allow('overtime') && { group: 'Time', label: 'Overtime Review', to: `${base}/overtime`, icon: TimerReset },
+    allow('invoices') && { group: 'Billing', label: 'Invoices', to: '/admin/invoices', icon: ReceiptText },
+    allow('company-finance') && { group: 'Billing', label: 'Company Finance', to: '/admin/company-finance', icon: CircleDollarSign },
+    allow('invoice-settings') && { group: 'Billing', label: 'Invoice Settings', to: '/admin/invoice-settings', icon: Settings2 },
+    allow('notebook') && { group: 'Documents', label: 'Notebook', to: `${base}/notebook`, icon: BookOpenText },
+    allow('activity-logs') && { group: 'Logs', label: 'Activity Logs', to: '/admin/activity-logs', icon: ScrollText },
+    allow('configuration') && {
+      group: 'Setup', label: admin ? 'Configuration' : 'HR Configuration', icon: SlidersHorizontal,
+      children: (admin ? ADMIN_CONFIG : HR_CONFIG).map(([label, slug]) => ({ label, to: `${base}/options/${slug}` })),
+    },
+    admin && { group: 'Setup', label: 'Roles & Permissions', to: '/admin/roles-permissions', icon: ShieldCheck },
+    { group: 'Account', label: 'Notifications', to: `${base}/notifications`, icon: Bell },
+    { group: 'Account', label: 'My Account', to: `${base}/account`, icon: UserCircle2 },
+  ].filter(Boolean);
+}
+
 function navFor(user) {
   if (!user) return [];
-  if (['admin', 'superadmin'].includes(user.role)) {
-    return [
-      { group: 'Overview', label: 'Dashboard', to: '/admin/dashboard', icon: LayoutDashboard },
-      { group: 'Overview', label: 'Live Workforce', to: '/admin/live-users', icon: Activity },
-      { group: 'People', label: 'Employees', to: '/admin/employees', icon: Users },
-      { group: 'People', label: 'HR Team', to: '/admin/hr-team', icon: UserRoundCog },
-      { group: 'People', label: 'Clients', to: '/admin/clients', icon: Stethoscope },
-      { group: 'Time', label: 'Schedules', to: '/admin/schedules', icon: CalendarDays },
-      { group: 'Time', label: 'Attendance', to: '/admin/attendance', icon: Clock3 },
-      { group: 'Time', label: 'Change Requests', to: '/admin/change-requests', icon: FileCheck2 },
-      { group: 'Time', label: 'Overtime Review', to: '/admin/overtime', icon: TimerReset },
-      { group: 'Billing', label: 'Invoices', to: '/admin/invoices', icon: ReceiptText },
-      { group: 'Billing', label: 'Company Finance', to: '/admin/company-finance', icon: CircleDollarSign },
-      { group: 'Billing', label: 'Invoice Settings', to: '/admin/invoice-settings', icon: Settings2 },
-      { group: 'Documents', label: 'Notebook', to: '/admin/notebook', icon: BookOpenText },
-      { group: 'Logs', label: 'Activity Logs', to: '/admin/activity-logs', icon: ScrollText },
-      {
-        group: 'Setup', label: 'Configuration', icon: SlidersHorizontal, children: [
-          ['Departments','departments'], ['Roles','roles'], ['Employment Types','employment-types'],
-          ['Shift Types','shift-types'], ['Designations','designations'], ['Employee Status','employee-statuses'],
-          ['Expertise','expertises'], ['Reporting Managers','reporting-managers'], ['Services','services'], ['Contract Types','contracts'],
-        ].map(([label, slug]) => ({ label, to: `/admin/options/${slug}` })),
-      },
-      { group: 'Account', label: 'Notifications', to: '/admin/notifications', icon: Bell },
-      { group: 'Account', label: 'My Account', to: '/admin/account', icon: UserCircle2 },
-    ];
-  }
-  if (user.role === 'hr') {
-    return [
-      { group: 'Overview', label: 'Dashboard', to: '/hr/dashboard', icon: LayoutDashboard },
-      { group: 'Overview', label: 'Live Workforce', to: '/hr/live-users', icon: Activity },
-      { group: 'People', label: 'Employees', to: '/hr/employees', icon: Users },
-      { group: 'Time', label: 'Schedules', to: '/hr/schedules', icon: CalendarDays },
-      { group: 'Time', label: 'Attendance', to: '/hr/attendance', icon: Clock3 },
-      { group: 'Time', label: 'Change Requests', to: '/hr/change-requests', icon: FileCheck2 },
-      { group: 'Time', label: 'Overtime Review', to: '/hr/overtime', icon: TimerReset },
-      { group: 'Documents', label: 'Notebook', to: '/hr/notebook', icon: BookOpenText },
-      {
-        group: 'Setup', label: 'HR Configuration', icon: SlidersHorizontal, children: [
-          ['Departments','departments'], ['Roles','roles'], ['Employment Types','employment-types'],
-          ['Shift Types','shift-types'], ['Designations','designations'], ['Employee Status','employee-statuses'],
-          ['Expertise','expertises'], ['Reporting Managers','reporting-managers'],
-        ].map(([label, slug]) => ({ label, to: `/hr/options/${slug}` })),
-      },
-      { group: 'Account', label: 'Notifications', to: '/hr/notifications', icon: Bell },
-      { group: 'Account', label: 'My Account', to: '/hr/account', icon: UserCircle2 },
-    ];
-  }
+  if ([...ADMIN_ROLES, 'hr'].includes(user.role)) return staffNav(user);
   if (user.role === 'employee') {
     if (profileIncomplete(user)) {
       return [
