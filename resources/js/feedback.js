@@ -47,6 +47,12 @@ function humanResource(url = '') {
 
 export function confirmationForRequest(config = {}) {
   if (config.carevmaConfirm === false || config.carevmaConfirmed === true) return null;
+  const base = defaultConfirmation(config);
+  // A request may refine the generic wording: api.delete(url, { carevmaConfirm: { message } }).
+  return base && typeof config.carevmaConfirm === 'object' ? { ...base, ...config.carevmaConfirm } : base;
+}
+
+function defaultConfirmation(config) {
   const method = String(config.method || 'get').toLowerCase();
   const url = String(config.url || '');
   const resource = humanResource(url);

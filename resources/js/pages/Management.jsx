@@ -905,10 +905,9 @@ export function InvoicesPage(){
   };
 
   const removeInvoice=async invoice=>{
-    if(!window.confirm(`Delete ${invoice.invoice_number}? This will remove its salary lines and adjustments.`))return;
     setBusy(true);
     try{
-      await api.delete(`/admin/invoices/${invoice.id}`);
+      await api.delete(`/admin/invoices/${invoice.id}`,{carevmaConfirm:{message:`Delete invoice ${invoice.invoice_number}? Its salary lines and adjustments are removed too. This action cannot be undone.`}});
       n.success('Invoice deleted.');
       const targetPage=rows.length===1&&page>1?page-1:page;
       if(targetPage!==page)setPage(targetPage);else await load(targetPage);
