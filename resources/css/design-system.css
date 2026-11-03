@@ -871,6 +871,7 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
 
 /* Employee profile: schedule tab grouped by Doctor, reusing the client-profile VA accordion. */
 .ep-section-head { margin: 0 0 1rem; }
-.ep-doctor-groups { display: grid; gap: 1rem; }
+.ep-doctor-groups { display: grid; gap: .75rem; }
+.ep-doctor-groups > .card { margin: 0; }
 .ep-doctor-groups .client-va-rate small { font-size: .75rem; font-weight: 600; color: var(--muted-foreground); }
 .ep-doctor-groups .client-va-panel { padding: .25rem .75rem .75rem; }
