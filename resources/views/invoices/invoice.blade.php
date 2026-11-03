@@ -99,7 +99,7 @@
                 $rate = isset($clientEmployeeRates[$salary->employee_id]) ? $clientEmployeeRates[$salary->employee_id]->per_hour_rate : 0;
                 $attendanceRows = $salary->employee->attendances;
                 $regularMinutes = max(0, (int) $attendanceRows->sum('total_minutes'));
-                $approvedOtMinutes = max(0, (int) $attendanceRows->sum('approved_overtime_minutes'));
+                $approvedOtMinutes = (int) $attendanceRows->where('overtime_status', 'approved')->sum(fn ($a) => min(max(0, (int) $a->approved_overtime_minutes), max(0, (int) $a->overtime)));
                 $payableMinutes = $regularMinutes + $approvedOtMinutes;
                 $formatMinutes = function (int $minutes): string {
                     $minutes = max(0, $minutes);
@@ -200,7 +200,7 @@
                     return $hours > 0 ? sprintf('%dh %02dm', $hours, $mins) : sprintf('%dm', $mins);
                 };
                 $regularTotal = max(0, (int) $salary->employee->attendances->sum('total_minutes'));
-                $approvedOtTotal = max(0, (int) $salary->employee->attendances->sum('approved_overtime_minutes'));
+                $approvedOtTotal = (int) $salary->employee->attendances->where('overtime_status', 'approved')->sum(fn ($a) => min(max(0, (int) $a->approved_overtime_minutes), max(0, (int) $a->overtime)));
                 $payableTotal = $regularTotal + $approvedOtTotal;
             @endphp
             <h4 style="background:#f2f2f2;padding:8px;margin-top:20px;">
@@ -281,29 +281,13 @@
                                 return $start.' - '.$end;
                             })->implode(', ');
 
-                            // "Total Hours" represents the scheduled payable shift length,
-                            // not the minutes actually worked. Example: 9 AM-6 PM with a
-                            // 1 hour allowed break = 8h scheduled total.
-                            $scheduledTotalMinutes = $daySchedules->sum(function ($schedule) use ($displayDate, $clientTimezone) {
-                                $timezone = $schedule->timezone ?: $clientTimezone;
-                                $start = \Carbon\Carbon::parse($displayDate->format('Y-m-d').' '.$schedule->start_time, $timezone);
-                                $end = \Carbon\Carbon::parse($displayDate->format('Y-m-d').' '.$schedule->end_time, $timezone);
-                                if ($end->lte($start)) {
-                                    $end->addDay();
-                                }
-                                $grossMinutes = max(0, $start->diffInMinutes($end));
-                                $breakRaw = number_format(max(0, (float) ($schedule->break_allowed_hours ?? 0)), 2, '.', '');
-                                [$breakHours, $breakMins] = array_pad(explode('.', $breakRaw, 2), 2, '00');
-                                $allowedBreakMinutes = ((int) $breakHours * 60) + min(59, max(0, (int) $breakMins));
-                                return max(0, $grossMinutes - $allowedBreakMinutes);
-                            });
                         @endphp
                         <tr>
                             <td>{{ $displayDate->format('d-M-Y') }}</td>
                             <td>{{ $dayName }}</td>
                             <td style="font-weight:700;">ABSENT</td>
                             <td>{{ $shiftLabel ?: '-' }}</td>
-                            <td>-</td><td>-</td><td>-</td><td>{{ $formatAttendanceMinutes($scheduledTotalMinutes) }}</td><td>0m</td><td>0m</td>
+                            <td>-</td><td>-</td><td>-</td><td>0m</td><td>0m</td><td>0m</td>
                         </tr>
                     @else
                         @foreach($dayAttendances as $attendance)
@@ -318,29 +302,16 @@
                                 $regularMinutes = max(0, (int) ($attendance->total_minutes ?? 0));
                                 $overtimeMinutes = max(0, (int) ($attendance->overtime ?? 0));
                                 $approvedMinutes = max(0, (int) ($attendance->approved_overtime_minutes ?? 0));
-                                $payableMinutes = $regularMinutes + ($attendance->overtime_status === 'approved' ? $approvedMinutes : 0);
+                                // Only approved overtime is billed, capped at the recorded overtime like the generator.
+                                $countedOvertimeMinutes = $attendance->overtime_status === 'approved' ? min($approvedMinutes, $overtimeMinutes) : 0;
+                                $payableMinutes = $regularMinutes + $countedOvertimeMinutes;
+                                $overtimeLabel = $formatAttendanceMinutes($countedOvertimeMinutes)
+                                    .($attendance->overtime_status === 'pending' && $overtimeMinutes > 0 ? ' ('.$formatAttendanceMinutes($overtimeMinutes).' pending)' : '');
                                 $shiftStartLocal = $attendance->shift_start_snapshot ? \Carbon\Carbon::parse($attendance->shift_start_snapshot)->setTimezone($timezone) : null;
                                 $shiftEndLocal = $attendance->shift_end_snapshot ? \Carbon\Carbon::parse($attendance->shift_end_snapshot)->setTimezone($timezone) : null;
                                 $matchedSchedule = $daySchedules->first(function ($schedule) use ($attendance) {
                                     return !empty($attendance->schedule_id) && (int) $schedule->id === (int) $attendance->schedule_id;
                                 }) ?: $daySchedules->first();
-
-                                // Total Hours on a PRESENT row represents the scheduled shift
-                                // duration minus the ASSIGNED break allowance for that shift.
-                                // It is not the actual worked duration.
-                                // Example: 17:00-19:00 with a 30m assigned break => 1h 30m.
-                                $scheduledGrossMinutes = 0;
-                                if ($shiftStartLocal && $shiftEndLocal) {
-                                    $scheduledGrossMinutes = max(0, $shiftStartLocal->diffInMinutes($shiftEndLocal));
-                                } elseif ($matchedSchedule) {
-                                    $scheduleTimezone = $matchedSchedule->timezone ?: $timezone;
-                                    $scheduledStart = \Carbon\Carbon::parse($displayDate->format('Y-m-d').' '.$matchedSchedule->start_time, $scheduleTimezone);
-                                    $scheduledEnd = \Carbon\Carbon::parse($displayDate->format('Y-m-d').' '.$matchedSchedule->end_time, $scheduleTimezone);
-                                    if ($scheduledEnd->lte($scheduledStart)) {
-                                        $scheduledEnd->addDay();
-                                    }
-                                    $scheduledGrossMinutes = max(0, $scheduledStart->diffInMinutes($scheduledEnd));
-                                }
 
                                 $assignedBreakMinutes = 0;
                                 if (!empty($attendance->break_limit)) {
@@ -358,8 +329,6 @@
                                 // Examples: 30m allowed + 10m taken => 30m; 30m allowed + 37m taken => 37m.
                                 $breakMinutes = max($assignedBreakMinutes, $actualBreakMinutes);
 
-                                $scheduledTotalMinutes = max(0, $scheduledGrossMinutes - $assignedBreakMinutes);
-
                                 $shiftLabel = ($shiftStartLocal && $shiftEndLocal)
                                     ? $shiftStartLocal->format('h:i A').' - '.$shiftEndLocal->format('h:i A')
                                     : $daySchedules->map(function ($schedule) {
@@ -374,8 +343,8 @@
                                 <td>{{ $clockIn }}</td>
                                 <td>{{ $clockOut }}</td>
                                 <td>{{ $formatAttendanceMinutes($breakMinutes) }}</td>
-                                <td>{{ $formatAttendanceMinutes($scheduledTotalMinutes) }}</td>
-                                <td>{{ $formatAttendanceMinutes($overtimeMinutes) }}</td>
+                                <td>{{ $formatAttendanceMinutes($regularMinutes) }}</td>
+                                <td>{{ $overtimeLabel }}</td>
                                 <td>{{ $formatAttendanceMinutes($payableMinutes) }}</td>
                             </tr>
                         @endforeach
