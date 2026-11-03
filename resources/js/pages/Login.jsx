@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link, useSearchParams, useParams } from 'react-router-dom';
-import { ArrowRight, Check, Eye, EyeOff, Lock, LockKeyhole, Mail, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Check, Eye, EyeOff, Lock, LockKeyhole, Mail } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api, { messageFrom } from '../api';
 import { Button, Input, Notice } from '../components/ui';
@@ -18,7 +18,6 @@ export function LoginPage() {
     <section className="auth-visual">
       <img className="auth-hero-image" src="/VMA-Hero_Image.jpg" alt=""/><div className="auth-visual-overlay"/>
       <div className="auth-brand"><span className="auth-brand-plate"><BrandLogo/></span><span className="auth-brand-tag">Clinical suite</span></div>
-      <span className="auth-kicker"><ShieldCheck size={16}/> Secure workforce operations</span>
       <div className="auth-hero">
         <h1>One workspace for<br/><em>people, time,</em><br/><em className="is-sky">approvals</em><br/>and billing.</h1>
         <p>Run employee schedules, real-time attendance, shift corrections, overtime approvals, and client visibility directly from a unified, role-aware healthcare platform.</p>
@@ -36,7 +35,7 @@ export function LoginPage() {
         <div className="auth-row"><label className="check"><input type="checkbox" checked={form.remember} onChange={e => setForm({...form,remember:e.target.checked})}/><span>Keep me signed in</span></label><Link to="/forgot-password">Forgot password?</Link></div>
         <Button loading={loading} className="wide">Sign in to Workspace <ArrowRight size={18}/></Button>
       </form>
-      <div className="auth-footnote"><span><Lock size={14}/> Authorized personnel only • Protected by Laravel session authentication</span><small>256-bit SSL • HIPAA Compliant • Multi-factor Enabled</small></div>
+      <div className="auth-footnote"><span><Lock size={14}/> Authorized personnel only</span></div>
     </div></section>
   </div>;
 }

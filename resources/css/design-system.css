@@ -824,9 +824,6 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
 .auth-brand-plate { display: inline-flex; align-items: center; padding: .5rem .875rem; border-radius: 12px; background: #fff; box-shadow: 0 10px 28px rgba(0, 0, 0, .35); }
 .auth-brand .carevma-brand-logo img { width: 150px; }
 .auth-brand-tag { margin-left: .5rem; padding: .375rem .875rem; border: 1px solid rgba(79, 200, 244, .35); border-radius: var(--radius-pill); background: rgba(79, 200, 244, .08); color: var(--auth-cyan); font-size: .6875rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-.auth-kicker { align-self: flex-start; margin-top: 2rem; padding: .625rem 1.125rem; border-color: rgba(255, 255, 255, .12); background: rgba(255, 255, 255, .04); color: #e6edf7; font-size: .75rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; backdrop-filter: none; }
-.auth-kicker::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--auth-cyan); box-shadow: 0 0 10px var(--auth-cyan); }
-.auth-kicker svg { color: var(--auth-cyan); }
 .auth-hero { margin: clamp(2rem, 6vh, 6rem) 0 2rem; max-width: 760px; }
 .auth-hero h1 { margin: 0 0 1.5rem; font-family: inherit; font-size: clamp(2.75rem, 4.6vw, 4.5rem); font-weight: 800; line-height: 1.02; letter-spacing: -.045em; color: #fff; text-shadow: none; }
 .auth-hero h1 em { font-style: normal; color: var(--auth-cyan); }
@@ -865,7 +862,6 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
 .auth-form .btn.wide:hover { background: #1843bf; }
 .auth-footnote { display: grid; gap: .375rem; margin-top: 1.75rem; padding-top: 1.5rem; border-top: 1px solid var(--border); color: var(--muted-foreground); font-size: .8125rem; text-align: center; }
 .auth-footnote > span { display: flex; align-items: center; justify-content: center; gap: .5rem; }
-.auth-footnote small { font-size: .75rem; }
 @media (max-width: 1200px) { .auth-visual { padding: 3.5rem 3rem 2.75rem; } .auth-page { grid-template-columns: minmax(0, 1.1fr) minmax(420px, .9fr); } }
 @media (max-width: 900px) { .auth-page { grid-template-columns: 1fr; } .auth-visual { display: none; } .auth-panel { align-content: center; } }
 @media (max-width: 620px) { .auth-panel { padding: 2rem 1.25rem; } .auth-copy h2 { font-size: 1.75rem; } }
