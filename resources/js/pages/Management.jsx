@@ -981,7 +981,7 @@ export function InvoicesPage(){
         </div>
 
         <Card title="Bonus / Allowance / Deduction" subtitle="Optional manual adjustments. Attendance salary stays unchanged and adjustments are shown separately on the invoice PDF.">
-          <div className="row-actions" style={{marginBottom:12}}><Button type="button" variant="secondary" icon={Plus} onClick={addAdjustment}>Add adjustment</Button></div>
+          <div style={{marginBottom:12}}><Button type="button" variant="secondary" icon={Plus} onClick={addAdjustment}>Add adjustment</Button></div>
           {(editForm.adjustments||[]).length===0?<div className="muted">No manual adjustments added.</div>:
             <div className="invoice-edit-list">{editForm.adjustments.map((item,index)=><div key={`adj-${index}`} className="card" style={{padding:14}}>
               <div className="form-grid two-col">
