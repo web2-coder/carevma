@@ -898,4 +898,6 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
 /* Generate-invoice modal: VA scope radios */
 .invoice-scope { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; align-items: center; min-height: 41px; }
 .invoice-scope .check { font-size: .8125rem; color: var(--foreground); }
-.invoice-scope input { width: 16px; height: 16px; margin: 0; }
+.invoice-scope input { width: 16px; height: 16px; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 50%; box-shadow: none; }
+.invoice-scope input:focus { box-shadow: none; }
+.invoice-scope input:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
