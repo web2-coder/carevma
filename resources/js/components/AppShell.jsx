@@ -5,6 +5,7 @@ import {
   ReceiptText, SlidersHorizontal, Bell, UserCircle2, Settings, LogOut, Menu, X, BriefcaseBusiness,
   Stethoscope, ClipboardList, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, Activity, CircleDollarSign, BookOpenText
 } from 'lucide-react';
+import { NotificationIcon } from '../notificationIcon';
 import { useAuth } from '../context/AuthContext';
 import api from '../api';
 import { subscribeToCareVmaNotifications } from '../pusher';
@@ -337,7 +338,7 @@ export default function AppShell() {
     </aside>
     <div className="app-main">
       {realtimeNotice && <div className="realtime-toast" role="status" aria-live="polite">
-        <div className="realtime-toast-icon"><Bell size={18}/></div>
+        <div className="realtime-toast-icon"><NotificationIcon row={realtimeNotice} size={18}/></div>
         <button type="button" className="realtime-toast-body" onClick={() => { if (realtimeNotice.action_url) navigate(realtimeNotice.action_url); setRealtimeNotice(null); }}>
           <strong>{realtimeNotice.title || 'CareVMA notification'}</strong>
           <span>{realtimeNotice.message || 'A new update is available.'}</span>
@@ -370,7 +371,7 @@ export default function AppShell() {
               </div>
               <div className="notification-dropdown-body">
                 {notificationLoading ? <div className="notification-dropdown-state">Loading notifications…</div> : notificationRows.length ? notificationRows.slice(0,8).map(row => <button type="button" key={row.id} className={`notification-dropdown-item ${row.is_read ? '' : 'unread'}`} onClick={() => openNotification(row)}>
-                  <span className="notification-dropdown-icon"><Bell size={15}/></span>
+                  <span className="notification-dropdown-icon"><NotificationIcon row={row} size={15}/></span>
                   <span className="notification-dropdown-copy"><strong>{row.title || row.type || 'Notification'}</strong><span>{row.message || 'A CareVMA update is available.'}</span><small>{formatNotificationTime(row.created_at)}</small></span>
                   {!row.is_read && <i aria-label="Unread"/>}
                 </button>) : <div className="notification-dropdown-state"><Bell size={21}/><strong>No notifications</strong><span>New activity will appear here.</span></div>}

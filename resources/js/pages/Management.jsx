@@ -8,6 +8,7 @@ import {
 import api, { messageFrom } from '../api';
 import { attendanceColumns, vaColumn, AttCell, attCity, tzAbbr } from '../attendanceColumns';
 import { ClientLink, EmployeeLink, InvoiceLink } from '../recordLinks';
+import { NotificationIcon } from '../notificationIcon';
 import { DEFAULT_TIMEZONE, formatDate, formatDateTime, formatTime as formatTimeInZone, todayInZone, weekdayFromDateOnly } from '../timezone';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -1090,7 +1091,7 @@ export function ReferencePage(){
 
 export function NotificationsPage(){
  const [rows,setRows]=useState([]),[busy,setBusy]=useState(false);const n=useNotice();const load=async()=>{setBusy(true);try{setRows((await api.get('/notifications')).data.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};useEffect(()=>{load()},[]);const read=async()=>{try{await api.post('/notifications/read-all');n.success('All notifications marked as read.');load()}catch(e){n.error(messageFrom(e))}};
- return <><PageHeader eyebrow="Activity center" title="Notifications" description="System events and operational updates." actions={<Button variant="secondary" icon={Check} onClick={read}>Mark all read</Button>}/><Card>{rows.length?<div className="notification-list">{rows.map(r=><div className={`notification-item ${r.is_read?'':'unread'}`} key={r.id}><div className="notification-icon"><Bell size={17}/></div><div><strong>{r.title||r.type||'Notification'}</strong><p>{r.message||(typeof r.data==='object'?(r.data.message||r.data.text||JSON.stringify(r.data)):String(r.data||''))}</p><span>{dateTime(r.created_at)}</span>{r.action_url&&<Link className="notification-action" to={r.action_url}>Open</Link>}</div>{!r.is_read&&<i/>}</div>)}</div>:<EmptyState title="No notifications"/>}</Card></>;
+ return <><PageHeader eyebrow="Activity center" title="Notifications" description="System events and operational updates." actions={<Button variant="secondary" icon={Check} onClick={read}>Mark all read</Button>}/><Card>{rows.length?<div className="notification-list">{rows.map(r=><div className={`notification-item ${r.is_read?'':'unread'}`} key={r.id}><div className="notification-icon"><NotificationIcon row={r} size={17}/></div><div><strong>{r.title||r.type||'Notification'}</strong><p>{r.message||(typeof r.data==='object'?(r.data.message||r.data.text||JSON.stringify(r.data)):String(r.data||''))}</p><span>{dateTime(r.created_at)}</span>{r.action_url&&<Link className="notification-action" to={r.action_url}>Open</Link>}</div>{!r.is_read&&<i/>}</div>)}</div>:<EmptyState title="No notifications"/>}</Card></>;
 }
 
 export function AccountPage(){
