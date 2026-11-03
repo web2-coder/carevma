@@ -9,6 +9,7 @@ use App\Models\Client;
 use App\Models\Employee;
 use App\Models\EmployeeBreak;
 use App\Models\EmployeeClientSchedule;
+use App\Models\ScheduleChangeRequest;
 use App\Models\Invoice;
 use App\Models\User;
 use App\Services\OperationalNotifier;
@@ -61,6 +62,7 @@ class OperationalActivityNotifier
             $message = $payload['message'] ?? $this->fallbackMessage($request);
             $title = $this->titleFor($request);
             $relatedRecipients = $this->relatedRecipients($request, $payload);
+            $record = $this->recordFor($request, $payload, $actor);
 
             // Intended-user notifications remain recipient-scoped and never echo back
             // to the actor. Account creation invitations are handled by their dedicated mail flow.
@@ -84,7 +86,7 @@ class OperationalActivityNotifier
                     $title,
                     $actor->name.' ('.$actor->email.') — '.$message,
                     'OperationalActivity',
-                    $this->actionUrlForRecipient($request, $recipient),
+                    $this->actionUrlForRecipient($request, $recipient, $actor, $record),
                     [
                         'actor_id' => $actor->id,
                         'actor_role' => $actor->role,
@@ -109,7 +111,7 @@ class OperationalActivityNotifier
                     'Activity: '.$title,
                     $actor->name.' ('.$actor->email.') — '.$message,
                     'OperationalAudit',
-                    $this->actionUrlForRecipient($request, $recipient),
+                    $this->actionUrlForRecipient($request, $recipient, $actor, $record),
                     [
                         'actor_id' => $actor->id,
                         'actor_role' => $actor->role,
@@ -291,79 +293,156 @@ class OperationalActivityNotifier
         return $label ? ucwords($label).' updated' : 'CareVMA activity';
     }
 
-    private function actionUrlForRecipient(Request $request, User $recipient): ?string
+    /** The record a notification is about, as [kind, id], so its link can highlight that row. */
+    private function recordFor(Request $request, array $payload, ?User $actor): ?array
+    {
+        foreach ($request->route()?->parameters() ?? [] as $parameter) {
+            if ($parameter instanceof Attendance) return ['attendance', $parameter->id];
+            if ($parameter instanceof AttendanceChangeRequest) return ['change-request', $parameter->id];
+            if ($parameter instanceof ScheduleChangeRequest) return ['schedule-change-request', $parameter->id];
+            if ($parameter instanceof EmployeeClientSchedule) return ['schedule', $parameter->id];
+            if ($parameter instanceof Invoice) return ['invoice', $parameter->id];
+            if ($parameter instanceof Employee) return ['employee', $parameter->id];
+            if ($parameter instanceof Client) return ['client', $parameter->id];
+            if ($parameter instanceof User) return ['user', $parameter->id];
+        }
+
+        $path = $request->path();
+        $candidates = [
+            ['attendance', $payload['attendance']['id'] ?? $payload['checkout_summary']['attendance_id'] ?? $payload['break']['attendance_id'] ?? $payload['doctor_segments'][0]['attendance_id'] ?? null],
+            [str_contains($path, 'schedule-change-requests') ? 'schedule-change-request' : 'change-request', $payload['request']['id'] ?? null],
+            ['schedule', $payload['schedule']['id'] ?? null],
+            ['invoice', $payload['invoice']['id'] ?? null],
+            ['employee', $payload['employee']['id'] ?? null],
+            ['client', $payload['client']['id'] ?? null],
+            ['user', $payload['user']['id'] ?? null],
+        ];
+        foreach ($candidates as [$kind, $id]) {
+            if ($id) return [$kind, (int) $id];
+        }
+
+        // Clock-in and break actions answer with a work session, not an attendance row.
+        if (preg_match('#clock-|break/#', $path) && $actor?->employee) {
+            $id = Attendance::where('employee_id', $actor->employee->id)->latest('id')->value('id');
+            return $id ? ['attendance', (int) $id] : null;
+        }
+
+        return null;
+    }
+
+    private function actionUrlForRecipient(Request $request, User $recipient, ?User $actor, ?array $record): ?string
     {
         $path = $request->path();
         $role = $recipient->role;
+        $isAdmin = in_array($role, ['admin', 'superadmin'], true);
+        // Table pages get ?highlight=kind:id so the SPA can mark the row the notification is about.
+        $hl = fn (string $url, string $kind) => $record && $record[0] === $kind ? "{$url}?highlight={$kind}:{$record[1]}" : $url;
+        $actorEmployeeId = $actor?->role === 'employee' ? $actor->employee?->id : null;
+        $actorClientId = $actor?->role === 'client' ? $actor->client?->id : null;
 
         if (str_contains($path, 'invoices')) {
-            return in_array($role, ['admin', 'superadmin'], true) ? '/admin/invoices' : null;
+            return $isAdmin ? $hl('/admin/invoices', 'invoice') : null;
+        }
+
+        if (str_contains($path, 'schedule-change-requests')) {
+            return match ($role) {
+                'employee' => $hl('/employee/schedule', 'schedule-change-request'),
+                'hr' => $hl('/hr/change-requests', 'schedule-change-request'),
+                'admin', 'superadmin' => $hl('/admin/change-requests', 'schedule-change-request'),
+                default => null,
+            };
         }
 
         if (str_contains($path, 'change-requests')) {
             return match ($role) {
-                'employee' => '/employee/attendance',
-                'hr' => '/hr/change-requests',
-                'admin', 'superadmin' => '/admin/change-requests',
+                'employee' => $hl('/employee/attendance', 'change-request'),
+                'hr' => $hl('/hr/change-requests', 'change-request'),
+                'admin', 'superadmin' => $hl('/admin/change-requests', 'change-request'),
                 default => null,
             };
         }
 
         if (str_contains($path, 'overtime')) {
             return match ($role) {
-                'employee' => '/employee/attendance',
-                'hr' => '/hr/overtime',
-                'admin', 'superadmin' => '/admin/overtime',
+                'employee' => $hl('/employee/attendance', 'attendance'),
+                'hr' => $hl('/hr/overtime', 'attendance'),
+                'admin', 'superadmin' => $hl('/admin/overtime', 'attendance'),
                 default => null,
             };
         }
 
         if (str_contains($path, 'schedules')) {
             return match ($role) {
-                'employee' => '/employee/schedule',
+                'employee' => $hl('/employee/schedule', 'schedule'),
                 'client' => '/doctor/dashboard',
-                'hr' => '/hr/schedules',
-                'admin', 'superadmin' => '/admin/schedules',
+                'hr' => $hl('/hr/schedules', 'schedule'),
+                'admin', 'superadmin' => $hl('/admin/schedules', 'schedule'),
                 default => null,
             };
         }
 
         if (str_contains($path, 'attendance') || str_contains($path, 'clock-') || str_contains($path, 'break/')) {
             return match ($role) {
-                'employee' => '/employee/attendance',
-                'client' => '/doctor/dashboard',
-                'hr' => '/hr/attendance',
-                'admin', 'superadmin' => '/admin/attendance',
+                'employee' => $hl('/employee/attendance', 'attendance'),
+                'client' => $actorEmployeeId ? $hl("/doctor/employee/{$actorEmployeeId}/attendance", 'attendance') : '/doctor/dashboard',
+                'hr' => $hl('/hr/attendance', 'attendance'),
+                'admin', 'superadmin' => $hl('/admin/attendance', 'attendance'),
                 default => null,
             };
         }
 
+        if (str_contains($path, 'hr-users')) {
+            return $isAdmin ? $hl('/admin/hr-team', 'user') : null;
+        }
+
         if (str_contains($path, 'employees')) {
+            $employeeId = $record && $record[0] === 'employee' ? $record[1] : null;
             return match ($role) {
                 'employee' => '/employee/profile',
                 'client' => '/doctor/dashboard',
-                'hr' => '/hr/employees',
-                'admin', 'superadmin' => '/admin/employees',
+                'hr' => $employeeId ? "/hr/employees/{$employeeId}" : '/hr/employees',
+                'admin', 'superadmin' => $employeeId ? "/admin/employees/{$employeeId}" : '/admin/employees',
                 default => null,
             };
         }
 
         if (str_contains($path, 'clients')) {
+            $clientId = $record && $record[0] === 'client' ? $record[1] : null;
             return match ($role) {
                 'client' => '/doctor/profile',
-                'admin', 'superadmin' => '/admin/clients',
+                'admin', 'superadmin' => $clientId ? "/admin/client/{$clientId}/profile" : '/admin/clients',
                 default => null,
             };
         }
 
         if (str_contains($path, 'profile') || str_contains($path, 'account') || str_contains($path, 'password')) {
+            // Someone else's profile change links to that person's record, never to the reader's own account page.
+            if ($actorEmployeeId) {
+                return match ($role) {
+                    'hr' => "/hr/employees/{$actorEmployeeId}",
+                    'admin', 'superadmin' => "/admin/employees/{$actorEmployeeId}",
+                    default => null,
+                };
+            }
+            return $actorClientId && $isAdmin ? "/admin/client/{$actorClientId}/profile" : null;
+        }
+
+        if (str_contains($path, 'notebook')) {
             return match ($role) {
-                'employee' => '/employee/profile',
-                'client' => '/doctor/profile',
-                'hr' => '/hr/account',
-                'admin', 'superadmin' => '/admin/account',
+                'employee' => '/employee/documents',
+                'client' => '/doctor/documents',
+                'hr' => '/hr/notebook',
+                'admin', 'superadmin' => '/admin/notebook',
                 default => null,
             };
+        }
+
+        if (str_contains($path, 'company-finance')) {
+            return $isAdmin ? '/admin/company-finance' : null;
+        }
+
+        if (preg_match('#references/([a-z-]+)#', $path, $m)) {
+            return $isAdmin ? "/admin/options/{$m[1]}" : ($role === 'hr' ? "/hr/options/{$m[1]}" : null);
         }
 
         return null;

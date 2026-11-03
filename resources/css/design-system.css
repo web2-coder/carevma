@@ -901,3 +901,7 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
 .invoice-scope input { width: 16px; height: 16px; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 50%; box-shadow: none; }
 .invoice-scope input:focus { box-shadow: none; }
 .invoice-scope input:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* Row a notification links to (?highlight=kind:id) */
+.smart-table tbody tr.is-highlight td { background: var(--warning-soft); box-shadow: inset 3px 0 0 var(--warning); animation: row-highlight 1.2s ease-out 3; }
+@keyframes row-highlight { 0% { background: #ffe3a6; } 100% { background: var(--warning-soft); } }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { LoaderCircle, Search, X, CheckCircle2, AlertCircle, ChevronDown, Check } from 'lucide-react';
 import { formatDateTime, formatTime24 } from '../timezone';
 import { emitToast } from '../feedback';
@@ -245,6 +246,10 @@ export function Table({
   rows,
   rowKey = 'id',
   rowClassName,
+  // Kind of record the rows are (attendance, change-request, …). A notification link may carry
+  // ?highlight=kind:id; the row with that id is marked and scrolled to. Set it when a page shows
+  // two tables whose ids could collide; otherwise any kind matches.
+  record,
   emptyTitle,
   emptyDescription,
   searchable,
@@ -260,6 +265,17 @@ export function Table({
   onSort,
 }) {
   const safeRows = Array.isArray(rows) ? rows : [];
+  const { search: locationSearch } = useLocation();
+  const highlight = useMemo(() => {
+    const raw = new URLSearchParams(locationSearch).get('highlight') || '';
+    const colon = raw.indexOf(':');
+    return raw ? { kind: colon > 0 ? raw.slice(0, colon) : '', id: colon > 0 ? raw.slice(colon + 1) : raw } : null;
+  }, [locationSearch]);
+  const isHighlighted = row => !!highlight && (!highlight.kind || !record || highlight.kind === record) && String(row?.[rowKey]) === highlight.id;
+  const tableRef = useRef(null);
+  useEffect(() => {
+    if (highlight) tableRef.current?.querySelector('tr.is-highlight')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [highlight, rows]);
   const serverMode = Boolean(meta);
   const showSearch = searchable ?? !serverMode;
   const [query, setQuery] = useState('');
@@ -342,7 +358,7 @@ export function Table({
       </div>
     </div>
 
-    {visibleRows.length ? <div className="table-wrap"><table><thead><tr>{columns.map(c => {
+    {visibleRows.length ? <div className="table-wrap"><table ref={tableRef}><thead><tr>{columns.map(c => {
       const sortable = Boolean(c.sortKey && onSort);
       const active = sortable && sort?.key === c.sortKey;
       const nextDir = active && sort.dir === 'asc' ? 'desc' : 'asc';
@@ -355,7 +371,7 @@ export function Table({
         onKeyDown={sortable ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); apply(); } } : undefined}>
         {c.label}{sortable && <span className="sort-indicator" aria-hidden="true">{active ? (sort.dir === 'asc' ? '▲' : '▼') : '⇅'}</span>}
       </th>;
-    })}</tr></thead><tbody>{visibleRows.map((row, index) => <tr key={row?.[rowKey] ?? `${currentPage}-${index}`} className={rowClassName?.(row) || undefined}>{columns.map(c => <td key={c.key} data-label={c.label}>{c.render ? c.render(row) : row?.[c.key] ?? '—'}</td>)}</tr>)}</tbody></table></div> : <EmptyState title="No matching records" description="Change the search or filter to see more results."/>}
+    })}</tr></thead><tbody>{visibleRows.map((row, index) => <tr key={row?.[rowKey] ?? `${currentPage}-${index}`} className={[rowClassName?.(row), isHighlighted(row) ? 'is-highlight' : ''].filter(Boolean).join(' ') || undefined}>{columns.map(c => <td key={c.key} data-label={c.label}>{c.render ? c.render(row) : row?.[c.key] ?? '—'}</td>)}</tr>)}</tbody></table></div> : <EmptyState title="No matching records" description="Change the search or filter to see more results."/>}
 
     {useLocalPager && total > effectivePageSize && <div className="smart-table-pagination">
       <span>Showing {from}–{to} of {total}</span>
