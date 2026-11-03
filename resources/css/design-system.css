@@ -875,3 +875,18 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
 .ep-doctor-groups > .card { margin: 0; }
 .ep-doctor-groups .client-va-rate small { font-size: .75rem; font-weight: 600; color: var(--muted-foreground); }
 .ep-doctor-groups .client-va-panel { padding: .25rem .75rem .75rem; }
+
+/* Live users: details open in a modal; the card only shows a cue. */
+.live-user-card-status { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.live-user-details-cta { font-size: .6875rem; font-weight: 600; color: var(--primary); white-space: nowrap; }
+.live-user-card:hover .live-user-details-cta, .live-user-card:focus-visible .live-user-details-cta { text-decoration: underline; }
+.live-user-modal-title { display: flex; align-items: center; gap: .75rem; font-size: 1rem; }
+.live-user-modal-title .live-user-profile-photo { width: 40px; height: 40px; border-radius: 12px; flex: none; }
+.live-user-modal-title > span:nth-child(2) { display: grid; gap: .125rem; min-width: 0; }
+.live-user-modal-title small { font-size: .75rem; font-weight: 500; color: var(--muted-foreground); }
+.live-user-modal-body { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; }
+.live-user-modal-body > div { padding: .875rem 1rem; }
+.live-user-modal-body > div > span:first-child { font-size: .6875rem; }
+.live-user-modal-body small { font-size: .75rem; }
+.live-user-modal-body .live-duration-value { font-size: 1.125rem; }
+@media (max-width: 760px) { .live-user-modal-body { grid-template-columns: 1fr; } }
