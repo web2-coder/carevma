@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   Users, Stethoscope, Clock3, TimerReset, ReceiptText, Plus, Pencil, Trash2, RefreshCw,
   CalendarDays, UserCheck, CircleDollarSign, Check, X, Bell, Save, KeyRound, Building2,
-  ShieldCheck, Send, Coffee, Activity, ClipboardCopy, Eye, ArrowLeft, UserRound, MapPin, Zap, CheckCircle2, FileText, Globe
+  ShieldCheck, Send, Coffee, Activity, ClipboardCopy, Eye, ArrowLeft, UserRound, MapPin, Zap, CheckCircle2, FileText, Globe, ChevronDown
 } from 'lucide-react';
 import api, { messageFrom } from '../api';
 import { attendanceColumns, vaColumn, AttCell, attCity, tzAbbr } from '../attendanceColumns';
@@ -582,7 +582,7 @@ export function EmployeeProfilePage(){
   const {user}=useAuth(); const {employeeId}=useParams(); const navigate=useNavigate(); const n=useNotice();
   const base=`${roleBase(user.role)}/employees`;
   const [employee,setEmployee]=useState(null),[schedules,setSchedules]=useState(null),[options,setOptions]=useState({}),[tab,setTab]=useState('overview'),[modal,setModal]=useState(false),[form,setForm]=useState(emptyEmployee),[busy,setBusy]=useState(false);
-  const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[page,setPage]=useState(1),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'date',dir:'desc'}),[attendanceBusy,setAttendanceBusy]=useState(false);
+  const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[page,setPage]=useState(1),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'date',dir:'desc'}),[attendanceBusy,setAttendanceBusy]=useState(false),[openDoctor,setOpenDoctor]=useState(null);
   const load=async()=>{try{const [e,s,o]=await Promise.all([api.get(`/management/employees/${employeeId}`),api.get('/management/schedules',{params:{employee_id:employeeId}}),api.get('/management/options')]);setEmployee(e.data);setSchedules(Array.isArray(s.data)?s.data:getList(s.data));setOptions(o.data||{})}catch(e){n.error(messageFrom(e));navigate(base,{replace:true})}};
   useEffect(()=>{setEmployee(null);setTab('overview');setPage(1);load()},[employeeId]);
   const loadAttendance=async()=>{setAttendanceBusy(true);try{const r=await api.get('/management/attendance',{params:{employee_id:employeeId,page,per_page:perPage,sort:sort.key,direction:sort.dir}});setRows(r.data.data);setMeta(r.data)}catch(e){n.error(messageFrom(e))}finally{setAttendanceBusy(false)}};
@@ -603,6 +603,9 @@ export function EmployeeProfilePage(){
   const lastSeen=employee.user?.last_seen_at?dateTime(employee.user.last_seen_at,user?.assigned_timezone):'Never';
   const clients=Object.values((schedules||[]).reduce((acc,s)=>{if(s.client){const c=acc[s.client.id]||(acc[s.client.id]={...s.client,hours:0,days:new Set()});c.hours+=Number(s.no_of_hours)||0;c.days.add(s.weekday)}return acc},{}));
   const fileName=url=>String(url).split('/').pop().split('?')[0];
+  // Schedule tab: one accordion card per Doctor, the first open unless the admin picked another.
+  const doctorGroups=Object.values((schedules||[]).reduce((acc,s)=>{const id=String(s.client?.id||s.client_id||'none');const g=acc[id]||(acc[id]={key:id,client:s.client||null,rows:[],hours:0});g.rows.push(s);g.hours+=Number(s.no_of_hours)||0;return acc},{}));
+  const openDoctorKey=openDoctor??doctorGroups[0]?.key;
 
   return <>
     <section className="card ep-header">
@@ -704,9 +707,24 @@ export function EmployeeProfilePage(){
       </div>
     </>}
 
-    {tab==='schedule'&&<Card title="Weekly schedule" subtitle="Doctor-local shifts with the VA conversion." actions={<Button variant="secondary" icon={CalendarDays} onClick={()=>navigate(`${roleBase(user.role)}/schedules`)}>Manage schedules</Button>}>
-      {schedules===null?<Loading inline/>:<Table columns={employeeScheduleColumns} rows={schedules} emptyTitle="No schedules" emptyDescription="This VA has no shifts configured yet."/>}
-    </Card>}
+    {tab==='schedule'&&<>
+      <div className="card-head ep-section-head"><div><h2>Weekly schedule</h2><p>Doctor-local shifts with the VA conversion, grouped by Doctor. One Doctor opens at a time.</p></div><Button variant="secondary" icon={CalendarDays} onClick={()=>navigate(`${roleBase(user.role)}/schedules`)}>Manage schedules</Button></div>
+      {schedules===null?<Card><Loading inline/></Card>:doctorGroups.length?<div className="ep-doctor-groups">{doctorGroups.map(g=>{const isOpen=openDoctorKey===g.key;const enabled=g.rows.filter(r=>r.enabled).length;const tz=g.rows[0]?.client_timezone||g.client?.timezone||g.rows[0]?.timezone;const panelId=`doctor-schedules-${g.key}`;
+        return <Card key={g.key} className={`client-va-schedule-card ${isOpen?'is-open':'is-collapsed'}`}>
+          <div className="client-va-header">
+            <button type="button" className="client-va-toggle" aria-expanded={isOpen} aria-controls={panelId} onClick={()=>setOpenDoctor(isOpen?'':g.key)}>
+              <span className="client-va-chevron" aria-hidden="true"><ChevronDown size={16}/></span>
+              <div className="client-va-identity"><div className="client-va-avatar"><Stethoscope size={18}/></div><div><div className="client-va-title-line"><strong>{g.client?.name||'Unassigned Doctor'}</strong><Badge tone={enabled?'success':'neutral'}>{enabled?`${enabled} active`:'Inactive'}</Badge></div><span>{g.rows.length} shift{g.rows.length===1?'':'s'}{g.client?.business_name?` · ${g.client.business_name}`:''}</span></div></div>
+            </button>
+            <div className="client-va-header-right">
+              {tz&&<div className="client-va-timezone"><Clock3 size={15}/><span>{tz}</span></div>}
+              <div className="client-va-rate">{formatDurationHM(g.hours)} <small>H.MM</small></div>
+              {user.role!=='hr'&&g.client?.id&&<Link className="btn btn-secondary" to={`/admin/client/${g.client.id}/profile`}>Doctor profile</Link>}
+            </div>
+          </div>
+          {isOpen&&<div id={panelId} className="client-va-panel"><Table columns={employeeScheduleColumns.filter(c=>c.key!=='client')} rows={g.rows}/></div>}
+        </Card>})}</div>:<Card><EmptyState title="No schedules" description="This VA has no shifts configured yet."/></Card>}
+    </>}
     {tab==='attendance'&&<Card title="Attendance" subtitle="Every session recorded for this VA.">
       {attendanceBusy&&!rows.length?<Loading inline/>:<Table columns={attendanceColumns} rows={rows} emptyTitle="No attendance records" emptyDescription="No sessions have been recorded yet." meta={meta} onPage={setPage} perPage={perPage} onPerPage={v=>{setPerPage(v);setPage(1)}} sort={sort} onSort={s=>{setSort(s);setPage(1)}}/>}
     </Card>}
