@@ -37,7 +37,6 @@ function navFor(user) {
     return [
       { group: 'Overview', label: 'Dashboard', to: '/admin/dashboard', icon: LayoutDashboard },
       { group: 'Overview', label: 'Live Workforce', to: '/admin/live-users', icon: Activity },
-      { group: 'Overview', label: 'Activity Logs', to: '/admin/activity-logs', icon: ScrollText },
       { group: 'People', label: 'Employees', to: '/admin/employees', icon: Users },
       { group: 'People', label: 'HR Team', to: '/admin/hr-team', icon: UserRoundCog },
       { group: 'People', label: 'Clients', to: '/admin/clients', icon: Stethoscope },
@@ -48,6 +47,7 @@ function navFor(user) {
       { group: 'Billing', label: 'Invoices', to: '/admin/invoices', icon: ReceiptText },
       { group: 'Billing', label: 'Company Finance', to: '/admin/company-finance', icon: CircleDollarSign },
       { group: 'Documents', label: 'Notebook', to: '/admin/notebook', icon: BookOpenText },
+      { group: 'Logs', label: 'Activity Logs', to: '/admin/activity-logs', icon: ScrollText },
       {
         group: 'Setup', label: 'Configuration', icon: SlidersHorizontal, children: [
           ['Departments','departments'], ['Roles','roles'], ['Employment Types','employment-types'],
