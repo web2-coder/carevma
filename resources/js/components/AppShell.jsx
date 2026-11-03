@@ -49,7 +49,7 @@ function navFor(user) {
       {
         group: 'Setup', label: 'Configuration', icon: SlidersHorizontal, children: [
           ['Departments','departments'], ['Roles','roles'], ['Employment Types','employment-types'],
-          ['Shift Types','shift-types'], ['Designations','designations'], ['Employee Statuses','employee-statuses'],
+          ['Shift Types','shift-types'], ['Designations','designations'], ['Employee Status','employee-statuses'],
           ['Expertise','expertises'], ['Reporting Managers','reporting-managers'], ['Services','services'], ['Contract Types','contracts'],
         ].map(([label, slug]) => ({ label, to: `/admin/options/${slug}` })),
       },
@@ -70,7 +70,7 @@ function navFor(user) {
       {
         group: 'Setup', label: 'HR Configuration', icon: SlidersHorizontal, children: [
           ['Departments','departments'], ['Roles','roles'], ['Employment Types','employment-types'],
-          ['Shift Types','shift-types'], ['Designations','designations'], ['Employee Statuses','employee-statuses'],
+          ['Shift Types','shift-types'], ['Designations','designations'], ['Employee Status','employee-statuses'],
           ['Expertise','expertises'], ['Reporting Managers','reporting-managers'],
         ].map(([label, slug]) => ({ label, to: `/hr/options/${slug}` })),
       },
