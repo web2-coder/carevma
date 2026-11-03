@@ -878,8 +878,6 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
 
 /* Live users: details open in a modal; the card only shows a cue. */
 .live-user-card-status { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
-.live-user-details-cta { font-size: .6875rem; font-weight: 600; color: var(--primary); white-space: nowrap; }
-.live-user-card:hover .live-user-details-cta, .live-user-card:focus-visible .live-user-details-cta { text-decoration: underline; }
 .live-user-modal-title { display: flex; align-items: center; gap: .75rem; font-size: 1rem; }
 .live-user-modal-title .live-user-profile-photo { width: 40px; height: 40px; border-radius: 12px; flex: none; }
 .live-user-modal-title > span:nth-child(2) { display: grid; gap: .125rem; min-width: 0; }
