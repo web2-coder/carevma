@@ -5,21 +5,43 @@
 
     RewriteEngine On
 
-    # Handle Authorization Header
+    # =========================================================
+    # CareVMA - Serve Laravel public directory
+    # =========================================================
+
+    # Vite production build
+    RewriteRule ^build/(.*)$ public/build/$1 [L]
+
+    # Public storage
+    RewriteRule ^storage/(.*)$ public/storage/$1 [L]
+
+    # Favicon / robots and other common public files
+    RewriteCond %{DOCUMENT_ROOT}/public/$1 -f
+    RewriteRule ^(.+)$ public/$1 [L]
+
+    # =========================================================
+    # Authorization Header
+    # =========================================================
     RewriteCond %{HTTP:Authorization} .
     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 
-    # Handle X-XSRF-Token Header
-    RewriteCond %{HTTP:x-xsrf-token} .
+    # =========================================================
+    # XSRF Header
+    # =========================================================
+    RewriteCond %{HTTP:X-XSRF-Token} .
     RewriteRule .* - [E=HTTP_X_XSRF_TOKEN:%{HTTP:X-XSRF-Token}]
 
-    # Redirect Trailing Slashes If Not A Folder...
+    # =========================================================
+    # Remove trailing slash
+    # =========================================================
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_URI} (.+)/$
     RewriteRule ^ %1 [L,R=301]
 
-    # Send Requests To Front Controller...
-    RewriteCond %{REQUEST_FILENAME} !-d
+    # =========================================================
+    # Laravel Front Controller
+    # =========================================================
     RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
     RewriteRule ^ index.php [L]
 </IfModule>

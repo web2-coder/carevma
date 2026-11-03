@@ -2,6 +2,37 @@
 
 use Illuminate\Support\Str;
 
+/*
+|--------------------------------------------------------------------------
+| CareVMA session-cookie domain safety
+|--------------------------------------------------------------------------
+|
+| A typo in SESSION_DOMAIN can make the browser reject the Laravel session
+| cookie entirely, which presents as repeated 419 / CSRF token mismatch and
+| login requiring a hard refresh. Accept the configured domain only when it
+| can actually own the APP_URL host; otherwise safely fall back to APP_URL.
+|
+*/
+$appHost = strtolower((string) (parse_url((string) env('APP_URL', ''), PHP_URL_HOST) ?: ''));
+$rawSessionDomain = trim((string) env('SESSION_DOMAIN', ''));
+
+if (str_contains($rawSessionDomain, '://')) {
+    $rawSessionDomain = (string) (parse_url($rawSessionDomain, PHP_URL_HOST) ?: '');
+}
+
+$normalizedSessionDomain = strtolower(ltrim(preg_replace('/[\/:].*$/', '', $rawSessionDomain) ?: '', '.'));
+$sessionDomain = $normalizedSessionDomain !== '' ? $normalizedSessionDomain : null;
+
+if ($sessionDomain && $appHost) {
+    $domainOwnsAppHost = $sessionDomain === $appHost || str_ends_with($appHost, '.'.$sessionDomain);
+    if (!$domainOwnsAppHost) {
+        // Invalid SESSION_DOMAIN must not produce a Domain cookie. A host-only
+        // cookie is safer and also avoids collisions with stale parent-domain
+        // cookies left by earlier deployments.
+        $sessionDomain = null;
+    }
+}
+
 return [
 
     /*
@@ -129,7 +160,7 @@ return [
 
     'cookie' => env(
         'SESSION_COOKIE',
-        Str::slug(env('APP_NAME', 'laravel')).'-session'
+        'carevma_portal_session_v2'
     ),
 
     /*
@@ -156,7 +187,7 @@ return [
     |
     */
 
-    'domain' => env('SESSION_DOMAIN'),
+    'domain' => $sessionDomain,
 
     /*
     |--------------------------------------------------------------------------
@@ -169,7 +200,7 @@ return [
     |
     */
 
-    'secure' => env('SESSION_SECURE_COOKIE'),
+    'secure' => env('SESSION_SECURE_COOKIE', env('APP_ENV') === 'production'),
 
     /*
     |--------------------------------------------------------------------------

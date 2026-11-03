@@ -73,8 +73,6 @@ class CompleteProfileController extends Controller
             'date_of_birth' => ['required', 'date', 'before:today'],
             'about_me_notes' => ['nullable', 'string', 'max:500'],
             'profile_picture' => ['nullable', 'image', 'mimes:jpg,jpeg,png', 'max:800'],
-            'upload_documents' => ['nullable', 'array', 'max:10'],
-            'upload_documents.*' => ['file', 'mimes:jpg,jpeg,png,pdf,doc,docx', 'max:5120'],
             'password' => ['required', 'string', 'min:8', 'confirmed'],
         ]);
 
@@ -86,14 +84,6 @@ class CompleteProfileController extends Controller
         if ($request->hasFile('profile_picture')) {
             $path = $request->file('profile_picture')->store('employees/profile_pictures', 'public');
             $data['profile_picture'] = Storage::url($path);
-        }
-
-        if ($request->hasFile('upload_documents')) {
-            $paths = [];
-            foreach ($request->file('upload_documents') as $file) {
-                $paths[] = Storage::url($file->store('employees/documents', 'public'));
-            }
-            $data['upload_documents'] = $paths;
         }
 
         $hashedPassword = Hash::make($validated['password']);
@@ -147,15 +137,6 @@ class CompleteProfileController extends Controller
             $path = $request->file('value')->store('employees/profile_pictures', 'public');
             $employee->update(['profile_picture' => Storage::url($path)]);
             return response()->json(['success' => true, 'message' => 'Profile picture updated.', 'value' => asset(Storage::url($path))]);
-        }
-
-        if ($field === 'upload_documents' && $request->hasFile('value')) {
-            $request->validate(['value' => ['file', 'mimes:jpg,jpeg,png,pdf,doc,docx', 'max:5120']]);
-            $path = Storage::url($request->file('value')->store('employees/documents', 'public'));
-            $documents = $this->documents($employee->upload_documents);
-            $documents[] = $path;
-            $employee->update(['upload_documents' => $documents]);
-            return response()->json(['success' => true, 'message' => 'Document uploaded.', 'value' => asset($path)]);
         }
 
         $allowed = ['first_name', 'last_name', 'email', 'phone', 'gender', 'marital_status', 'age', 'date_of_birth', 'about_me_notes'];

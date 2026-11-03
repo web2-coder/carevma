@@ -30,7 +30,7 @@
 
 .employee-wizard-page.carevma-onboarding .employee-wizard-head h1 {
   margin: 0;
-  font-family: Manrope, Inter, sans-serif;
+  font-family: Poppins, sans-serif;
   font-size: clamp(27px, 3vw, 36px);
   line-height: 1.15;
   letter-spacing: -0.9px;
@@ -183,7 +183,7 @@
 
 .employee-wizard-page.carevma-onboarding .wizard-card-head h2 {
   margin: 0;
-  font-family: Manrope, Inter, sans-serif;
+  font-family: Poppins, sans-serif;
   font-size: 23px;
   line-height: 1.2;
   color: var(--text);

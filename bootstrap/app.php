@@ -101,7 +101,7 @@ return Application::configure(basePath: dirname(__DIR__))
                     404 => 'The requested page or record could not be found.',
                     405 => 'This action is not available from the current page.',
                     409 => 'This record changed while you were working. Refresh the page and try again.',
-                    419 => 'Your session security token expired. Refresh the page and try again.',
+                    419 => 'Your secure session could not be renewed. Please sign in again.',
                     429 => 'Too many requests were sent. Please wait a moment and try again.',
                     default => 'The request could not be completed. Please review your input and try again.',
                 };

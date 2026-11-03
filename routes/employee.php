@@ -36,7 +36,6 @@ Route::middleware(['auth', 'employee' ,'profile.complete'])->prefix('employee')-
 Route::prefix('employee/dashboard/profile')->name('employee.profile.')->group(function () {
     Route::get('/edit', [ProfileController::class, 'editProfile'])->name('edit');
     Route::post('/update', [ProfileController::class, 'updateProfile'])->name('update');
-    Route::post('/delete-doc', [ProfileController::class, 'delete_document'])->name('delete.document');
 });
 
 // 1️⃣ Employee clicks email link → Welcome screen (SIGNED)

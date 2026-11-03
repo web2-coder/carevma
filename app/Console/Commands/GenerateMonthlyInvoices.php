@@ -39,18 +39,23 @@ class GenerateMonthlyInvoices extends Command
 
             // Automatic generation is evaluated in every client's own timezone.
             // The global scheduler may run every minute; only a client whose local
-            // clock is 27th 00:15 enters the billing close.
+            // clock is 26th 00:15 enters the billing close.
             if (!$this->option('force') && !$this->option('date')) {
-                if ($localNow->day !== 27 || $localNow->format('H:i') !== '00:15') {
+                if ($localNow->day !== 26 || $localNow->format('H:i') !== '00:15') {
                     $notDue++;
                     continue;
                 }
             }
 
-            // On local 27th, close the cycle from previous-month 25th through
-            // current-month 26th, inclusive.
-            $periodEnd = $localNow->copy()->subDay()->toDateString();
-            $periodStart = $localNow->copy()->subMonthNoOverflow()->day(25)->toDateString();
+            // Always use a canonical 26th -> 25th cycle, even for --force/testing.
+            // On/after the 26th the latest completed cycle ends on this month's 25th;
+            // before the 26th it ends on the previous month's 25th.
+            $cycleEnd = $localNow->copy()->day(25);
+            if ($localNow->day < 26) {
+                $cycleEnd->subMonthNoOverflow()->day(25);
+            }
+            $periodEnd = $cycleEnd->toDateString();
+            $periodStart = $cycleEnd->copy()->subMonthNoOverflow()->day(26)->toDateString();
 
             if (Invoice::where('client_id', $client->id)
                 ->whereDate('period_start', $periodStart)

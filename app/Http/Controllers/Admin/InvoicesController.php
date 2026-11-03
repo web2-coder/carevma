@@ -9,6 +9,7 @@ use App\Models\EmployeeSalary;
 use App\Models\Invoice;
 use App\Models\ClientEmployeeRate;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use PDF;
 use Carbon\Carbon;
 use Yajra\DataTables\Facades\DataTables;
@@ -85,8 +86,10 @@ class InvoicesController extends Controller
             'period_end' => 'required|date|after_or_equal:period_start',
         ]);
 
-        // Generate one invoice number for all employees
-        $invoiceNumber = 'INV-' . str_pad(mt_rand(0, 99999), 5, '0', STR_PAD_LEFT);
+        // Persist a plain, unique seven-digit invoice number.
+        do {
+            $invoiceNumber = (string) random_int(1000000, 9999999);
+        } while (Invoice::where('invoice_number', $invoiceNumber)->exists());
 
         // Calculate totals
         $totalHours = 0;
@@ -150,7 +153,9 @@ class InvoicesController extends Controller
         'clientEmployeeRates' => $clientEmployeeRates,
     ]);
 
-    return $pdf->stream("invoice-{$invoice->invoice_number}.pdf");
+    $doctor = Str::of($invoice->client?->name ?: 'Doctor')->ascii()->replaceMatches('/[^A-Za-z0-9]+/', '-')->trim('-')->value() ?: 'Doctor';
+    $monthYear = Carbon::parse($invoice->period_end)->format('F-Y');
+    return $pdf->stream($doctor.'-Invoice-'.$monthYear.'.pdf');
 }
 
     public function edit($id)

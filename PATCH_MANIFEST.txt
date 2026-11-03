@@ -1,0 +1,3 @@
+resources/js/pages/Management.jsx
+resources/css/live-workforce.css
+README_PATCH.md

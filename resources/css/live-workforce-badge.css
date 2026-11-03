@@ -15,9 +15,9 @@
   line-height: 1;
   font-weight: 800;
   color: #fff;
-  background: #e11d48;
+  background: #16a34a;
   border: 2px solid rgba(255,255,255,.9);
-  box-shadow: 0 3px 10px rgba(225,29,72,.28);
+  box-shadow: 0 3px 10px rgba(22,163,74,.28);
   font-variant-numeric: tabular-nums;
 }
 .live-count-badge i {
@@ -58,7 +58,7 @@
   right: -74px;
   top: -82px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(239,68,68,.14) 0%, rgba(239,68,68,0) 70%);
+  background: radial-gradient(circle, rgba(34,197,94,.14) 0%, rgba(34,197,94,0) 70%);
   pointer-events: none;
   z-index: -1;
   animation: carevma-live-card-glow 2.2s ease-in-out infinite;
@@ -77,7 +77,7 @@
   inset: 50% auto auto 50%;
   width: 34px;
   height: 34px;
-  border: 1.5px solid rgba(239,68,68,.56);
+  border: 1.5px solid rgba(34,197,94,.56);
   border-radius: 50%;
   transform: translate(-50%, -50%) scale(.55);
   opacity: 0;
@@ -93,18 +93,18 @@
   right: -2px;
   top: -2px;
   border-radius: 50%;
-  background: #ef4444;
+  background: #22c55e;
   border: 2px solid #fff;
-  box-shadow: 0 0 0 0 rgba(239,68,68,.45);
+  box-shadow: 0 0 0 0 rgba(34,197,94,.45);
   z-index: 4;
   animation: carevma-live-dot-pulse 1.25s ease-in-out infinite;
 }
 .metric-card-live.is-live-idle .metric-live-dot {
-  background: #ef4444;
-  box-shadow: 0 0 0 0 rgba(239,68,68,.34);
+  background: #22c55e;
+  box-shadow: 0 0 0 0 rgba(34,197,94,.34);
 }
 .metric-card-live.is-live-idle .metric-live-ring {
-  border-color: rgba(239,68,68,.30);
+  border-color: rgba(34,197,94,.30);
 }
 .metric-live-label {
   display: inline-flex;
@@ -117,15 +117,15 @@
   font-style: normal;
   font-weight: 900;
   letter-spacing: .08em;
-  color: #b91c1c;
-  background: rgba(239,68,68,.10);
-  border: 1px solid rgba(239,68,68,.20);
+  color: #15803d;
+  background: rgba(34,197,94,.10);
+  border: 1px solid rgba(34,197,94,.20);
   vertical-align: 1px;
 }
 .metric-card-live.is-live-idle .metric-live-label {
-  color: #b91c1c;
-  background: rgba(239,68,68,.08);
-  border-color: rgba(239,68,68,.16);
+  color: #15803d;
+  background: rgba(34,197,94,.08);
+  border-color: rgba(34,197,94,.16);
 }
 .metric-live-value {
   display: inline-block;
@@ -137,8 +137,8 @@
   72%,100% { opacity: 0; transform: translate(-50%, -50%) scale(1.45); }
 }
 @keyframes carevma-live-dot-pulse {
-  0%,100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239,68,68,.42); }
-  50% { transform: scale(.86); box-shadow: 0 0 0 7px rgba(239,68,68,0); }
+  0%,100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(34,197,94,.42); }
+  50% { transform: scale(.86); box-shadow: 0 0 0 7px rgba(34,197,94,0); }
 }
 @keyframes carevma-live-icon-breathe {
   0%,100% { transform: scale(1); }
@@ -164,7 +164,7 @@
 }
 
 
-/* Red live marker sits inside the metric icon, social-app style. */
+/* Green live marker sits inside the metric icon, social-app style. */
 .metric-card-live .metric-icon {
   overflow: visible;
 }
@@ -173,10 +173,10 @@
   height: 10px;
   top: 3px;
   right: 3px;
-  background: #ef4444 !important;
+  background: #22c55e !important;
   border: 2px solid #fff;
-  box-shadow: 0 0 0 0 rgba(239,68,68,.48);
-  animation: carevma-red-live-pulse 1.2s ease-out infinite;
+  box-shadow: 0 0 0 0 rgba(34,197,94,.48);
+  animation: carevma-green-live-pulse 1.2s ease-out infinite;
 }
 .metric-live-label {
   gap: 4px;
@@ -186,12 +186,12 @@
   height: 6px;
   display: inline-block;
   border-radius: 999px;
-  background: #ef4444;
-  box-shadow: 0 0 0 0 rgba(239,68,68,.4);
-  animation: carevma-red-live-pulse 1.2s ease-out infinite;
+  background: #22c55e;
+  box-shadow: 0 0 0 0 rgba(34,197,94,.4);
+  animation: carevma-green-live-pulse 1.2s ease-out infinite;
 }
-@keyframes carevma-red-live-pulse {
-  0% { transform: scale(.92); box-shadow: 0 0 0 0 rgba(239,68,68,.48); }
-  70% { transform: scale(1); box-shadow: 0 0 0 7px rgba(239,68,68,0); }
-  100% { transform: scale(.92); box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+@keyframes carevma-green-live-pulse {
+  0% { transform: scale(.92); box-shadow: 0 0 0 0 rgba(34,197,94,.48); }
+  70% { transform: scale(1); box-shadow: 0 0 0 7px rgba(34,197,94,0); }
+  100% { transform: scale(.92); box-shadow: 0 0 0 0 rgba(34,197,94,0); }
 }
