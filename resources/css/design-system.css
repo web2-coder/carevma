@@ -830,19 +830,7 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
 .auth-hero h1 em { font-style: normal; color: var(--auth-cyan); }
 .auth-hero h1 em.is-sky { color: var(--auth-sky); }
 .auth-hero > p { max-width: 720px; margin: 0; font-size: 1.0625rem; line-height: 1.7; color: var(--auth-ink); }
-.auth-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.25rem; width: auto; max-width: 720px; margin-top: 2rem; padding: 1.75rem 0 0; border: 0; border-top: 1px solid rgba(255, 255, 255, .1); border-radius: 0; background: none; backdrop-filter: none; }
-.auth-stats > div { gap: .375rem; padding: 1rem 1.125rem 1.125rem; border: 1px solid rgba(255, 255, 255, .1); border-radius: 14px; background: rgba(8, 18, 42, .55); }
-.auth-stats strong { font-family: inherit; font-size: 1.875rem; font-weight: 800; line-height: 1; color: #fff; }
-.auth-stats > div:nth-child(2) strong { color: var(--auth-cyan); }
-.auth-stats > div:nth-child(3) strong { color: var(--auth-green); }
-.auth-stats span { font-size: .8125rem; color: var(--auth-ink); }
-.auth-trust { display: flex; flex-wrap: wrap; gap: 1rem 2.5rem; margin-top: auto; padding-top: 1.75rem; border-top: 1px solid rgba(255, 255, 255, .1); color: #d6deea; font-size: .875rem; }
 
-.auth-trust span { display: inline-flex; align-items: center; gap: .625rem; }
-.auth-trust i { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; color: #fff; }
-.auth-trust span:nth-child(1) i { background: #1f9d66; }
-.auth-trust span:nth-child(2) i { background: #1b8fbf; }
-.auth-trust span:nth-child(3) i { background: #3b56c9; }
 
 .auth-panel { padding: 3rem 2.5rem; background: #fff; }
 .auth-panel .login-card { width: min(100%, 500px); padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }

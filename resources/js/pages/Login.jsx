@@ -1,13 +1,11 @@
 import { useState } from 'react';
 import { useNavigate, Link, useSearchParams, useParams } from 'react-router-dom';
-import { ArrowRight, Check, Eye, EyeOff, Lock, LockKeyhole, Mail } from 'lucide-react';
+import { ArrowRight, Eye, EyeOff, Lock, LockKeyhole, Mail } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api, { messageFrom } from '../api';
 import { Button, Input, Notice } from '../components/ui';
 import BrandLogo from '../components/BrandLogo';
 import '../../css/carevma-brand-clock.css';
-
-const TRUST = ['HIPAA Ready', 'SOC-2 Type II Certified', '99.9% High Availability'];
 
 export function LoginPage() {
   const { login } = useAuth(); const navigate = useNavigate();
@@ -21,9 +19,7 @@ export function LoginPage() {
       <div className="auth-hero">
         <h1>One workspace for<br/><em>people, time,</em><br/><em className="is-sky">approvals</em><br/>and billing.</h1>
         <p>Run employee schedules, real-time attendance, shift corrections, overtime approvals, and client visibility directly from a unified, role-aware healthcare platform.</p>
-        <div className="auth-stats"><div><strong>4</strong><span>Role portals</span></div><div><strong>1</strong><span>Connected core</span></div><div><strong>24/7</strong><span>Operational visibility</span></div></div>
       </div>
-      <div className="auth-trust">{TRUST.map(t => <span key={t}><i><Check size={13} strokeWidth={3}/></i>{t}</span>)}</div>
     </section>
     <section className="auth-panel"><div className="login-card">
       <div className="mobile-brand"><BrandLogo/></div>
