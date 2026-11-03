@@ -1,6 +1,7 @@
 <?php
 
 namespace App\Http\Controllers\Api;
+use App\Services\BillingCycle;
 use Illuminate\Support\Facades\Log;
 use App\Http\Controllers\Controller;
 use App\Models\Attendance;
@@ -231,15 +232,13 @@ class AdminApiController extends Controller
             })
             ->values();
 
-        // CareVMA billing cycle: 26th through the 25th of the following month.
-        // Drafts are generated on the 26th at 00:15 in the client/doctor timezone.
-        $completedCycleEnd = $appNow->copy()->day(25);
-        if ($appNow->day >= 26) {
-            $completedCycleEnd->addMonthNoOverflow()->day(25);
-        }
-        $cycleStart = $completedCycleEnd->copy()->subMonthNoOverflow()->day(26)->toDateString();
-        $cycleEnd = $completedCycleEnd->copy()->day(25)->toDateString();
-        $scheduledClose = $completedCycleEnd->copy()->addDay()->setTime(0, 15, 0);
+        // The billing cycle open right now, per Invoice Settings; drafts are generated once it
+        // closes, at the configured time in each client/doctor timezone.
+        $billingSettings = BillingCycle::settings();
+        $openCycleStart = BillingCycle::openStart($appNow);
+        $cycleStart = $openCycleStart->toDateString();
+        $cycleEnd = BillingCycle::endOf($openCycleStart)->toDateString();
+        $scheduledClose = BillingCycle::dueAfter($openCycleStart);
 
         $cycleInvoices = Invoice::query()
             ->where('auto_generated', true)
@@ -304,7 +303,10 @@ class AdminApiController extends Controller
                 'billed_va_count' => $cycleVaCount,
                 'total_amount' => round($cycleAmount, 2),
                 'last_generated_at' => $lastGeneratedAt,
-                'status' => $cycleCount > 0 ? 'generated' : ($appNow->lt($scheduledClose) ? 'scheduled' : 'no_billable_invoices'),
+                'status' => $cycleCount > 0 ? 'generated' : (!$billingSettings['auto_generate'] ? 'disabled' : ($appNow->lt($scheduledClose) ? 'scheduled' : 'no_billable_invoices')),
+                'cycle_start_day' => $billingSettings['cycle_start_day'],
+                'generation_time' => $billingSettings['generation_time'],
+                'auto_generate' => $billingSettings['auto_generate'],
             ],
             'finance' => $finance,
             'finance_trend' => $financeTrend,

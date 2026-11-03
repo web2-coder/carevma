@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\Client;
 use App\Models\Invoice;
 use App\Models\User;
+use App\Services\BillingCycle;
 use App\Services\ClientTimezoneService;
 use App\Services\InvoiceGenerator;
 use App\Services\OperationalNotifier;
@@ -30,40 +31,33 @@ class GenerateMonthlyInvoices extends Command
         $failed = 0;
         $notDue = 0;
 
+        if (!BillingCycle::autoGenerate() && !$this->option('force')) {
+            $this->info('Automatic invoice generation is switched off in Invoice Settings; nothing to do.');
+            return self::SUCCESS;
+        }
+
         foreach (Client::query()->orderBy('id')->cursor() as $client) {
             $zone = $timezones->forClient($client);
             $localNow = $this->option('date')
-                ? Carbon::parse($this->option('date').' 00:15:00', $zone)
+                ? Carbon::parse($this->option('date').' '.BillingCycle::generationTime().':00', $zone)
                 : $timezones->now($client);
 
-            // Automatic generation is evaluated in every client's own timezone.
-            // The global scheduler may run every minute; only a client whose local
-            // date has reached the 26th enters the billing close.
+            // Automatic generation is evaluated in every client's own timezone, against the
+            // cycle configured in Invoice Settings. The scheduler runs every minute; a client
+            // enters the billing close once its local clock passes the generation time on the
+            // cycle start day, and stays due for 24 hours. A window rather than one exact minute,
+            // because a missed tick (cron skew, a restart, a stale lock) used to cost a whole
+            // month's invoice silently. The period is derived from the date alone, so a later tick
+            // computes the identical cycle and the generator's coverage check keeps it idempotent.
             if (!$this->option('force') && !$this->option('date')) {
-                // Due from 00:15 onward on the client-local 26th, not at that one exact
-                // minute. Matching a single minute meant one missed tick -- cron skew, a
-                // restart, or a stale withoutOverlapping lock from a crashed run -- cost
-                // the client an entire month's invoice, silently. The period below is
-                // derived from the date alone, so a later tick on the same local day
-                // computes the identical cycle, and the duplicate check keeps it idempotent.
-                $dueToday = $localNow->day === 26
-                    && !($localNow->hour === 0 && $localNow->minute < 15);
-
-                if (!$dueToday) {
+                $dueFrom = BillingCycle::openStart($localNow)->setTimeFromTimeString(BillingCycle::generationTime());
+                if ($localNow->lt($dueFrom) || $localNow->gte($dueFrom->copy()->addDay())) {
                     $notDue++;
                     continue;
                 }
             }
 
-            // Always use a canonical 26th -> 25th cycle, even for --force/testing.
-            // On/after the 26th the latest completed cycle ends on this month's 25th;
-            // before the 26th it ends on the previous month's 25th.
-            $cycleEnd = $localNow->copy()->day(25);
-            if ($localNow->day < 26) {
-                $cycleEnd->subMonthNoOverflow()->day(25);
-            }
-            $periodEnd = $cycleEnd->toDateString();
-            $periodStart = $cycleEnd->copy()->subMonthNoOverflow()->day(26)->toDateString();
+            [$periodStart, $periodEnd] = BillingCycle::latestCompleted($localNow);
 
             // No exact-cycle skip here: the generator bills only VAs not yet on an invoice
             // for these dates, so a partial manual invoice does not strand the rest.

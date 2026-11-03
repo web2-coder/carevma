@@ -94,7 +94,7 @@ export function ManagementDashboard(){
   const timezoneClocks=Array.isArray(data?.timezone_clocks)?data.timezone_clocks:[];
   const billing=data?.auto_invoice_cycle||{};
   const billingGenerated=billing.status==='generated';
-  const billingStatus=billingGenerated?'Generated':billing.status==='scheduled'?'Scheduled':'No billable invoices';
+  const billingStatus=billingGenerated?'Generated':billing.status==='scheduled'?'Scheduled':billing.status==='disabled'?'Automatic generation off':'No billable invoices';
   const billingDate=value=>value?String(value).slice(0,10):'—';
   const finance=data?.finance||{};
   const financeTrend=Array.isArray(data?.finance_trend)?data.finance_trend:[];
@@ -126,13 +126,13 @@ export function ManagementDashboard(){
     </Card>}
 
     <div className="dashboard-notice-grid">
-      <Card className={`billing-cycle-card ${billingGenerated?'is-generated':''}`} title="Automatic monthly invoices" subtitle="26th → next month 25th · drafts generate after the cycle closes">
+      <Card className={`billing-cycle-card ${billingGenerated?'is-generated':''}`} title="Automatic monthly invoices" subtitle={`${cycleLabel(billing.cycle_start_day)} · drafts generate after the cycle closes`} actions={user.role!=='hr'&&<Link className="btn btn-ghost btn-link" to="/admin/invoice-settings">Settings</Link>}>
         <div className="billing-cycle-status-row">
           <div className="billing-cycle-icon"><ReceiptText size={21}/></div>
           <div className="billing-cycle-copy">
             <span>Current cycle</span>
             <strong>{billingDate(billing.period_start)} → {billingDate(billing.period_end)}</strong>
-            <small>Processing: 26th at 12:15 AM · {user?.assigned_timezone||'CareVMA business timezone'}</small>
+            <small>Processing: {ordinal(Number(billing.cycle_start_day)||26)} at {clock12(billing.generation_time||'00:15')} · each Doctor's local time</small>
           </div>
           <Badge tone={billingGenerated?'success':billing.status==='scheduled'?'info':'neutral'}>{billingStatus}</Badge>
         </div>
@@ -770,15 +770,19 @@ function billingEndForStart(startValue){
   return end.toISOString().slice(0,10);
 }
 
-function latestCompletedBillingCycle(timeZone=DEFAULT_TIMEZONE){
-  const today=todayInZone(timeZone);
-  const [year,month,day]=today.split('-').map(Number);
-  const endMonthIndex=(month-1)+(day>=26?0:-1);
-  const end=new Date(Date.UTC(year,endMonthIndex,25));
-  const start=new Date(Date.UTC(end.getUTCFullYear(),end.getUTCMonth()-1,26));
-  const iso=d=>`${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
-  return {period_start:iso(start),period_end:iso(end)};
+const DEFAULT_INVOICE_SETTINGS={cycle_start_day:26,generation_time:'00:15',auto_generate:true};
+const ordinal=n=>{const v=n%100;return n+(['th','st','nd','rd'][(v-20)%10]||['th','st','nd','rd'][v]||'th')};
+const cycleLabel=startDay=>{const s=Number(startDay)||26;return s>1?`${ordinal(s)} → ${ordinal(s-1)} of next month`:'1st → last day of the month'};
+const isoUTC=d=>`${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+// A cycle starts on `startDay` and ends the day before that day next month; `open` is a cycle start.
+const cycleFrom=(open,startDay)=>({period_start:isoUTC(open),period_end:isoUTC(new Date(Date.UTC(open.getUTCFullYear(),open.getUTCMonth()+1,startDay)-86400000))});
+function billingCycleWindows(startDay=26,timeZone=DEFAULT_TIMEZONE){
+  const s=Math.min(28,Math.max(1,Number(startDay)||26));
+  const [y,m,d]=todayInZone(timeZone).split('-').map(Number);
+  const open=new Date(Date.UTC(y,(m-1)-(d>=s?0:1),s));
+  return {completed:cycleFrom(new Date(Date.UTC(open.getUTCFullYear(),open.getUTCMonth()-1,s)),s),open:cycleFrom(open,s),due_on:isoUTC(new Date(Date.UTC(open.getUTCFullYear(),open.getUTCMonth()+1,s)))};
 }
+function latestCompletedBillingCycle(timeZone=DEFAULT_TIMEZONE,startDay=26){return billingCycleWindows(startDay,timeZone).completed}
 
 export function InvoicesPage(){
   const [rows,setRows]=useState([]);
@@ -788,7 +792,7 @@ export function InvoicesPage(){
   const [createOpen,setCreateOpen]=useState(false);
   const [editOpen,setEditOpen]=useState(false);
   const [busy,setBusy]=useState(false);
-  const emptyInvoiceForm=()=>({client_id:'',scope:'all',employee_ids:[],...latestCompletedBillingCycle()});const [createForm,setCreateForm]=useState(emptyInvoiceForm);const [assignedVas,setAssignedVas]=useState([]);
+  const [cycleSettings,setCycleSettings]=useState(DEFAULT_INVOICE_SETTINGS);const emptyInvoiceForm=()=>({client_id:'',scope:'all',employee_ids:[],...latestCompletedBillingCycle(DEFAULT_TIMEZONE,cycleSettings.cycle_start_day)});const [createForm,setCreateForm]=useState(emptyInvoiceForm);const [assignedVas,setAssignedVas]=useState([]);
   const [editForm,setEditForm]=useState(null);
   const [filters,setFilters]=useState({month:'',year:'',date_from:'',date_to:'',client_id:'',invoice_number:queryParam('search'),status:''});
   const [bulkMonth,setBulkMonth]=useState(''); const [bulkClients,setBulkClients]=useState([]);
@@ -808,7 +812,9 @@ export function InvoicesPage(){
   useEffect(()=>{load(page)},[page,perPage,sort]);
   useEffect(()=>{const timer=setTimeout(()=>{if(page!==1)setPage(1);else load(1)},250);return()=>clearTimeout(timer)},[filters.month,filters.year,filters.date_from,filters.date_to,filters.client_id,filters.invoice_number,filters.status]);
   const clearFilters=()=>setFilters({month:'',year:'',date_from:'',date_to:'',client_id:'',invoice_number:'',status:''});
-  const bulkCycle=month=>{if(!month)return null;const [y,m]=month.split('-').map(Number);const end=new Date(Date.UTC(y,m-1,25));const start=new Date(Date.UTC(y,m-2,26));const iso=d=>d.toISOString().slice(0,10);return {period_start:iso(start),period_end:iso(end)}};
+  useEffect(()=>{api.get('/management/invoice-settings').then(r=>setCycleSettings({...DEFAULT_INVOICE_SETTINGS,...r.data})).catch(()=>{})},[]);
+  // Invoice month = the month the cycle ends in, so its start is the previous month's start day (same month when the cycle starts on the 1st).
+  const bulkCycle=month=>{if(!month)return null;const s=cycleSettings.cycle_start_day;const [y,m]=month.split('-').map(Number);return cycleFrom(new Date(Date.UTC(y,m-1-(s>1?1:0),s)),s)};
   const bulkGenerate=async()=>{const cycle=bulkCycle(bulkMonth);if(!cycle||!bulkClients.length){n.error('Select invoice month and at least one Doctor / Client.');return}setBusy(true);let created=0,skipped=0;for(const client_id of bulkClients){try{await api.post('/admin/invoices/generate',{client_id,...cycle});created++}catch(e){skipped++}}n.success(`Bulk generation complete: ${created} created, ${skipped} skipped / unavailable.`);setBusy(false);await load(1)};
   const bulkEmail=async()=>{if(!bulkMonth||!bulkClients.length){n.error('Select invoice month and at least one Doctor / Client.');return}setBusy(true);try{const {data}=await api.get('/admin/invoices',{params:{month:bulkMonth,per_page:100}});const selected=new Set(bulkClients.map(String));const invoices=(data.data||[]).filter(x=>selected.has(String(x.client_id)));let sent=0,failed=0;for(const invoice of invoices){try{await api.post(`/admin/invoices/${invoice.id}/send`);sent++}catch(e){failed++}}n.success(`Bulk email complete: ${sent} sent, ${failed} failed.`)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
 
@@ -920,7 +926,7 @@ export function InvoicesPage(){
     {key:'client',label:'Client',render:r=><ClientLink client={r.client}/>},
     {key:'period',label:'Period',sortKey:'period_start',render:r=>`${String(r.period_start||'').slice(0,10)} → ${String(r.period_end||'').slice(0,10)}`},
     {key:'billing_month',label:'Invoice month',render:r=>r.billing_cycle_month?String(r.billing_cycle_month).slice(0,7):'—'},
-    {key:'source',label:'Source',render:r=><Badge tone={r.auto_generated?'info':'neutral'}>{r.auto_generated?'Auto 26th':'Manual'}</Badge>},
+    {key:'source',label:'Source',render:r=><Badge tone={r.auto_generated?'info':'neutral'}>{r.auto_generated?'Auto':'Manual'}</Badge>},
     {key:'status',label:'Status',sortKey:'status',render:r=><Badge tone={r.status==='paid'?'success':r.status==='void'?'danger':r.status==='issued'?'info':'warning'}>{r.status||'draft'}</Badge>},
     {key:'hours',label:'Hours',sortKey:'total_hours',render:r=>Number(r.total_hours||0).toFixed(2)},
     {key:'amount',label:'Amount',sortKey:'total_amount',render:r=>money(r.total_amount)},
@@ -931,7 +937,7 @@ export function InvoicesPage(){
     <PageHeader
       eyebrow="Client billing"
       title="Invoices"
-      description="Billing periods run from the 26th through the 25th of the following month. Drafts auto-generate on the 26th after the cycle closes; invoices generated after the 20th are assigned to the next invoice month."
+      description={`Billing periods run ${cycleLabel(cycleSettings.cycle_start_day)}. Drafts auto-generate once a cycle closes${cycleSettings.auto_generate?` (${ordinal(cycleSettings.cycle_start_day)} at ${clock12(cycleSettings.generation_time)}, Doctor local time)`:' — currently switched off'}; every invoice is filed under the month its period ends in.`}
       actions={<Button icon={Plus} onClick={()=>{setCreateForm(emptyInvoiceForm());setAssignedVas([]);setCreateOpen(true)}}>Generate invoice</Button>}
     />
     <Card title="Bulk invoice actions" subtitle="Choose an invoice month and one or more Doctors / Clients. Existing exact-cycle invoices are safely skipped by the server."><div className="form-grid invoice-bulk-grid"><Input label="Invoice month" type="month" value={bulkMonth} onChange={e=>setBulkMonth(e.target.value)}/><SearchableMultiSelect label="Doctors / Clients" values={bulkClients} onChange={setBulkClients} placeholder="Select Doctors / Clients" searchPlaceholder="Search Doctors / Clients…" options={(options.clients||[]).map(x=>({value:String(x.id),label:x.name||x.business_name||x.email,meta:x.timezone||'',searchText:`${x.business_name||''} ${x.email||''}`}))}/><div className="bulk-invoice-actions"><Button loading={busy} onClick={bulkGenerate}>Generate selected</Button><Button loading={busy} variant="secondary" icon={Send} onClick={bulkEmail}>Email selected PDFs</Button></div></div></Card>
@@ -956,7 +962,7 @@ export function InvoicesPage(){
         {createForm.client_id&&createForm.scope==='selected'&&<SearchableMultiSelect label="VAs *" values={createForm.employee_ids} onChange={employee_ids=>setCreateForm({...createForm,employee_ids})} placeholder={assignedVas.length?'Select one or more VAs':'No VAs are assigned to this Doctor'} searchPlaceholder="Search VA name or code…" options={assignedVas.map(e=>({value:String(e.id),label:`${e.first_name||''} ${e.last_name||''}`.trim()||e.email,meta:e.employee_code||'',searchText:e.email||''}))}/>}
         <Input label="Start date *" type="date" value={createForm.period_start} onChange={e=>setCreateForm({...createForm,period_start:e.target.value})}/>
         <Input label="End date *" type="date" min={createForm.period_start||undefined} value={createForm.period_end} onChange={e=>setCreateForm({...createForm,period_end:e.target.value})}/>
-        <div className="invoice-cycle-hint">Manual invoices can use any custom date range. Automatic billing runs on the 26th → next month 25th cycle. Any invoice generated after the 20th is assigned to the next invoice month.</div>
+        <div className="invoice-cycle-hint">Manual invoices can use any custom date range. Automatic billing runs on the {cycleLabel(cycleSettings.cycle_start_day)} cycle{cycleSettings.auto_generate?'':' (automatic generation is currently off)'}. Each invoice is filed under the month its period ends in.</div>
       </div>
     </Modal>
 
@@ -1163,4 +1169,32 @@ export function ActivityLogsPage(){
     </div></Card>
     <Card title="Log entries" subtitle={meta?`${meta.total||0} entries`:'Loading…'}><Table columns={columns} rows={rows} meta={meta} onPage={setPage} perPage={perPage} onPerPage={v=>{setPerPage(v);setPage(1)}} sort={sort} onSort={setSort} emptyTitle="No activity yet" emptyDescription="Sign-ins and changes will appear here as users work."/></Card>
   </>;
+}
+
+export function InvoiceSettingsPage(){
+  const [form,setForm]=useState(null),[busy,setBusy]=useState(false);const n=useNotice();
+  useEffect(()=>{api.get('/management/invoice-settings').then(r=>setForm({...DEFAULT_INVOICE_SETTINGS,...r.data})).catch(e=>n.error(messageFrom(e)))},[]);
+  const save=async()=>{setBusy(true);try{const {data}=await api.put('/admin/invoice-settings',form);setForm({...form,...(data.settings||{})});n.success(data.message||'Invoice settings saved.')}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+  if(!form)return <Loading/>;
+  const s=Math.min(28,Math.max(1,Number(form.cycle_start_day)||26)),w=billingCycleWindows(s);
+  return <><PageHeader eyebrow="Billing" title="Invoice settings" description="Control the monthly billing cycle and when draft invoices are generated. Changes apply to future automatic runs; existing invoices keep their periods."/>
+    <div className="two-col">
+      <Card title="Billing cycle" subtitle="A cycle starts on the chosen day and ends the day before that day in the following month.">
+        <div className="form-grid one-col">
+          <Select label="Cycle starts on" value={s} onChange={e=>setForm({...form,cycle_start_day:Number(e.target.value)})}>{Array.from({length:28},(_,i)=><option key={i+1} value={i+1}>{ordinal(i+1)} of every month</option>)}</Select>
+          <Input label="Generate drafts at" type="time" value={form.generation_time} onChange={e=>setForm({...form,generation_time:e.target.value})} hint="Clock time in each Doctor's timezone on the day after the cycle closes."/>
+          <label className="check field-check"><input type="checkbox" checked={!!form.auto_generate} onChange={e=>setForm({...form,auto_generate:e.target.checked})}/><span>Generate draft invoices automatically</span></label>
+          <div><Button loading={busy} icon={Save} onClick={save}>Save settings</Button></div>
+        </div>
+      </Card>
+      <Card title="What this means" subtitle="Computed from the values on the left, before you save.">
+        <dl className="invoice-settings-preview">
+          <div><dt>Cycle</dt><dd>{cycleLabel(s)}</dd></div>
+          <div><dt>Last completed cycle</dt><dd>{w.completed.period_start} → {w.completed.period_end}</dd></div>
+          <div><dt>Current cycle</dt><dd>{w.open.period_start} → {w.open.period_end}</dd></div>
+          <div><dt>Next automatic run</dt><dd>{form.auto_generate?`${w.due_on} at ${clock12(form.generation_time||'00:15')}, per Doctor timezone`:'Off — drafts are created manually from Invoices'}</dd></div>
+          <div><dt>Already invoiced</dt><dd>Only VAs not yet on an invoice for a date range are billed, so changing the cycle never double-bills.</dd></div>
+        </dl>
+      </Card>
+    </div></>;
 }

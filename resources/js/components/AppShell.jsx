@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, UserRoundCog, CalendarDays, Clock3, FileCheck2, TimerReset,
   ReceiptText, SlidersHorizontal, Bell, UserCircle2, Settings, LogOut, Menu, X, BriefcaseBusiness,
-  Stethoscope, ClipboardList, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, Activity, CircleDollarSign, BookOpenText, ScrollText
+  Stethoscope, ClipboardList, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, Activity, CircleDollarSign, BookOpenText, ScrollText, Settings2
 } from 'lucide-react';
 import { NotificationIcon } from '../notificationIcon';
 import { useAuth } from '../context/AuthContext';
@@ -46,6 +46,7 @@ function navFor(user) {
       { group: 'Time', label: 'Overtime Review', to: '/admin/overtime', icon: TimerReset },
       { group: 'Billing', label: 'Invoices', to: '/admin/invoices', icon: ReceiptText },
       { group: 'Billing', label: 'Company Finance', to: '/admin/company-finance', icon: CircleDollarSign },
+      { group: 'Billing', label: 'Invoice Settings', to: '/admin/invoice-settings', icon: Settings2 },
       { group: 'Documents', label: 'Notebook', to: '/admin/notebook', icon: BookOpenText },
       { group: 'Logs', label: 'Activity Logs', to: '/admin/activity-logs', icon: ScrollText },
       {

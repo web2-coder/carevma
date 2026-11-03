@@ -340,6 +340,10 @@ class OperationalActivityNotifier
         $actorEmployeeId = $actor?->role === 'employee' ? $actor->employee?->id : null;
         $actorClientId = $actor?->role === 'client' ? $actor->client?->id : null;
 
+        if (str_contains($path, 'invoice-settings')) {
+            return $isAdmin ? '/admin/invoice-settings' : null;
+        }
+
         if (str_contains($path, 'invoices')) {
             return $isAdmin ? $hl('/admin/invoices', 'invoice') : null;
         }

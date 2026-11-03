@@ -12,6 +12,7 @@ use App\Http\Controllers\Auth\OrgGoogleController;
 use App\Http\Controllers\Admin\Client\ClientAuthController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\ActivityLogApiController;
+use App\Http\Controllers\Api\InvoiceSettingsController;
 use App\Http\Middleware\OperationalActivityNotifier;
 
 /*
@@ -56,6 +57,7 @@ Route::prefix('api')->group(function () {
 
         Route::middleware('role:admin,hr')->prefix('management')->group(function () {
             Route::get('/dashboard', [AdminApiController::class, 'dashboard']);
+            Route::get('/invoice-settings', [InvoiceSettingsController::class, 'show']);
             Route::get('/live-users', [AdminApiController::class, 'liveUsers']);
             Route::get('/employees', [AdminApiController::class, 'employees']);
             Route::post('/employees', [AdminApiController::class, 'storeEmployee']);
@@ -104,6 +106,7 @@ Route::prefix('api')->group(function () {
             Route::post('/clients/{client}/resend-invite', [AdminApiController::class, 'resendClientInvitation']);
             Route::get('/invoices', [AdminApiController::class, 'invoices']);
             Route::post('/invoices/generate', [AdminApiController::class, 'generateInvoice']);
+            Route::put('/invoice-settings', [InvoiceSettingsController::class, 'update']);
             Route::get('/invoices/{invoice}', [AdminApiController::class, 'invoice']);
             Route::put('/invoices/{invoice}', [AdminApiController::class, 'updateInvoice']);
             Route::delete('/invoices/{invoice}', [AdminApiController::class, 'destroyInvoice']);
