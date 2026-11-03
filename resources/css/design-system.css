@@ -816,12 +816,13 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
 ========================================================= */
 .auth-page { --auth-blue: #1d4fd8; --auth-cyan: #4fc8f4; --auth-sky: #9ad2f6; --auth-green: #35d399; --auth-ink: #c3cedd; grid-template-columns: minmax(0, 1.2fr) minmax(440px, .8fr); background: #040b1d; }
 .auth-visual { display: flex; flex-direction: column; padding: 3.5rem 5rem 2.5rem; background: radial-gradient(55% 45% at 90% 100%, rgba(29, 79, 216, .5), transparent 70%), radial-gradient(40% 35% at 0% 0%, rgba(16, 48, 104, .55), transparent 70%), linear-gradient(160deg, #030916 0%, #06112b 55%, #071a3d 100%); }
-.auth-visual::after { background-image: linear-gradient(rgba(126, 160, 220, .07) 1px, transparent 1px), linear-gradient(90deg, rgba(126, 160, 220, .07) 1px, transparent 1px); background-size: 48px 48px; mask-image: none; }
+.auth-visual::after { content: none; }
 .auth-visual > * { position: relative; z-index: 2; }
+.auth-hero-image { position: absolute; z-index: 0; object-position: 72% 50%; filter: saturate(.9); }
+.auth-visual-overlay { position: absolute; z-index: 1; background: radial-gradient(55% 45% at 90% 100%, rgba(29, 79, 216, .45), transparent 70%), linear-gradient(90deg, rgba(4, 11, 29, .97) 0%, rgba(4, 11, 29, .9) 42%, rgba(4, 11, 29, .55) 100%), linear-gradient(0deg, rgba(4, 11, 29, .9), rgba(4, 11, 29, .2) 60%); }
 .auth-brand { gap: 1rem; }
-.auth-brand-mark { display: grid; place-items: center; width: 50px; height: 50px; border-radius: 14px; background: linear-gradient(145deg, #2f7bf0, #1746c7); color: #fff; box-shadow: 0 10px 28px rgba(29, 79, 216, .45), inset 0 1px 0 rgba(255, 255, 255, .25); }
-.auth-brand-name { font-size: 1.625rem; font-weight: 800; letter-spacing: .04em; color: #fff; }
-.auth-brand-name em { font-style: normal; color: var(--auth-cyan); }
+.auth-brand-plate { display: inline-flex; align-items: center; padding: .5rem .875rem; border-radius: 12px; background: #fff; box-shadow: 0 10px 28px rgba(0, 0, 0, .35); }
+.auth-brand .carevma-brand-logo img { width: 150px; }
 .auth-brand-tag { margin-left: .5rem; padding: .375rem .875rem; border: 1px solid rgba(79, 200, 244, .35); border-radius: var(--radius-pill); background: rgba(79, 200, 244, .08); color: var(--auth-cyan); font-size: .6875rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .auth-kicker { align-self: flex-start; margin-top: 2rem; padding: .625rem 1.125rem; border-color: rgba(255, 255, 255, .12); background: rgba(255, 255, 255, .04); color: #e6edf7; font-size: .75rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; backdrop-filter: none; }
 .auth-kicker::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--auth-cyan); box-shadow: 0 0 10px var(--auth-cyan); }
@@ -851,11 +852,6 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
 .auth-copy .eyebrow { font-size: .75rem; letter-spacing: .1em; color: #1f7a93; }
 .auth-copy h2 { margin: .625rem 0 .75rem; font-family: inherit; font-size: clamp(1.75rem, 2.6vw, 2.25rem); font-weight: 800; letter-spacing: -.035em; color: var(--foreground); }
 .auth-copy p { font-size: .9375rem; line-height: 1.6; color: var(--muted-foreground); }
-.auth-google { display: flex; align-items: center; justify-content: center; gap: .75rem; width: 100%; min-height: 52px; border: 1px solid #dbe3ee; border-radius: 12px; background: #fff; color: var(--foreground); font-size: .9375rem; font-weight: 600; text-decoration: none; transition: border-color .15s, background .15s; }
-.auth-google:hover { border-color: #b9c8dc; background: #f7f9fc; }
-.auth-google img { width: 20px; height: 20px; }
-.auth-divider { display: flex; align-items: center; gap: 1rem; margin: 1.5rem 0; color: var(--muted-foreground); font-size: .6875rem; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; }
-.auth-divider::before, .auth-divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
 .auth-form { gap: 1.25rem; }
 .auth-form .field > span { font-size: .6875rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--foreground); }
 .auth-form .icon-field > div { min-height: 52px; padding: 0 .875rem 0 1rem; border: 1px solid #dbe3ee; border-radius: 12px; background: #f8fafc; color: #8b97a8; }

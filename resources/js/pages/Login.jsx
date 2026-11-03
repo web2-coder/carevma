@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link, useSearchParams, useParams } from 'react-router-dom';
-import { ArrowRight, Box, Check, Eye, EyeOff, Lock, LockKeyhole, Mail, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Check, Eye, EyeOff, Lock, LockKeyhole, Mail, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api, { messageFrom } from '../api';
 import { Button, Input, Notice } from '../components/ui';
@@ -16,7 +16,8 @@ export function LoginPage() {
   const submit = async e => { e.preventDefault(); setLoading(true); setError(''); try { const data = await login(form); navigate(data.redirect, { replace: true }); } catch (e) { setError(messageFrom(e)); } finally { setLoading(false); } };
   return <div className="auth-page">
     <section className="auth-visual">
-      <div className="auth-brand"><span className="auth-brand-mark"><Box size={26} strokeWidth={2.2}/></span><span className="auth-brand-name">CARE <em>VMA</em></span><span className="auth-brand-tag">Clinical suite</span></div>
+      <img className="auth-hero-image" src="/VMA-Hero_Image.jpg" alt=""/><div className="auth-visual-overlay"/>
+      <div className="auth-brand"><span className="auth-brand-plate"><BrandLogo/></span><span className="auth-brand-tag">Clinical suite</span></div>
       <span className="auth-kicker"><ShieldCheck size={16}/> Secure workforce operations</span>
       <div className="auth-hero">
         <h1>One workspace for<br/><em>people, time,</em><br/><em className="is-sky">approvals</em><br/>and billing.</h1>
@@ -29,8 +30,6 @@ export function LoginPage() {
       <div className="mobile-brand"><BrandLogo/></div>
       <div className="auth-copy"><span className="eyebrow">Welcome back</span><h2>Sign in to your workspace</h2><p>Your destination is selected automatically based on your role (VA, Doctor, Administrator).</p></div>
       {error && <Notice type="error" onClose={() => setError('')}>{error}</Notice>}
-      <a className="auth-google" href="/auth/google/redirect"><img src="/google-symbol.png" alt=""/>Continue with Google Workspace</a>
-      <div className="auth-divider">Or continue with email</div>
       <form onSubmit={submit} className="auth-form">
         <label className="field icon-field"><span>Work email address</span><div><Mail size={18}/><input type="email" autoComplete="email" required value={form.email} onChange={e => setForm({...form, email:e.target.value})} placeholder="you@carevma.com"/></div></label>
         <label className="field icon-field"><span>Password</span><div><LockKeyhole size={18}/><input type={show ? 'text' : 'password'} autoComplete="current-password" required value={form.password} onChange={e => setForm({...form,password:e.target.value})} placeholder="Enter your security password"/><button type="button" onClick={() => setShow(v => !v)} aria-label={show ? 'Hide password' : 'Show password'}>{show ? <EyeOff size={18}/> : <Eye size={18}/>}</button></div></label>
