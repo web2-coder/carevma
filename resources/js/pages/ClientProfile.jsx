@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
   CalendarDays,
@@ -750,6 +750,7 @@ export default function ClientProfilePage() {
               <div className="client-va-header-right">
                 <div className="client-va-timezone"><Clock3 size={15} /><span>{client?.timezone || group.schedules[0]?.client_timezone || group.schedules[0]?.timezone || 'Doctor timezone not set'}</span></div>
                 <div className="client-va-rate">{group.rate !== null && group.rate !== '' ? `${money(group.rate)}/hr` : 'Rate not set'}</div>
+                {group.employee?.id && <Link className="btn btn-secondary" to={`/admin/employees/${group.employee.id}`}>Profile</Link>}
                 <Button variant="secondary" icon={Plus} onClick={() => openAddSchedule(group.employee?.id)}>Add shift</Button>
               </div>
             </div>

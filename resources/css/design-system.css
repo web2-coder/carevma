@@ -856,3 +856,7 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
 @media (max-width: 1200px) { .auth-visual { padding: 3.5rem 3rem 2.75rem; } .auth-page { grid-template-columns: minmax(0, 1.1fr) minmax(420px, .9fr); } }
 @media (max-width: 900px) { .auth-page { grid-template-columns: 1fr; } .auth-visual { display: none; } .auth-panel { align-content: center; } }
 @media (max-width: 620px) { .auth-panel { padding: 2rem 1.25rem; } .auth-copy h2 { font-size: 1.75rem; } }
+
+/* Record names link to their page where the role has one; plain text otherwise. */
+.record-link { color: inherit; font-weight: inherit; text-decoration: none; }
+.record-link:hover, .record-link:focus-visible { color: var(--primary); text-decoration: underline; }

@@ -6,6 +6,7 @@ import { formatDate } from '../timezone';
 import { PageHeader, Card, MetricCard, Button, Input, useNotice, Table, Badge, statusTone, Loading, dateTime, AvatarMedia } from '../components/ui';
 import TimezonePicker from '../components/TimezonePicker';
 import { useAuth } from '../context/AuthContext';
+import { EmployeeLink } from '../recordLinks';
 import '../../css/dual-timezone-tables.css';
 
 
@@ -42,7 +43,7 @@ export function DoctorDashboard(){
   if(!data)return <Loading/>;
   const doctorTimezone=data.client?.timezone||'UTC';
   const scheduleColumns=[
-    {key:'employee',label:'VA',render:r=>`${r.employee?.first_name||''} ${r.employee?.last_name||''}`.trim()||'—'},
+    {key:'employee',label:'VA',render:r=><EmployeeLink employee={r.employee}/>},
     {key:'day',label:'Doctor day',render:r=>r.repeat===false&&r.schedule_date?String(r.schedule_date).slice(0,10):(r.weekday||'—')},
     {key:'time',label:'Doctor local time',render:r=>`${formatClock12(r.start_time)} – ${formatClock12(r.end_time)}`},
     {key:'break',label:'Doctor break',render:r=><Badge tone="info">{breakCodeText(r.break_allowed_hours)}</Badge>},
