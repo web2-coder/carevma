@@ -87,7 +87,7 @@ Route::prefix('api')->group(function () {
 
             Route::put('/account', [AdminApiController::class, 'updateAccount']);
             Route::post('/account', [AdminApiController::class, 'updateAccount']);
-            Route::put('/account/password', [AdminApiController::class, 'changePassword']);
+            Route::put('/account/password', [AdminApiController::class, 'changePassword'])->middleware('throttle:6,1');
         });
 
         Route::middleware('role:admin')->prefix('admin')->group(function () {
@@ -131,7 +131,7 @@ Route::prefix('api')->group(function () {
                 Route::post('/overtime/{attendance}/request', [EmployeeApiController::class, 'requestOvertimeReview']);
                 Route::post('/break/start', [EmployeeApiController::class, 'startBreak']);
                 Route::post('/break/end', [EmployeeApiController::class, 'endBreak']);
-                Route::put('/password', [EmployeeApiController::class, 'changePassword']);
+                Route::put('/password', [EmployeeApiController::class, 'changePassword'])->middleware('throttle:6,1');
                 Route::post('/birthday-wishes/{employee}', [EmployeeApiController::class, 'sendBirthdayWish']);
             });
         });
@@ -141,7 +141,7 @@ Route::prefix('api')->group(function () {
             Route::get('/employees/{employee}/attendance', [DoctorApiController::class, 'employeeAttendance']);
             Route::get('/profile', [DoctorApiController::class, 'profile']);
             Route::post('/profile', [DoctorApiController::class, 'updateProfile']);
-            Route::put('/password', [DoctorApiController::class, 'changePassword']);
+            Route::put('/password', [DoctorApiController::class, 'changePassword'])->middleware('throttle:6,1');
         });
     });
 });
@@ -153,7 +153,7 @@ Route::get('/invoices/{invoice}/pdf', InvoicePdfController::class)->middleware('
    VA activation now goes through the SPA (/reset-password/{token}?invite=1); the old /complete-profile flow is retired
    and its URLs fall through to the React shell below. */
 Route::get('/client/set-password', [ClientAuthController::class, 'showSetPasswordForm'])->name('client.password.form')->middleware('signed');
-Route::post('/client/set-password', [ClientAuthController::class, 'setPassword'])->name('client.password.update');
+Route::post('/client/set-password', [ClientAuthController::class, 'setPassword'])->name('client.password.update')->middleware('throttle:6,1');
 Route::get('/google/connect', [OrgGoogleController::class, 'redirectToGoogle'])->middleware(['auth', 'role:employee'])->name('google.connect');
 Route::get('/google/callback', [OrgGoogleController::class, 'handleGoogleCallback'])->name('google.callback');
 Route::get('/auth/google/redirect', [OrgGoogleController::class, 'redirectToGoogleLogin'])->name('google.login');

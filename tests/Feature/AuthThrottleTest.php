@@ -66,6 +66,58 @@ class AuthThrottleTest extends TestCase
             ->assertOk();
     }
 
+    public function test_login_is_capped_per_ip_across_accounts(): void
+    {
+        // Credential stuffing cycles emails, so the per-account bucket never fills.
+        foreach (range(1, 30) as $attempt) {
+            $this->postJson('/api/login', ['email' => "probe{$attempt}@carevma.test", 'password' => 'wrong'])
+                ->assertStatus(422);
+        }
+
+        $this->postJson('/api/login', ['email' => 'probe31@carevma.test', 'password' => 'wrong'])
+            ->assertStatus(429);
+    }
+
+    public function test_login_has_an_hourly_cap_for_one_account(): void
+    {
+        $this->user('admin@carevma.test');
+
+        foreach (range(1, 4) as $round) {
+            foreach (range(1, 5) as $attempt) {
+                $this->postJson('/api/login', ['email' => 'admin@carevma.test', 'password' => 'wrong'])
+                    ->assertStatus(422);
+            }
+            $this->travel(61)->seconds();
+        }
+
+        // Twenty slow guesses inside the hour: the minute window has reset, the hourly one has not.
+        $this->postJson('/api/login', ['email' => 'admin@carevma.test', 'password' => 'wrong'])
+            ->assertStatus(429);
+    }
+
+    public function test_change_password_is_throttled_per_user(): void
+    {
+        $this->actingAs($this->user('admin@carevma.test'));
+        $payload = ['current_password' => 'wrong', 'password' => 'new-password-123', 'password_confirmation' => 'new-password-123'];
+
+        foreach (range(1, 6) as $attempt) {
+            $this->putJson('/api/management/account/password', $payload)->assertStatus(422);
+        }
+
+        $this->putJson('/api/management/account/password', $payload)->assertStatus(429);
+    }
+
+    public function test_client_set_password_is_throttled_per_ip(): void
+    {
+        $payload = ['email' => 'client@carevma.test', 'token' => 'guessed', 'password' => 'new-password-123', 'password_confirmation' => 'new-password-123'];
+
+        foreach (range(1, 6) as $attempt) {
+            $this->post('/client/set-password', $payload)->assertStatus(302);
+        }
+
+        $this->post('/client/set-password', $payload)->assertStatus(429);
+    }
+
     public function test_forgot_password_is_throttled_per_ip(): void
     {
         // Different address each time: this bucket must be the IP, not the email,

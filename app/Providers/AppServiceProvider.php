@@ -28,7 +28,16 @@ class AppServiceProvider extends ServiceProvider
         // Keyed by email + IP rather than IP alone: a clinic office behind one NAT must
         // not lock every doctor out with a few shared typos, while credential stuffing
         // against one account from one source still stops at five attempts a minute.
-        RateLimiter::for('login', fn (Request $request) => Limit::perMinute(5)
-            ->by(Str::lower((string) $request->input('email')).'|'.$request->ip()));
+        // Three tiers: a per-minute burst cap and an hourly cap on one account from one
+        // source, plus a per-IP cap across accounts so one source cannot cycle emails.
+        RateLimiter::for('login', function (Request $request) {
+            $account = Str::lower((string) $request->input('email')).'|'.$request->ip();
+
+            return [
+                Limit::perMinute(5)->by($account),
+                Limit::perHour(20)->by('hourly|'.$account),
+                Limit::perMinute(30)->by('ip|'.$request->ip()),
+            ];
+        });
     }
 }

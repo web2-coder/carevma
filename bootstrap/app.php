@@ -102,7 +102,8 @@ return Application::configure(basePath: dirname(__DIR__))
                     429 => 'Too many requests were sent. Please wait a moment and try again.',
                     default => 'The request could not be completed. Please review your input and try again.',
                 };
-                return response()->json(['message' => $message, 'code' => 'REQUEST_FAILED'], $status);
+                // Keep the exception's own headers: Retry-After on a 429 tells the SPA how long to wait.
+                return response()->json(['message' => $message, 'code' => 'REQUEST_FAILED'], $status, $e instanceof HttpExceptionInterface ? $e->getHeaders() : []);
             }
 
             Log::error('Unexpected CareVMA API failure.', [

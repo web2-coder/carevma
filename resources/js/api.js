@@ -291,6 +291,11 @@ export const messageFrom = error => {
     error.response.status || 0,
   );
 
+  if (status === 429) {
+    const wait = Number(error.response.headers?.['retry-after'] || 0);
+    return wait ? `Too many attempts. Please try again in ${wait} seconds.` : 'Too many attempts. Please wait a moment and try again.';
+  }
+
   const serverMessage = String(
     error?.response?.data?.message || '',
   ).trim();
@@ -331,10 +336,6 @@ export const messageFrom = error => {
 
   if (status === 422) {
     return 'Please review the information you entered and try again.';
-  }
-
-  if (status === 429) {
-    return 'Too many requests were sent. Please wait a moment and try again.';
   }
 
   if (status >= 500) {
