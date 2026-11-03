@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\NotebookApiController;
 use App\Http\Controllers\Auth\OrgGoogleController;
 use App\Http\Controllers\Admin\Client\ClientAuthController;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Api\ActivityLogApiController;
 use App\Http\Middleware\OperationalActivityNotifier;
 
 /*
@@ -21,7 +22,7 @@ use App\Http\Middleware\OperationalActivityNotifier;
 Route::prefix('api')->group(function () {
     // Login is limited per email + IP (defined in AppServiceProvider); the two reset
     // endpoints per IP, since forgot-password is an outbound email relay.
-    Route::post('/login', [AuthApiController::class, 'login'])->middleware(['guest', 'throttle:login']);
+    Route::post('/login', [AuthApiController::class, 'login'])->middleware(['guest', 'throttle:login', OperationalActivityNotifier::class]);
     Route::post('/forgot-password', [AuthApiController::class, 'forgot'])->middleware(['guest', 'throttle:6,1']);
     Route::post('/reset-password', [AuthApiController::class, 'reset'])->middleware(['guest', 'throttle:6,1']);
     Route::get('/csrf-token', function (\Illuminate\Http\Request $request) {
@@ -90,6 +91,7 @@ Route::prefix('api')->group(function () {
         });
 
         Route::middleware('role:admin')->prefix('admin')->group(function () {
+            Route::get('/activity-logs', ActivityLogApiController::class);
             Route::get('/hr-users', [AdminApiController::class, 'hrUsers']);
             Route::post('/hr-users', [AdminApiController::class, 'storeHrUser']);
             Route::put('/hr-users/{user}', [AdminApiController::class, 'updateHrUser']);

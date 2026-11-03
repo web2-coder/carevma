@@ -1122,3 +1122,40 @@ export function HrTeamPage(){
  const remove=async r=>{try{await api.delete(`/admin/hr-users/${r.id}`);n.success('HR account deleted.');const target=rows.length===1&&page>1?page-1:page;if(target!==page)setPage(target);else load(target)}catch(e){n.error(messageFrom(e))}};
  return <><PageHeader eyebrow="Access management" title="HR team" description="Create dedicated HR logins. New HR users receive a secure email link to set their own password before signing in." actions={<Button icon={Plus} onClick={()=>open()}>Add HR user</Button>}/>{inviteLink&&<Card title="Activation link"><div className="invite-link-box"><div><strong>{inviteLink.label}</strong><a href={inviteLink.url} target="_blank" rel="noreferrer">{inviteLink.url}</a></div><Button variant="secondary" icon={ClipboardCopy} onClick={copyHrInvite}>Copy link</Button></div></Card>}<Card><div className="toolbar"><SearchBox value={search} onChange={v=>{setSearch(v);setPage(1)}} placeholder="Search HR team"/><span className="record-count">{meta?.total??rows.length} HR users</span></div><Table columns={[{key:'name',label:'Name',sortKey:'name'},{key:'email',label:'Email',sortKey:'email'},{key:'last_seen_at',label:'Last active',sortKey:'last_seen_at',render:r=>dateTime(r.last_seen_at)},{key:'actions',label:'Actions',render:r=><div className="row-actions"><button onClick={()=>open(r)}><Pencil size={16}/></button><button className="danger" onClick={()=>remove(r)}><Trash2 size={16}/></button></div>}]} rows={rows} emptyTitle="No HR accounts" emptyDescription="Add an HR user to send their password setup invitation." meta={meta} onPage={setPage} perPage={perPage} onPerPage={v=>{setPerPage(v);setPage(1)}} sort={sort} onSort={s=>{setSort(s);setPage(1)}}/></Card><Modal open={modal} onClose={()=>setModal(false)} title={edit?'Edit HR account':'Add HR account'} footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={save}>Save HR account</Button></>}><div className="form-grid one-col"><Input label="Name *" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/><Input label="Email *" type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/>{edit&&<Input label="New password (optional)" type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})}/>} {!edit&&<div className="notice notice-info">A secure set-password email will be sent automatically after this HR account is created.</div>}</div></Modal></>;
 }
+
+export function ActivityLogsPage(){
+  const {user}=useAuth();const n=useNotice();
+  const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[actors,setActors]=useState([]),[modules,setModules]=useState([]),[busy,setBusy]=useState(false);
+  const [filters,setFilters]=useState({user_id:'',module:'',role:'',from:'',to:'',search:''});
+  const [page,setPage]=useState(1),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'created_at',dir:'desc'});
+  const tz=user?.assigned_timezone||'UTC';
+  const load=async()=>{setBusy(true);try{const {data}=await api.get('/admin/activity-logs',{params:{...filters,page,per_page:perPage,sort:sort.key,direction:sort.dir}});setRows(data.data||[]);setMeta(data);setActors(data.actors||[]);setModules(data.modules||[])}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+  useEffect(()=>{load()},[page,perPage,sort,filters.user_id,filters.module,filters.role,filters.from,filters.to]);
+  const set=(key,value)=>{setPage(1);setFilters(f=>({...f,[key]:value}))};
+  const apply=()=>{setPage(1);load()};
+  const reset=()=>{setPage(1);setFilters({user_id:'',module:'',role:'',from:'',to:'',search:''})};
+  const roleTone={admin:'info',superadmin:'info',hr:'warning',employee:'success',client:'neutral',guest:'danger'};
+  const methodTone={POST:'success',PUT:'info',PATCH:'info',DELETE:'danger'};
+  const columns=[
+    {key:'created_at',label:'When',sortKey:'created_at',render:r=><AttCell sub={attCity(tz)}>{dateTime(r.created_at,tz)}</AttCell>},
+    {key:'actor',label:'User',sortKey:'actor',render:r=><div className="person-cell"><div className="avatar small">{(r.actor_name||r.actor_email||'?').slice(0,1).toUpperCase()}</div><div><strong>{r.actor_name||'Unknown'}</strong><span>{r.actor_email||'—'}</span></div></div>},
+    {key:'actor_role',label:'Role',render:r=><Badge tone={roleTone[r.actor_role]||'neutral'}>{r.actor_role||'—'}</Badge>},
+    {key:'action',label:'Action',sortKey:'action',render:r=><AttCell sub={r.description||''}>{r.action}</AttCell>},
+    {key:'module',label:'Module',sortKey:'module',render:r=><Badge tone="neutral">{r.module}</Badge>},
+    {key:'subject_name',label:'Affected user',render:r=>r.subject_name||<span className="muted">—</span>},
+    {key:'request',label:'Request',render:r=><AttCell sub={r.path}><Badge tone={methodTone[r.method]||'neutral'}>{r.method}</Badge> <span className="muted">{r.status_code}</span></AttCell>},
+    {key:'ip_address',label:'IP',render:r=>r.ip_address||'—'},
+  ];
+  return <><PageHeader eyebrow="Governance" title="Activity logs" description="Every sign-in and change made by any user, newest first. Times are shown in your timezone." actions={<Button variant="secondary" icon={RefreshCw} loading={busy} onClick={load}>Refresh</Button>}/>
+    <Card><div className="filter-grid">
+      <SearchableSelect label="User" value={filters.user_id} onChange={v=>set('user_id',v)} placeholder="All users" searchPlaceholder="Search by name or email…" options={actors.map(a=>({value:String(a.user_id),label:`${a.actor_name||a.actor_email} · ${a.actor_role}`}))}/>
+      <Select label="Module" value={filters.module} onChange={e=>set('module',e.target.value)}><option value="">All modules</option>{modules.map(m=><option key={m} value={m}>{m}</option>)}</Select>
+      <Select label="Role" value={filters.role} onChange={e=>set('role',e.target.value)}><option value="">All roles</option>{['admin','hr','employee','client','guest'].map(r=><option key={r} value={r}>{r}</option>)}</Select>
+      <Input label="From" type="date" value={filters.from} onChange={e=>set('from',e.target.value)}/>
+      <Input label="To" type="date" value={filters.to} onChange={e=>set('to',e.target.value)}/>
+      <Input label="Search" value={filters.search} onChange={e=>setFilters(f=>({...f,search:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&apply()} placeholder="Action, user, path or IP"/>
+      <div className="filter-actions"><Button onClick={apply}>Filter</Button><Button variant="secondary" onClick={reset}>Reset</Button></div>
+    </div></Card>
+    <Card title="Log entries" subtitle={meta?`${meta.total||0} entries`:'Loading…'}><Table columns={columns} rows={rows} meta={meta} onPage={setPage} perPage={perPage} onPerPage={v=>{setPerPage(v);setPage(1)}} sort={sort} onSort={setSort} emptyTitle="No activity yet" emptyDescription="Sign-ins and changes will appear here as users work."/></Card>
+  </>;
+}

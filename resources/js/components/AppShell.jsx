@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, UserRoundCog, CalendarDays, Clock3, FileCheck2, TimerReset,
   ReceiptText, SlidersHorizontal, Bell, UserCircle2, Settings, LogOut, Menu, X, BriefcaseBusiness,
-  Stethoscope, ClipboardList, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, Activity, CircleDollarSign, BookOpenText
+  Stethoscope, ClipboardList, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, Activity, CircleDollarSign, BookOpenText, ScrollText
 } from 'lucide-react';
 import { NotificationIcon } from '../notificationIcon';
 import { useAuth } from '../context/AuthContext';
@@ -37,6 +37,7 @@ function navFor(user) {
     return [
       { group: 'Overview', label: 'Dashboard', to: '/admin/dashboard', icon: LayoutDashboard },
       { group: 'Overview', label: 'Live Workforce', to: '/admin/live-users', icon: Activity },
+      { group: 'Overview', label: 'Activity Logs', to: '/admin/activity-logs', icon: ScrollText },
       { group: 'People', label: 'Employees', to: '/admin/employees', icon: Users },
       { group: 'People', label: 'HR Team', to: '/admin/hr-team', icon: UserRoundCog },
       { group: 'People', label: 'Clients', to: '/admin/clients', icon: Stethoscope },

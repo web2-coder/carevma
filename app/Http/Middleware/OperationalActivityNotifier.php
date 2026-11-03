@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\ActivityLog;
 use App\Models\Attendance;
 use App\Models\AttendanceChangeRequest;
 use App\Models\Client;
@@ -14,6 +15,7 @@ use App\Services\OperationalNotifier;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
 use function Illuminate\Support\defer;
@@ -26,18 +28,21 @@ class OperationalActivityNotifier
 
     public function handle(Request $request, Closure $next): Response
     {
+        // Logout clears the guard before we look, and login fills it only after: read both sides.
+        $actorBefore = $request->user();
         $response = $next($request);
 
         if (!in_array($request->method(), ['POST', 'PUT', 'PATCH', 'DELETE'], true)) {
             return $response;
         }
 
-        if ($response->getStatusCode() >= 400 || $this->shouldIgnore($request)) {
-            return $response;
-        }
+        $actor = $request->user() ?? $actorBefore;
 
-        $actor = $request->user();
-        if (!$actor) {
+        // Every mutation lands in the admin activity log, including the sign-ins, sign-outs
+        // and ignored endpoints that never notify anyone. always(): failed sign-ins too.
+        defer(fn () => $this->record($request, $response, $actor))->always();
+
+        if ($response->getStatusCode() >= 400 || $this->shouldIgnore($request) || !$actor) {
             return $response;
         }
 
@@ -176,6 +181,78 @@ class OperationalActivityNotifier
         return $users->filter(fn ($user) => $user instanceof User)->unique('id')->values();
     }
 
+    private function record(Request $request, Response $response, ?User $actor): void
+    {
+        $status = $response->getStatusCode();
+        $isLogin = $request->is('api/login');
+        if (($status >= 400 && !$isLogin) || (!$actor && !$isLogin)) {
+            return;
+        }
+
+        try {
+            $payload = method_exists($response, 'getData') ? (array) $response->getData(true) : [];
+            $subject = $actor ? $this->relatedRecipients($request, $payload)->first(fn (User $user) => $user->id !== $actor->id) : null;
+
+            ActivityLog::create([
+                'user_id' => $actor?->id,
+                'actor_name' => $actor?->name,
+                'actor_email' => $actor?->email ?? mb_substr((string) $request->input('email'), 0, 190),
+                'actor_role' => $actor?->role ?? 'guest',
+                'action' => $this->actionFor($request, $status),
+                'module' => $this->moduleFor($request),
+                'method' => $request->method(),
+                'path' => '/'.$request->path(),
+                'status_code' => $status,
+                'description' => isset($payload['message']) ? mb_substr((string) $payload['message'], 0, 1000) : null,
+                'subject_user_id' => $subject?->id,
+                'subject_name' => $subject?->name,
+                'ip_address' => $request->ip(),
+                'user_agent' => mb_substr((string) $request->userAgent(), 0, 255),
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('CareVMA activity log could not be saved.', ['path' => $request->path(), 'error' => $e->getMessage()]);
+        }
+    }
+
+    private function actionFor(Request $request, int $status): string
+    {
+        if ($request->is('api/login')) {
+            return $status < 400 ? 'Signed in' : 'Sign-in failed';
+        }
+        if ($request->is('api/logout')) {
+            return 'Signed out';
+        }
+        return $this->titleFor($request);
+    }
+
+    /** Module names match the sidebar; order matters because paths share words (employee/clock-in). */
+    private function moduleFor(Request $request): string
+    {
+        $path = $request->path();
+        $modules = [
+            'Account' => ['login', 'logout', 'password', 'profile', 'account', 'google', 'settings'],
+            'Change requests' => ['change-request'],
+            'Attendance' => ['attendance', 'clock', 'break', 'work-session'],
+            'Overtime' => ['overtime'],
+            'Schedules' => ['schedule'],
+            'Invoices' => ['invoice'],
+            'Finance' => ['finance'],
+            'Documents' => ['notebook', 'document'],
+            'HR team' => ['hr-user'],
+            'Employees' => ['employee'],
+            'Clients' => ['client'],
+            'Notifications' => ['notification', 'birthday'],
+        ];
+        foreach ($modules as $module => $needles) {
+            foreach ($needles as $needle) {
+                if (str_contains($path, $needle)) {
+                    return $module;
+                }
+            }
+        }
+        return 'Configuration';
+    }
+
     private function shouldIgnore(Request $request): bool
     {
         if (($request->is('api/admin/hr-users') && $request->isMethod('post'))
@@ -185,6 +262,7 @@ class OperationalActivityNotifier
         }
 
         return $request->is(
+            'api/login',
             'api/logout',
             'api/notifications/read-all',
             'api/notifications/*/read',

@@ -7,7 +7,7 @@ import { Loading } from './components/ui';
 import { LoginPage, ForgotPasswordPage, ResetPasswordPage } from './pages/Login';
 import {
   ManagementDashboard, LiveUsersPage, EmployeesPage, EmployeeProfilePage, ClientsPage, SchedulesPage, AttendancePage,
-  ChangeRequestsPage, OvertimePage, InvoicesPage, CompanyFinancePage, ReferencePage, NotificationsPage, AccountPage, HrTeamPage
+  ChangeRequestsPage, OvertimePage, InvoicesPage, CompanyFinancePage, ReferencePage, NotificationsPage, AccountPage, HrTeamPage, ActivityLogsPage
 } from './pages/Management';
 import { EmployeeDashboard, EmployeeSchedule, EmployeeAttendance, EmployeeProfile, EmployeeSettings } from './pages/Employee';
 import { DoctorDashboard, DoctorEmployeeAttendance, DoctorProfile } from './pages/Doctor';
@@ -76,6 +76,7 @@ function AppRoutes() {
     <Route element={<Protected roles={['admin','hr']}><AppShell/></Protected>}>
       <Route path="/admin/dashboard" element={<Protected roles={['admin']}><ManagementDashboard/></Protected>}/>
       <Route path="/admin/live-users" element={<Protected roles={['admin']}><LiveUsersPage/></Protected>}/>
+      <Route path="/admin/activity-logs" element={<Protected roles={['admin']}><ActivityLogsPage/></Protected>}/>
       <Route path="/hr/dashboard" element={<Protected roles={['hr']}><ManagementDashboard/></Protected>}/>
       <Route path="/hr/live-users" element={<Protected roles={['hr']}><LiveUsersPage/></Protected>}/>
       <Route path="/admin/employees" element={<Protected roles={['admin']}><EmployeesPage/></Protected>}/>
