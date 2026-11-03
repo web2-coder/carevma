@@ -856,6 +856,8 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
 .auth-form .icon-field > div:focus-within { border-color: var(--auth-blue); background: #fff; box-shadow: 0 0 0 3px rgba(29, 79, 216, .15); }
 .auth-form .icon-field input { min-height: 50px; border: 0; outline: 0; background: transparent; font-size: .9375rem; }
 .auth-form .icon-field input::placeholder { color: #9aa6b7; }
+.auth-form .icon-field input:-webkit-autofill, .auth-form .icon-field input:-webkit-autofill:hover, .auth-form .icon-field input:-webkit-autofill:focus { -webkit-text-fill-color: var(--foreground); caret-color: var(--foreground); box-shadow: 0 0 0 1000px #f8fafc inset !important; }
+.auth-form .icon-field > div:focus-within input:-webkit-autofill { box-shadow: 0 0 0 1000px #fff inset !important; }
 .auth-row .check { font-size: .875rem; color: var(--ink-soft); }
 .auth-row .check input { width: 18px; height: 18px; accent-color: var(--auth-blue); }
 .auth-row a { color: var(--auth-blue); font-size: .875rem; font-weight: 600; }
