@@ -327,6 +327,8 @@ export function Table({
   const currentPage = Math.min(page, lastPage);
   const startIndex = useLocalPager ? (currentPage - 1) * effectivePageSize : 0;
   const visibleRows = useLocalPager ? filteredRows.slice(startIndex, startIndex + effectivePageSize) : filteredRows;
+  // Running row number across pages: the paginator's `from` in server mode, the local offset otherwise.
+  const indexBase = serverMode ? Math.max(0, (Number(meta?.from) || 1) - 1) : startIndex;
   const from = total ? startIndex + 1 : 0;
   const to = total ? Math.min(startIndex + visibleRows.length, total) : 0;
 
@@ -359,7 +361,7 @@ export function Table({
       </div>
     </div>
 
-    {visibleRows.length ? <div className="table-wrap"><table ref={tableRef}><thead><tr>{columns.map(c => {
+    {visibleRows.length ? <div className="table-wrap"><table ref={tableRef}><thead><tr><th className="row-index">#</th>{columns.map(c => {
       const sortable = Boolean(c.sortKey && onSort);
       const active = sortable && sort?.key === c.sortKey;
       const nextDir = active && sort.dir === 'asc' ? 'desc' : 'asc';
@@ -372,7 +374,7 @@ export function Table({
         onKeyDown={sortable ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); apply(); } } : undefined}>
         {c.label}{sortable && <span className="sort-indicator" aria-hidden="true">{active ? (sort.dir === 'asc' ? '▲' : '▼') : '⇅'}</span>}
       </th>;
-    })}</tr></thead><tbody>{visibleRows.map((row, index) => <tr key={row?.[rowKey] ?? `${currentPage}-${index}`} className={[rowClassName?.(row), isHighlighted(row) ? 'is-highlight' : ''].filter(Boolean).join(' ') || undefined}>{columns.map(c => <td key={c.key} data-label={c.label}>{c.render ? c.render(row) : row?.[c.key] ?? '—'}</td>)}</tr>)}</tbody></table></div> : <EmptyState title="No matching records" description="Change the search or filter to see more results."/>}
+    })}</tr></thead><tbody>{visibleRows.map((row, index) => <tr key={row?.[rowKey] ?? `${currentPage}-${index}`} className={[rowClassName?.(row), isHighlighted(row) ? 'is-highlight' : ''].filter(Boolean).join(' ') || undefined}><td className="row-index" data-label="#">{indexBase + index + 1}</td>{columns.map(c => <td key={c.key} data-label={c.label}>{c.render ? c.render(row) : row?.[c.key] ?? '—'}</td>)}</tr>)}</tbody></table></div> : <EmptyState title="No matching records" description="Change the search or filter to see more results."/>}
 
     {useLocalPager && total > effectivePageSize && <div className="smart-table-pagination">
       <span>Showing {from}–{to} of {total}</span>

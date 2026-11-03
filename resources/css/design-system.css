@@ -941,3 +941,7 @@ a.metric-card:focus-visible { outline: 2px solid var(--primary); outline-offset:
 .docs-meta .badge { text-transform: none; letter-spacing: 0; }
 .docs-empty { padding: 2rem 0; }
 @media (max-width: 900px) { .docs-layout { grid-template-columns: 1fr; } .docs-toc { position: static; max-height: none; display: flex; flex-wrap: wrap; gap: .25rem; } .docs-toc .docs-toc-group { width: 100%; } }
+
+/* Row numbers */
+.smart-table th.row-index, .smart-table td.row-index { width: 2.75rem; padding-right: .25rem; text-align: right; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+.smart-table td.row-index { font-size: .75rem; }
