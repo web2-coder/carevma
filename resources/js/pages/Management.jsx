@@ -613,7 +613,7 @@ export function EmployeeProfilePage(){
             <span className={`ep-status ${live?'is-live':''}`}><i/>{[status||'Not set',live?'On shift':null].filter(Boolean).join(' · ')}</span>
             {employee.employee_code&&<span className="ep-chip">ID: {employee.employee_code}</span>}
           </div>
-          <p className="ep-subtitle">{[employee.employee_code,employee.designation?.name,employee.department?.name].filter(Boolean).join('  •  ')||'Employee profile'}</p>
+          <p className="ep-subtitle">{[employee.designation?.name,employee.department?.name].filter(Boolean).join('  •  ')||'Employee profile'}</p>
         </div>
         <div className="page-actions">
           <Button variant="secondary" icon={ArrowLeft} onClick={()=>navigate(base)}>Back to Employees</Button>
@@ -624,7 +624,7 @@ export function EmployeeProfilePage(){
       <div className="ep-header-bottom">
         <div className="ep-identity">
           <div className="avatar ep-avatar"><AvatarMedia src={employee.profile_picture} alt={name} fallback={initials}/></div>
-          <div><div className="ep-identity-name"><strong>{name}</strong><Badge tone={statusTone(status)}>{status||'Not set'}</Badge></div><span className="ep-mono">{employee.email}</span></div>
+          <div><div className="ep-identity-name"><strong>{employee.email||'No email on file'}</strong></div><span>{[employee.phone,employee.timezone].filter(Boolean).join('  •  ')||'No contact details yet'}</span></div>
         </div>
         <div className="ep-tabs" role="tablist" aria-label="Employee profile sections">
           {EMPLOYEE_TABS.map(t=>{const Icon=t.icon;return <button key={t.key} type="button" role="tab" aria-selected={tab===t.key} className={tab===t.key?'active':''} onClick={()=>setTab(t.key)}><Icon size={15}/><span>{t.label}</span></button>})}
