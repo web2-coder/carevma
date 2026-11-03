@@ -14,7 +14,7 @@ export const clock12=v=>{const m=/(\d{1,2}):(\d{2})/.exec(String(v||''));if(!m)r
 export const attCity=tz=>String(tz||'UTC').split('/').pop().replaceAll('_',' ');
 export const AttCell=({children,sub,mono=false})=><div className={`att-cell ${mono?'ep-mono':''}`}><span>{children}</span>{sub&&<small>{sub}</small>}</div>;
 export const attendanceColumns=[
-  {key:'client',label:'Doctor',render:r=><AttCell sub={attCity(attZone(r))}><ClientLink client={r.client}>{r.client?.name||r.client?.business_name||'Legacy / unallocated'}</ClientLink></AttCell>},
+  {key:'client',label:'Work With',render:r=><AttCell sub={attCity(attZone(r))}><ClientLink client={r.client}>{r.client?.name||r.client?.business_name||'Legacy / unallocated'}</ClientLink></AttCell>},
   {key:'date',label:'Date',sortKey:'date',render:r=>{const d=r.date?new Date(String(r.date).slice(0,10)+'T00:00:00'):null;return <AttCell sub={d?d.toLocaleDateString('en-US',{weekday:'long'}):''}>{d?d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—'}</AttCell>}},
   {key:'shift',label:'Shift',render:r=>r.shift_start_snapshot&&r.shift_end_snapshot?<AttCell>{attTime(r.shift_start_snapshot,attZone(r))} – {attTime(r.shift_end_snapshot,attZone(r))}</AttCell>:<span className="muted">—</span>},
   {key:'clock_in',label:'Clock in',sortKey:'clock_in',render:r=>r.clock_in?<AttCell mono sub={attDay(r.clock_in,attZone(r))!==attDay(r.shift_start_snapshot||r.clock_in,attZone(r))?attDay(r.clock_in,attZone(r)):''}>{attTime(r.clock_in,attZone(r))}</AttCell>:<span className="muted">—</span>},
@@ -25,4 +25,4 @@ export const attendanceColumns=[
   {key:'overtime',label:'Overtime',sortKey:'overtime',render:r=>{const ot=Number(r.overtime||0);return ot>0?<AttCell sub={String(r.overtime_status||'').replace('_',' ')}><Badge tone={r.overtime_status==='approved'?'success':'warning'}>{durationHM(ot)}</Badge></AttCell>:<span className="muted">—</span>}},
 ];
 
-export const vaColumn={key:'employee',label:'Virtual Assistant',render:r=><div className="person-cell"><div className="avatar small"><AvatarMedia src={r.employee?.profile_picture} alt={`${r.employee?.first_name||''} ${r.employee?.last_name||''}`} fallback={`${r.employee?.first_name?.[0]||''}${r.employee?.last_name?.[0]||''}`||'?'}/></div><div><strong><EmployeeLink employee={r.employee}/></strong><span>{r.employee?.employee_code||''}</span></div></div>};
+export const vaColumn={key:'employee',label:'Employee',render:r=><div className="person-cell"><div className="avatar small"><AvatarMedia src={r.employee?.profile_picture} alt={`${r.employee?.first_name||''} ${r.employee?.last_name||''}`} fallback={`${r.employee?.first_name?.[0]||''}${r.employee?.last_name?.[0]||''}`||'?'}/></div><div><strong><EmployeeLink employee={r.employee}/></strong><span>{r.employee?.employee_code||''}</span></div></div>};
