@@ -925,3 +925,19 @@ a.metric-card:focus-visible { outline: 2px solid var(--primary); outline-offset:
 .permissions-locked { display: inline-flex; align-items: center; gap: .375rem; color: var(--success); font-weight: 600; font-size: .8125rem; }
 .permissions-matrix .check { font-size: .8125rem; color: var(--foreground); }
 .permissions-matrix tfoot td { padding-top: 1rem; border-top: 1px solid var(--border); }
+
+/* Docs module */
+.docs-layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+.docs-toc { position: sticky; top: 5.5rem; display: grid; gap: .125rem; max-height: calc(100vh - 7rem); overflow: auto; }
+.docs-toc .docs-toc-group { margin: .75rem 0 .25rem; font-size: .6875rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-foreground); }
+.docs-toc a { display: block; padding: .375rem .625rem; border-radius: var(--radius-field); font-size: .8125rem; color: var(--ink-soft); text-decoration: none; }
+.docs-toc a:hover, .docs-toc a.active { background: var(--primary-soft); color: var(--primary); }
+.docs-section { scroll-margin-top: 5.5rem; }
+.docs-section .card-head p { max-width: 70ch; }
+.docs-section h3 { margin: 1.125rem 0 .5rem; font-size: .8125rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted-foreground); }
+.docs-section ol, .docs-section ul { margin: 0; padding-left: 1.25rem; display: grid; gap: .375rem; font-size: .875rem; line-height: 1.55; color: var(--foreground); max-width: 78ch; }
+.docs-section li::marker { color: var(--primary); font-weight: 700; }
+.docs-meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .25rem; }
+.docs-meta .badge { text-transform: none; letter-spacing: 0; }
+.docs-empty { padding: 2rem 0; }
+@media (max-width: 900px) { .docs-layout { grid-template-columns: 1fr; } .docs-toc { position: static; max-height: none; display: flex; flex-wrap: wrap; gap: .25rem; } .docs-toc .docs-toc-group { width: 100%; } }

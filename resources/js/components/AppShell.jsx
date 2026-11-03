@@ -4,7 +4,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, UserRoundCog, CalendarDays, Clock3, FileCheck2, TimerReset,
   ReceiptText, SlidersHorizontal, Bell, UserCircle2, Settings, LogOut, Menu, X, BriefcaseBusiness,
-  Stethoscope, ClipboardList, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, Activity, CircleDollarSign, BookOpenText, ScrollText, Settings2, ShieldCheck
+  Stethoscope, ClipboardList, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, Activity, CircleDollarSign, BookOpenText, ScrollText, Settings2, ShieldCheck, LifeBuoy
 } from 'lucide-react';
 import { NotificationIcon } from '../notificationIcon';
 import { useAuth } from '../context/AuthContext';
@@ -65,6 +65,7 @@ function staffNav(user) {
       children: (admin ? ADMIN_CONFIG : HR_CONFIG).map(([label, slug]) => ({ label, to: `${base}/options/${slug}` })),
     },
     admin && { group: 'Setup', label: 'Roles & Permissions', to: '/admin/roles-permissions', icon: ShieldCheck },
+    { group: 'Help', label: 'Docs', to: `${base}/docs`, icon: LifeBuoy },   // documentation is never gated
     { group: 'Account', label: 'Notifications', to: `${base}/notifications`, icon: Bell },
     { group: 'Account', label: 'My Account', to: `${base}/account`, icon: UserCircle2 },
   ].filter(Boolean);

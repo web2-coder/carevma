@@ -1,5 +1,6 @@
 import React from 'react';
 import { can } from './permissions';
+import DocsPage from './pages/Docs';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -82,6 +83,8 @@ function AppRoutes() {
       <Route path="/admin/activity-logs" element={<Protected roles={['admin','hr']} module="activity-logs"><ActivityLogsPage/></Protected>}/>
       <Route path="/admin/invoice-settings" element={<Protected roles={['admin','hr']} module="invoice-settings"><InvoiceSettingsPage/></Protected>}/>
       <Route path="/admin/roles-permissions" element={<Protected roles={['admin']}><RolesPermissionsPage/></Protected>}/>
+      <Route path="/admin/docs" element={<Protected roles={['admin']}><DocsPage/></Protected>}/>
+      <Route path="/hr/docs" element={<Protected roles={['hr']}><DocsPage/></Protected>}/>
       <Route path="/hr/dashboard" element={<Protected roles={['hr']}><ManagementDashboard/></Protected>}/>
       <Route path="/hr/live-users" element={<Protected roles={['hr']} module="live-users"><LiveUsersPage/></Protected>}/>
       <Route path="/admin/employees" element={<Protected roles={['admin']} module="employees"><EmployeesPage/></Protected>}/>
