@@ -313,7 +313,7 @@ export function LiveUsersPage(){
 
     <Card title={`${tabs.find(x=>x[0]===tab)?.[1]||'All'} VAs`} subtitle="Status refreshes automatically; activity labels update at runtime without a page reload.">
       {rows.length?<div className="live-user-card-grid">{rows.map(r=>{
-        const {employee,name,vaFallback,doctorSegments,runtimeOnline,statusKey,statusLabel}=derive(r);
+        const {employee,name,vaFallback,doctorSegments,runtimeOnline,statusKey}=derive(r);
         const doctorName=(Array.isArray(r.doctor_names)&&r.doctor_names.length?r.doctor_names.join(', '):(r.client?.name||r.client?.business_name||'No active Doctor session'));
         const doctorFallback=String(doctorName||'D').split(/\s+/).filter(Boolean).slice(0,2).map(part=>part[0]).join('').toUpperCase()||'D';
         return <article className={`live-user-card status-${statusKey}`} key={r.id} role="button" tabIndex={0} aria-haspopup="dialog" onClick={()=>setExpandedId(r.id)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setExpandedId(r.id)}}}>
@@ -325,7 +325,6 @@ export function LiveUsersPage(){
             <div className="live-user-profile-link"><span>{r.client?`working with ${doctorSegments.length||1} Doctor${(doctorSegments.length||1)===1?'':'s'}`:'status'}</span><i>→</i></div>
             {doctorSegments.length>0?<div className="live-user-doctor-stack">{doctorSegments.map(segment=>{const fallback=String(segment.name||'D').split(/\s+/).filter(Boolean).slice(0,2).map(part=>part[0]).join('').toUpperCase()||'D';return <div className="live-user-profile-block doctor" key={segment.attendance_id||segment.client_id}><AvatarMedia className="live-user-profile-photo" src={segment.profile_picture} alt={segment.name||'Doctor'} fallback={fallback}/><span>Doctor · Active</span><strong>{segment.name||'Doctor'}</strong><small>{segment.timezone||'UTC'}</small><AssignedTimezoneClock serverNow={data.server_now} timezone={segment.timezone||'UTC'} compact/><div className="live-doctor-mini-timer"><span>Timer</span><LiveDuration baseSeconds={segment.elapsed_seconds||0}/></div></div>})}</div>:<div className="live-user-profile-block doctor"><AvatarMedia className="live-user-profile-photo" src={r.client?.profile_picture} alt={doctorName} fallback={doctorFallback}/><span>{r.client?'Doctor':'Presence'}</span><strong>{r.client?doctorName:(runtimeOnline?'Portal Online':'Portal Offline')}</strong><small>{r.doctor_timezone||relativeLastSeen(r.last_seen_at)}</small>{r.doctor_timezone&&<AssignedTimezoneClock serverNow={data.server_now} timezone={r.doctor_timezone} compact/>}</div>}
           </div>
-          <div className="live-user-card-status"><span className={`advanced-status-badge ${statusKey}`}><i/>{statusLabel}</span></div>
         </article>;
       })}</div>:<EmptyState title={`No ${String(tabs.find(x=>x[0]===tab)?.[1]||'matching').toLowerCase()} VAs`} description="This list will update automatically when workforce status changes."/>}
     </Card>
