@@ -860,3 +860,11 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
 /* Record names link to their page where the role has one; plain text otherwise. */
 .record-link { color: inherit; font-weight: inherit; text-decoration: none; }
 .record-link:hover, .record-link:focus-visible { color: var(--primary); text-decoration: underline; }
+
+/* Sidebar live count: compact green pill with a fixed-size pulsing dot; white on the active row. */
+.live-count-badge { min-width: 20px; height: 20px; padding: 0 .45rem; gap: .3rem; border: 0; box-shadow: none; font-size: .6875rem; font-weight: 700; color: var(--success); background: var(--success-soft); }
+.live-count-badge i { flex: 0 0 6px; width: 6px; height: 6px; background: var(--success); animation: carevma-green-live-pulse 1.2s ease-out infinite; }
+.nav-link.active .live-count-badge { color: var(--primary); background: #fff; }
+.live-count-badge-mini { top: -6px; right: -8px; min-width: 16px; height: 16px; padding: 0 .25rem; font-size: .625rem; color: #fff; background: var(--success); border: 2px solid var(--card); }
+.nav-link.active .live-count-badge-mini { border-color: var(--primary); }
+@media (prefers-reduced-motion: reduce) { .live-count-badge i { animation: none; } }
