@@ -959,7 +959,12 @@ export function HrTeamPage(){
 export function ProbationPage(){
   const {user}=useAuth();
   const [rows,setRows]=useState([]),[search,setSearch]=useState(''),[busy,setBusy]=useState(false);
+  const [selected,setSelected]=useState(null),[history,setHistory]=useState([]),[detailBusy,setDetailBusy]=useState(false);
+  const [extendOpen,setExtendOpen]=useState(false),[endOpen,setEndOpen]=useState(false);
+  const [extendForm,setExtendForm]=useState({new_end_date:'',note:''});
+  const [endForm,setEndForm]=useState({effective_date:'',note:''});
   const n=useNotice();
+
   const load=async()=>{
     setBusy(true);
     try{
@@ -979,7 +984,7 @@ export function ProbationPage(){
       if(!r.probation_end_date) end.setMonth(end.getMonth()+3);
       const diff=Math.ceil((end-today)/86400000);
       const regularised=Boolean(r.date_of_regularisation);
-      const status=regularised?'Regularised':diff<0?'Completed':diff<=7?'Ending soon':'On probation';
+      const status=regularised?'Probation Completed':diff<0?'Probation Completed':diff<=7?'Probation Ending Soon':'On Probation';
       return {...r,_probationEnd:end,_daysLeft:diff,_probationStatus:status};
     })
     .sort((a,b)=>a._probationEnd-b._probationEnd);
@@ -987,13 +992,102 @@ export function ProbationPage(){
   const active=probationRows.filter(r=>!r.date_of_regularisation&&r._daysLeft>=0).length;
   const soon=probationRows.filter(r=>!r.date_of_regularisation&&r._daysLeft>=0&&r._daysLeft<=7).length;
   const completed=probationRows.filter(r=>r.date_of_regularisation||r._daysLeft<0).length;
+
+  const openDetails=async row=>{
+    setSelected(row); setHistory([]); setDetailBusy(true);
+    try{
+      const {data}=await api.get(`/management/employees/${row.id}/probation`);
+      setSelected(data?.employee||row); setHistory(data?.history||[]);
+    }catch(e){n.error(messageFrom(e))}
+    finally{setDetailBusy(false)}
+  };
+
+  const openExtend=row=>{
+    setSelected(row);
+    setExtendForm({new_end_date:'',note:''});
+    setExtendOpen(true);
+  };
+
+  const saveExtend=async()=>{
+    if(!selected)return;
+    setDetailBusy(true);
+    try{
+      await api.post(`/management/employees/${selected.id}/probation/extend`,extendForm);
+      n.success('Probation extended successfully.');
+      setExtendOpen(false); await load(); await openDetails(selected);
+    }catch(e){n.error(messageFrom(e))}
+    finally{setDetailBusy(false)}
+  };
+
+  const openEndEarly=row=>{
+    setSelected(row);
+    setEndForm({effective_date:new Date().toISOString().slice(0,10),note:''});
+    setEndOpen(true);
+  };
+
+  const saveEndEarly=async()=>{
+    if(!selected)return;
+    setDetailBusy(true);
+    try{
+      await api.post(`/management/employees/${selected.id}/probation/end-early`,endForm);
+      n.success('Probation ended early successfully.');
+      setEndOpen(false); await load(); await openDetails(selected);
+    }catch(e){n.error(messageFrom(e))}
+    finally{setDetailBusy(false)}
+  };
+
   const columns=[
     {key:'employee',label:'Employee',render:r=><Link className="person-cell employee-profile-link" to={`${roleBase(user.role)}/employees/${r.id}`}><div className="avatar">{r.first_name?.[0]}{r.last_name?.[0]}</div><div><strong>{r.first_name} {r.last_name}</strong><span>{r.employee_code||r.email}</span></div></Link>},
     {key:'designation',label:'Designation',render:r=>r.designation?.name||'—'},
     {key:'date_of_joining',label:'Joining Date',render:r=>String(r.date_of_joining||'').slice(0,10)||'—'},
-    {key:'probation_end_date',label:'Probation Ends',render:r=>r._probationEnd.toISOString().slice(0,10)},
-    {key:'days',label:'Remaining',render:r=>r.date_of_regularisation?'—':r._daysLeft<0?`${Math.abs(r._daysLeft)} day(s) ago`:`${r._daysLeft} day(s)`},
-    {key:'status',label:'Status',render:r=><Badge tone={r._probationStatus==='Ending soon'?'warning':r._probationStatus==='On probation'?'neutral':'success'}>{r._probationStatus}</Badge>},
+    {key:'probation_end_date',label:'Probation End Date',render:r=>r._probationEnd.toISOString().slice(0,10)},
+    {key:'days',label:'Probation Remaining',render:r=>r.date_of_regularisation?'—':r._daysLeft<0?`${Math.abs(r._daysLeft)} day(s) ago`:`${r._daysLeft} day(s)`},
+    {key:'status',label:'Probation Status',render:r=><Badge tone={r._probationStatus==='Probation Ending Soon'?'warning':r._probationStatus==='On Probation'?'neutral':'success'}>{r._probationStatus}</Badge>},
+    {key:'actions',label:'Probation Actions',render:r=><div className="row-actions probation-actions"><button title="View Probation" onClick={()=>openDetails(r)}><Activity size={16}/></button>{!r.date_of_regularisation&&<><button title="Extend Probation" onClick={()=>openExtend(r)}><CalendarDays size={16}/></button><button title="End Probation Early" onClick={()=>openEndEarly(r)}><Check size={16}/></button></>}</div>},
   ];
-  return <><PageHeader eyebrow="HR lifecycle" title="Probation" description="Track each employee's 3-month probation period. Employees ending within 7 days are highlighted for HR/Admin review."/><NoticeBar notice={n.notice} clear={n.clear}/><div className="metrics-grid"><MetricCard label="On probation" value={active}/><MetricCard label="Ending within 7 days" value={soon}/><MetricCard label="Completed / regularised" value={completed}/></div><Card><div className="toolbar"><SearchBox value={search} onChange={setSearch} placeholder="Search employee name, email or employee #"/><span className="record-count">{probationRows.length} probation records</span></div>{busy&&!probationRows.length?<Loading/>:<Table columns={columns} rows={probationRows} emptyTitle="No probation records" emptyDescription="Employees with a joining date will appear here automatically."/>}</Card></>;
+
+  const selectedEnd=selected?.probation_end_date||selected?._probationEnd?.toISOString?.().slice(0,10)||'—';
+  const actionLabel=a=>a==='extended'?'Probation Extended':a==='ended_early'?'Probation Ended Early':a;
+
+  return <>
+    <PageHeader eyebrow="HR lifecycle" title="Probation" description="Probation starts automatically from the employee Date of Joining. The default Probation period is 3 months. Admin and HR can Extend Probation or End Probation Early with a mandatory reason."/>
+    <NoticeBar notice={n.notice} clear={n.clear}/>
+    <div className="metrics-grid"><MetricCard label="On Probation" value={active}/><MetricCard label="Probation Ending Soon" value={soon}/><MetricCard label="Probation Completed" value={completed}/></div>
+    <Card>
+      <div className="toolbar"><SearchBox value={search} onChange={setSearch} placeholder="Search Probation by employee name, email or employee #"/><span className="record-count">{probationRows.length} Probation records</span></div>
+      {busy&&!probationRows.length?<Loading/>:<Table columns={columns} rows={probationRows} emptyTitle="No Probation records" emptyDescription="Employees with a Date of Joining will appear in Probation automatically."/>}
+    </Card>
+
+    <Modal open={Boolean(selected)&&!extendOpen&&!endOpen} onClose={()=>setSelected(null)} title="Probation Details" footer={<Button variant="ghost" onClick={()=>setSelected(null)}>Close</Button>}>
+      {detailBusy?<Loading/>:selected&&<div className="form-grid one-col">
+        <div className="notice notice-info"><strong>{selected.first_name} {selected.last_name}</strong><br/>Probation starts from the Date of Joining and defaults to 3 months unless Admin or HR changes it.</div>
+        <div className="detail-grid">
+          <div><span>Date of Joining</span><strong>{String(selected.date_of_joining||'').slice(0,10)||'—'}</strong></div>
+          <div><span>Probation End Date</span><strong>{selectedEnd}</strong></div>
+          <div><span>Date of Regularisation</span><strong>{String(selected.date_of_regularisation||'').slice(0,10)||'—'}</strong></div>
+        </div>
+        {!selected.date_of_regularisation&&<div className="row-actions"><Button variant="secondary" icon={CalendarDays} onClick={()=>openExtend(selected)}>Extend Probation</Button><Button icon={Check} onClick={()=>openEndEarly(selected)}>End Probation Early</Button></div>}
+        <Card title="Probation History" subtitle="Every Admin/HR Probation decision is recorded with date and reason.">
+          {history.length?<div className="notification-list">{history.map(h=><div className="notification-item" key={h.id}><div><strong>{actionLabel(h.action)}</strong><p>{h.action==='extended'?`Probation End Date changed from ${h.previous_end_date||'—'} to ${h.new_end_date||'—'}.`:`Probation ended early on ${h.effective_date||h.new_end_date||'—'}.`}</p><p><strong>Reason:</strong> {h.note||'—'}</p><span>{h.acted_by_name||'Admin/HR'} · {dateTime(h.created_at)}</span></div></div>)}</div>:<EmptyState title="No Probation history" description="Probation changes will appear here."/>}
+        </Card>
+      </div>}
+    </Modal>
+
+    <Modal open={extendOpen} onClose={()=>setExtendOpen(false)} title="Extend Probation" footer={<><Button variant="ghost" onClick={()=>setExtendOpen(false)}>Cancel</Button><Button loading={detailBusy} onClick={saveExtend}>Extend Probation</Button></>}>
+      <div className="form-grid one-col">
+        <div className="notice notice-info">Current Probation End Date: <strong>{selectedEnd}</strong>. Choose a later date and record the reason for extending Probation.</div>
+        <Input label="New Probation End Date *" type="date" value={extendForm.new_end_date} onChange={e=>setExtendForm({...extendForm,new_end_date:e.target.value})}/>
+        <Textarea label="Probation Extension Reason *" value={extendForm.note} onChange={e=>setExtendForm({...extendForm,note:e.target.value})} placeholder="Why is Probation being extended?"/>
+      </div>
+    </Modal>
+
+    <Modal open={endOpen} onClose={()=>setEndOpen(false)} title="End Probation Early" footer={<><Button variant="ghost" onClick={()=>setEndOpen(false)}>Cancel</Button><Button loading={detailBusy} onClick={saveEndEarly}>End Probation Early</Button></>}>
+      <div className="form-grid one-col">
+        <div className="notice notice-info">Ending Probation early will set the employee Date of Regularisation to the selected effective date.</div>
+        <Input label="Probation End Effective Date *" type="date" value={endForm.effective_date} onChange={e=>setEndForm({...endForm,effective_date:e.target.value})}/>
+        <Textarea label="Probation Early Completion Reason *" value={endForm.note} onChange={e=>setEndForm({...endForm,note:e.target.value})} placeholder="Why is Probation being ended early?"/>
+      </div>
+    </Modal>
+  </>;
 }
+

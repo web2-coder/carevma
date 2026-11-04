@@ -59,6 +59,9 @@ class Employee extends Model
     protected $casts = [
         'upload_documents' => 'array',
         'date_of_birth' => 'date',
+        'date_of_joining' => 'date',
+        'date_of_regularisation' => 'date',
+        'probation_end_date' => 'date',
         'profile_completed' => 'boolean',
     ];
 
@@ -157,6 +160,10 @@ class Employee extends Model
 
     public function probationEndsOn(): ?Carbon
     {
+        if ($this->probation_end_date) {
+            return Carbon::parse($this->probation_end_date);
+        }
+
         if (!$this->date_of_joining) {
             return null;
         }
@@ -176,9 +183,14 @@ public function clientRates()
 
 
 
-    public function isOnProbation()
+    public function isOnProbation(): bool
     {
-        return $this->employment_type_id != 1; // 1 = Permanent
+        if ($this->date_of_regularisation || !$this->date_of_joining) {
+            return false;
+        }
+
+        $end = $this->probationEndsOn();
+        return $end ? now()->startOfDay()->lte($end->copy()->endOfDay()) : false;
     }
 
     public function missingRequiredProfileFields(): array

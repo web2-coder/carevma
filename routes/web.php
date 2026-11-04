@@ -7,7 +7,6 @@ use App\Http\Controllers\Api\EmployeeApiController;
 use App\Http\Controllers\Api\InvoicePdfController;
 use App\Http\Controllers\Api\NotificationApiController;
 use App\Http\Controllers\Api\NotebookApiController;
-use App\Http\Controllers\Api\SalarySlipController;
 use App\Http\Controllers\Auth\OrgGoogleController;
 use App\Http\Controllers\Admin\Client\ClientAuthController;
 use App\Http\Controllers\EmployeeProfile\CompleteProfileController;
@@ -59,6 +58,9 @@ Route::prefix('api')->group(function () {
             Route::post('/employees/{employee}/resend-invite', [AdminApiController::class, 'resendEmployeeInvitation']);
             Route::get('/employees/{employee}', [AdminApiController::class, 'employee']);
             Route::put('/employees/{employee}', [AdminApiController::class, 'updateEmployee']);
+            Route::get('/employees/{employee}/probation', [AdminApiController::class, 'probationDetails']);
+            Route::post('/employees/{employee}/probation/extend', [AdminApiController::class, 'extendProbation']);
+            Route::post('/employees/{employee}/probation/end-early', [AdminApiController::class, 'endProbationEarly']);
             Route::delete('/employees/{employee}', [AdminApiController::class, 'destroyEmployee']);
 
             Route::get('/schedules', [AdminApiController::class, 'schedules']);
@@ -81,12 +83,6 @@ Route::prefix('api')->group(function () {
             Route::delete('/references/{type}/{id}', [AdminApiController::class, 'destroyReference']);
             Route::get('/options', [AdminApiController::class, 'options']);
             Route::get('/fx/pkr-usd', [AdminApiController::class, 'pkrUsdRate']);
-
-            Route::get('/salary-slips', [SalarySlipController::class, 'index']);
-            Route::post('/salary-slips', [SalarySlipController::class, 'store']);
-            Route::put('/salary-slips/{salarySlip}', [SalarySlipController::class, 'update']);
-            Route::post('/salary-slips/{salarySlip}/approve', [SalarySlipController::class, 'approve']);
-            Route::delete('/salary-slips/{salarySlip}', [SalarySlipController::class, 'destroy']);
 
             Route::get('/notifications', [AdminApiController::class, 'notifications']);
             Route::post('/notifications/read-all', [AdminApiController::class, 'markNotificationsRead']);
@@ -137,7 +133,6 @@ Route::prefix('api')->group(function () {
                 Route::post('/break/end', [EmployeeApiController::class, 'endBreak']);
                 Route::put('/password', [EmployeeApiController::class, 'changePassword']);
                 Route::post('/birthday-wishes/{employee}', [EmployeeApiController::class, 'sendBirthdayWish']);
-                Route::get('/salary-slips', [SalarySlipController::class, 'index']);
             });
         });
 
@@ -153,7 +148,6 @@ Route::prefix('api')->group(function () {
 
 /* PDF remains a server-rendered document; navigation inside the app stays SPA-only. */
 Route::get('/invoices/{invoice}/pdf', InvoicePdfController::class)->middleware('auth')->name('invoices.pdf');
-Route::get('/salary-slips/{salarySlip}/pdf', [SalarySlipController::class, 'pdf'])->middleware('auth')->name('salary-slips.pdf');
 
 /* Existing signed onboarding / OAuth URLs are retained so old emails and integrations do not break. */
 Route::get('/complete-profile', [CompleteProfileController::class, 'welcome'])->name('employee.completeProfile')->middleware('signed');

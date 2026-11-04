@@ -585,7 +585,7 @@ class AdminApiController extends Controller
             ]);
 
             $media = $this->storeEmployeeMedia($request);
-            $employee = Employee::create(array_merge($this->employeePayload($data), $media, [
+            $employee = Employee::create(array_merge($this->employeePayload($data, null), $media, [
                 'user_id' => $user->id,
                 'password' => $user->password,
                 'profile_completed' => 0,
@@ -626,7 +626,7 @@ class AdminApiController extends Controller
     {
         $data = $this->validateEmployee($request, $employee, true);
         return DB::transaction(function () use ($data, $employee) {
-            $payload = $this->employeePayload($data);
+            $payload = $this->employeePayload($data, $employee);
             $employee->update($payload);
             $userData = ['name' => trim($employee->first_name.' '.$employee->last_name), 'email' => $employee->email];
             if (!empty($data['password'])) {
@@ -1760,6 +1760,127 @@ class AdminApiController extends Controller
         return response()->json(['message' => 'Password changed.']);
     }
 
+    public function probationDetails(Employee $employee)
+    {
+        $history = DB::table('employee_probation_actions as actions')
+            ->leftJoin('users as actors', 'actors.id', '=', 'actions.acted_by')
+            ->where('actions.employee_id', $employee->id)
+            ->orderByDesc('actions.created_at')
+            ->get([
+                'actions.id', 'actions.action', 'actions.previous_end_date', 'actions.new_end_date',
+                'actions.effective_date', 'actions.note', 'actions.created_at',
+                'actors.name as acted_by_name',
+            ]);
+
+        return response()->json([
+            'employee' => $employee->load(['designation', 'employmentType']),
+            'history' => $history,
+        ]);
+    }
+
+    public function extendProbation(Request $request, Employee $employee)
+    {
+        $data = $request->validate([
+            'new_end_date' => ['required', 'date'],
+            'note' => ['required', 'string', 'max:2000'],
+        ]);
+
+        if (!$employee->date_of_joining) {
+            throw ValidationException::withMessages(['new_end_date' => ['A Date of Joining is required before Probation can be extended.']]);
+        }
+
+        if ($employee->date_of_regularisation) {
+            throw ValidationException::withMessages(['new_end_date' => ['Probation has already ended for this employee.']]);
+        }
+
+        $currentEnd = $employee->probation_end_date
+            ? Carbon::parse($employee->probation_end_date)->startOfDay()
+            : Carbon::parse($employee->date_of_joining)->addMonths(3)->startOfDay();
+        $newEnd = Carbon::parse($data['new_end_date'])->startOfDay();
+
+        if ($newEnd->lte($currentEnd)) {
+            throw ValidationException::withMessages(['new_end_date' => ['Extended Probation End Date must be after the current Probation End Date.']]);
+        }
+
+        DB::transaction(function () use ($request, $employee, $data, $currentEnd, $newEnd) {
+            DB::table('employee_probation_actions')->insert([
+                'employee_id' => $employee->id,
+                'acted_by' => $request->user()?->id,
+                'action' => 'extended',
+                'previous_end_date' => $currentEnd->toDateString(),
+                'new_end_date' => $newEnd->toDateString(),
+                'effective_date' => now()->toDateString(),
+                'note' => $data['note'],
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $employee->forceFill([
+                'probation_end_date' => $newEnd->toDateString(),
+                'is_probation_email_sent' => false,
+            ])->save();
+        });
+
+        return response()->json([
+            'message' => 'Probation extended successfully.',
+            'employee' => $employee->fresh(),
+        ]);
+    }
+
+    public function endProbationEarly(Request $request, Employee $employee)
+    {
+        $data = $request->validate([
+            'effective_date' => ['required', 'date'],
+            'note' => ['required', 'string', 'max:2000'],
+        ]);
+
+        if (!$employee->date_of_joining) {
+            throw ValidationException::withMessages(['effective_date' => ['A Date of Joining is required before Probation can be ended.']]);
+        }
+
+        if ($employee->date_of_regularisation) {
+            throw ValidationException::withMessages(['effective_date' => ['Probation has already ended for this employee.']]);
+        }
+
+        $joining = Carbon::parse($employee->date_of_joining)->startOfDay();
+        $currentEnd = $employee->probation_end_date
+            ? Carbon::parse($employee->probation_end_date)->startOfDay()
+            : $joining->copy()->addMonths(3)->startOfDay();
+        $effective = Carbon::parse($data['effective_date'])->startOfDay();
+
+        if ($effective->lt($joining)) {
+            throw ValidationException::withMessages(['effective_date' => ['Probation End Date cannot be before the Date of Joining.']]);
+        }
+        if ($effective->gte($currentEnd)) {
+            throw ValidationException::withMessages(['effective_date' => ['Use End Probation Early only for a date before the current Probation End Date.']]);
+        }
+
+        DB::transaction(function () use ($request, $employee, $data, $currentEnd, $effective) {
+            DB::table('employee_probation_actions')->insert([
+                'employee_id' => $employee->id,
+                'acted_by' => $request->user()?->id,
+                'action' => 'ended_early',
+                'previous_end_date' => $currentEnd->toDateString(),
+                'new_end_date' => $effective->toDateString(),
+                'effective_date' => $effective->toDateString(),
+                'note' => $data['note'],
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $employee->forceFill([
+                'probation_end_date' => $effective->toDateString(),
+                'date_of_regularisation' => $effective->toDateString(),
+                'is_probation_email_sent' => true,
+            ])->save();
+        });
+
+        return response()->json([
+            'message' => 'Probation ended early successfully.',
+            'employee' => $employee->fresh(),
+        ]);
+    }
+
     private function validateEmployee(Request $request, ?Employee $employee = null, bool $updating = false): array
     {
         // Existing media URLs belong to the employee record, not to the upload request.
@@ -1794,16 +1915,25 @@ class AdminApiController extends Controller
         ]);
     }
 
-    private function employeePayload(array $data): array
+    private function employeePayload(array $data, ?Employee $employee = null): array
     {
         $payload = collect($data)->except(['password', 'profile_picture', 'upload_documents'])->merge(['email' => $data['email']])->all();
 
-        // Keep probation dates in sync with the employee joining date. The existing
-        // scheduler reads probation_end_date directly, so it must be populated for
-        // both newly-created employees and employees whose joining date is edited.
-        if (!empty($data['date_of_joining'])) {
-            $payload['probation_end_date'] = Carbon::parse($data['date_of_joining'])->addMonths(3)->toDateString();
-            $payload['is_probation_email_sent'] = false;
+        // Probation starts automatically from Date of Joining and defaults to 3 months.
+        // Do not overwrite an Admin/HR extension on ordinary employee edits. Recalculate
+        // only for a new employee, when Date of Joining changes, or when no Probation
+        // End Date exists yet.
+        if (!empty($data['date_of_joining']) && empty($data['date_of_regularisation'])) {
+            $joiningChanged = !$employee
+                || !$employee->date_of_joining
+                || Carbon::parse($employee->date_of_joining)->toDateString() !== Carbon::parse($data['date_of_joining'])->toDateString();
+
+            if ($joiningChanged || empty($employee?->probation_end_date)) {
+                $payload['probation_end_date'] = Carbon::parse($data['date_of_joining'])->addMonths(3)->toDateString();
+                $payload['is_probation_email_sent'] = false;
+            } else {
+                unset($payload['probation_end_date'], $payload['is_probation_email_sent']);
+            }
         }
 
         return $payload;
