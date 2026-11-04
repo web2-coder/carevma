@@ -7,7 +7,7 @@ import { Loading } from './components/ui';
 import { LoginPage, ForgotPasswordPage, ResetPasswordPage } from './pages/Login';
 import {
   ManagementDashboard, LiveUsersPage, EmployeeProfileViewPage, EmployeesPage, ClientsPage, SchedulesPage, AttendancePage,
-  ChangeRequestsPage, OvertimePage, InvoicesPage, CompanyFinancePage, ReferencePage, NotificationsPage, AccountPage, HrTeamPage
+  ChangeRequestsPage, OvertimePage, InvoicesPage, CompanyFinancePage, ReferencePage, NotificationsPage, AccountPage, HrTeamPage, ProbationPage
 } from './pages/Management';
 import { EmployeeDashboard, EmployeeSchedule, EmployeeAttendance, EmployeeProfile, EmployeeSettings } from './pages/Employee';
 import { DoctorDashboard, DoctorEmployeeAttendance, DoctorProfile } from './pages/Doctor';
@@ -15,7 +15,6 @@ import EmployeeWizardPage from './pages/EmployeeWizard';
 import ClientProfilePage from './pages/ClientProfile';
 import NotebookPage from './pages/Notebook';
 import SharedDocumentsPage from './pages/SharedDocuments';
-import SalarySlipsPage from './pages/SalarySlips';
 import '../css/app.css';
 import '../css/carevma-professional-theme.css';
 import GlobalFeedbackHost from './components/GlobalFeedbackHost';
@@ -76,10 +75,12 @@ function AppRoutes() {
       <Route path="/admin/employees" element={<Protected roles={['admin']}><EmployeesPage/></Protected>}/>
       <Route path="/admin/employees/:employeeId" element={<Protected roles={['admin']}><EmployeeProfileViewPage/></Protected>}/>
       <Route path="/admin/employees/new" element={<Protected roles={['admin']}><EmployeeWizardPage/></Protected>}/>
+      <Route path="/admin/probation" element={<Protected roles={['admin']}><ProbationPage/></Protected>}/>
       <Route path="/admin/hr-team" element={<Protected roles={['admin']}><HrTeamPage/></Protected>}/>
       <Route path="/hr/employees" element={<Protected roles={['hr']}><EmployeesPage/></Protected>}/>
       <Route path="/hr/employees/:employeeId" element={<Protected roles={['hr']}><EmployeeProfileViewPage/></Protected>}/>
       <Route path="/hr/employees/new" element={<Protected roles={['hr']}><EmployeeWizardPage/></Protected>}/>
+      <Route path="/hr/probation" element={<Protected roles={['hr']}><ProbationPage/></Protected>}/>
       <Route path="/admin/schedules" element={<Protected roles={['admin']}><SchedulesPage/></Protected>}/>
       <Route path="/hr/schedules" element={<Protected roles={['hr']}><SchedulesPage/></Protected>}/>
       <Route path="/admin/attendance" element={<Protected roles={['admin']}><AttendancePage/></Protected>}/>
@@ -102,8 +103,6 @@ function AppRoutes() {
       <Route path="/admin/client/:clientId/daily-work-report" element={<Protected roles={['admin']}><ClientProfilePage/></Protected>}/>
       <Route path="/admin/invoices" element={<Protected roles={['admin']}><InvoicesPage/></Protected>}/>
       <Route path="/admin/company-finance" element={<Protected roles={['admin']}><CompanyFinancePage/></Protected>}/>
-      <Route path="/admin/salary-slips" element={<Protected roles={['admin']}><SalarySlipsPage/></Protected>}/>
-      <Route path="/hr/salary-slips" element={<Protected roles={['hr']}><SalarySlipsPage/></Protected>}/>
       <Route path="/admin/notebook" element={<Protected roles={['admin']}><NotebookPage/></Protected>}/>
       <Route path="/hr/notebook" element={<Protected roles={['hr']}><NotebookPage/></Protected>}/>
     </Route>
@@ -113,7 +112,6 @@ function AppRoutes() {
       <Route path="/employee/schedule" element={<EmployeeSchedule/>}/>
       <Route path="/employee/my-schedule" element={<Navigate to="/employee/schedule" replace/>}/>
       <Route path="/employee/attendance" element={<EmployeeAttendance/>}/>
-      <Route path="/employee/salary-slips" element={<SalarySlipsPage/>}/>
       <Route path="/employee/my-attendance" element={<Navigate to="/employee/attendance" replace/>}/>
       <Route path="/employee/profile" element={<EmployeeProfile/>}/>
       <Route path="/employee/notifications" element={<NotificationsPage/>}/>

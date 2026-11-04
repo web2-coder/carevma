@@ -955,3 +955,45 @@ export function HrTeamPage(){
  const remove=async r=>{try{await api.delete(`/admin/hr-users/${r.id}`);n.success('HR account deleted.');const target=rows.length===1&&page>1?page-1:page;if(target!==page)setPage(target);else load(target)}catch(e){n.error(messageFrom(e))}};
  return <><PageHeader eyebrow="Access management" title="HR team" description="Create dedicated HR logins. New HR users receive a secure email link to set their own password before signing in." actions={<Button icon={Plus} onClick={()=>open()}>Add HR user</Button>}/><NoticeBar notice={n.notice} clear={n.clear}/>{inviteLink&&<Card title="Activation link"><div className="invite-link-box"><div><strong>{inviteLink.label}</strong><a href={inviteLink.url} target="_blank" rel="noreferrer">{inviteLink.url}</a></div><Button variant="secondary" icon={ClipboardCopy} onClick={copyHrInvite}>Copy link</Button></div></Card>}<Card><div className="toolbar"><SearchBox value={search} onChange={setSearch} placeholder="Search HR team"/><span className="record-count">{meta?.total??rows.length} HR users</span></div><Table columns={[{key:'name',label:'Name'},{key:'email',label:'Email'},{key:'last_seen_at',label:'Last active',render:r=>dateTime(r.last_seen_at)},{key:'actions',label:'Actions',render:r=><div className="row-actions"><button onClick={()=>open(r)}><Pencil size={16}/></button><button className="danger" onClick={()=>remove(r)}><Trash2 size={16}/></button></div>}]} rows={rows} emptyTitle="No HR accounts" emptyDescription="Add an HR user to send their password setup invitation."/><Pagination meta={meta} onPage={setPage}/></Card><Modal open={modal} onClose={()=>setModal(false)} title={edit?'Edit HR account':'Add HR account'} footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={save}>Save HR account</Button></>}><div className="form-grid one-col"><Input label="Name *" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/><Input label="Email *" type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/>{edit&&<Input label="New password (optional)" type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})}/>} {!edit&&<div className="notice notice-info">A secure set-password email will be sent automatically after this HR account is created.</div>}</div></Modal></>;
 }
+
+export function ProbationPage(){
+  const {user}=useAuth();
+  const [rows,setRows]=useState([]),[search,setSearch]=useState(''),[busy,setBusy]=useState(false);
+  const n=useNotice();
+  const load=async()=>{
+    setBusy(true);
+    try{
+      const {data}=await api.get('/management/employees',{params:{per_page:100,search}});
+      setRows(data?.data||[]);
+    }catch(e){n.error(messageFrom(e))}
+    finally{setBusy(false)}
+  };
+  useEffect(()=>{const t=setTimeout(load,180);return()=>clearTimeout(t)},[search]);
+
+  const today=new Date(); today.setHours(0,0,0,0);
+  const probationRows=rows
+    .filter(r=>r.date_of_joining)
+    .map(r=>{
+      const start=new Date(String(r.date_of_joining).slice(0,10)+'T00:00:00');
+      const end=r.probation_end_date?new Date(String(r.probation_end_date).slice(0,10)+'T00:00:00'):new Date(start);
+      if(!r.probation_end_date) end.setMonth(end.getMonth()+3);
+      const diff=Math.ceil((end-today)/86400000);
+      const regularised=Boolean(r.date_of_regularisation);
+      const status=regularised?'Regularised':diff<0?'Completed':diff<=7?'Ending soon':'On probation';
+      return {...r,_probationEnd:end,_daysLeft:diff,_probationStatus:status};
+    })
+    .sort((a,b)=>a._probationEnd-b._probationEnd);
+
+  const active=probationRows.filter(r=>!r.date_of_regularisation&&r._daysLeft>=0).length;
+  const soon=probationRows.filter(r=>!r.date_of_regularisation&&r._daysLeft>=0&&r._daysLeft<=7).length;
+  const completed=probationRows.filter(r=>r.date_of_regularisation||r._daysLeft<0).length;
+  const columns=[
+    {key:'employee',label:'Employee',render:r=><Link className="person-cell employee-profile-link" to={`${roleBase(user.role)}/employees/${r.id}`}><div className="avatar">{r.first_name?.[0]}{r.last_name?.[0]}</div><div><strong>{r.first_name} {r.last_name}</strong><span>{r.employee_code||r.email}</span></div></Link>},
+    {key:'designation',label:'Designation',render:r=>r.designation?.name||'—'},
+    {key:'date_of_joining',label:'Joining Date',render:r=>String(r.date_of_joining||'').slice(0,10)||'—'},
+    {key:'probation_end_date',label:'Probation Ends',render:r=>r._probationEnd.toISOString().slice(0,10)},
+    {key:'days',label:'Remaining',render:r=>r.date_of_regularisation?'—':r._daysLeft<0?`${Math.abs(r._daysLeft)} day(s) ago`:`${r._daysLeft} day(s)`},
+    {key:'status',label:'Status',render:r=><Badge tone={r._probationStatus==='Ending soon'?'warning':r._probationStatus==='On probation'?'neutral':'success'}>{r._probationStatus}</Badge>},
+  ];
+  return <><PageHeader eyebrow="HR lifecycle" title="Probation" description="Track each employee's 3-month probation period. Employees ending within 7 days are highlighted for HR/Admin review."/><NoticeBar notice={n.notice} clear={n.clear}/><div className="metrics-grid"><MetricCard label="On probation" value={active}/><MetricCard label="Ending within 7 days" value={soon}/><MetricCard label="Completed / regularised" value={completed}/></div><Card><div className="toolbar"><SearchBox value={search} onChange={setSearch} placeholder="Search employee name, email or employee #"/><span className="record-count">{probationRows.length} probation records</span></div>{busy&&!probationRows.length?<Loading/>:<Table columns={columns} rows={probationRows} emptyTitle="No probation records" emptyDescription="Employees with a joining date will appear here automatically."/>}</Card></>;
+}

@@ -1710,7 +1710,7 @@ class AdminApiController extends Controller
         });
 
         return response()->json(array_merge([
-            'employees' => Employee::with(['department:id,name', 'designation:id,name'])->orderBy('first_name')->get(['id', 'user_id', 'employee_code', 'first_name', 'last_name', 'email', 'timezone', 'salary_pkr', 'salary_usd', 'department_id', 'designation_id']),
+            'employees' => Employee::orderBy('first_name')->get(['id', 'user_id', 'employee_code', 'first_name', 'last_name', 'email', 'timezone']),
             'clients' => Client::orderBy('name')->get(['id', 'user_id', 'name', 'email', 'business_name', 'timezone', 'per_hour_charges']),
         ], $references, [
             'business_timezone' => $this->timezones->businessTimezone(),
@@ -1796,7 +1796,17 @@ class AdminApiController extends Controller
 
     private function employeePayload(array $data): array
     {
-        return collect($data)->except(['password', 'profile_picture', 'upload_documents'])->merge(['email' => $data['email']])->all();
+        $payload = collect($data)->except(['password', 'profile_picture', 'upload_documents'])->merge(['email' => $data['email']])->all();
+
+        // Keep probation dates in sync with the employee joining date. The existing
+        // scheduler reads probation_end_date directly, so it must be populated for
+        // both newly-created employees and employees whose joining date is edited.
+        if (!empty($data['date_of_joining'])) {
+            $payload['probation_end_date'] = Carbon::parse($data['date_of_joining'])->addMonths(3)->toDateString();
+            $payload['is_probation_email_sent'] = false;
+        }
+
+        return $payload;
     }
 
 
