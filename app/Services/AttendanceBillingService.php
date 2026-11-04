@@ -15,10 +15,20 @@ class AttendanceBillingService
 
     public function finalize(Attendance $attendance, Carbon $clockOutUtc): Attendance
     {
-        $attendance->loadMissing(['breaks', 'client', 'schedule']);
+        $attendance->loadMissing(['breaks.workSessionBreak', 'client', 'schedule']);
         $clockOutUtc = $clockOutUtc->copy()->utc();
 
-        $openBreak = $attendance->breaks->whereNull('end_time')->sortByDesc('id')->first();
+        $breaks = $attendance->breaks;
+        if ($attendance->work_session_id && Schema::hasColumn('employee_breaks', 'work_session_break_id')) {
+            // Work-session attendances must only use mirrored breaks from the
+            // same work session. This prevents stale legacy rows from being
+            // counted when an attendance ID is reused after test cleanup.
+            $breaks = $breaks->filter(
+                fn ($break) => $break->work_session_break_id
+                    && (int) optional($break->workSessionBreak)->work_session_id === (int) $attendance->work_session_id
+            );
+        }
+        $openBreak = $breaks->whereNull('end_time')->sortByDesc('id')->first();
         if ($openBreak) {
             $startUtc = $openBreak->start_time instanceof Carbon
                 ? $openBreak->start_time->copy()->utc()
@@ -38,7 +48,7 @@ class AttendanceBillingService
             return $attendance;
         }
 
-        $attendance->loadMissing(['client', 'schedule', 'breaks']);
+        $attendance->loadMissing(['client', 'schedule', 'breaks.workSessionBreak']);
         $timezone = $this->timezones->forAttendance($attendance, false);
         $clockIn = $attendance->clock_in->copy()->setTimezone($timezone)->startOfMinute();
         $clockOut = $attendance->clock_out->copy()->setTimezone($timezone)->startOfMinute();
@@ -82,6 +92,12 @@ class AttendanceBillingService
         $regularBreakMinutes = 0;
         $overtimeBreakMinutes = 0;
         $closedBreaks = $attendance->breaks->whereNotNull('end_time');
+        if ($attendance->work_session_id && Schema::hasColumn('employee_breaks', 'work_session_break_id')) {
+            $closedBreaks = $closedBreaks->filter(
+                fn ($break) => $break->work_session_break_id
+                    && (int) optional($break->workSessionBreak)->work_session_id === (int) $attendance->work_session_id
+            );
+        }
 
         if ($closedBreaks->isNotEmpty() && $shiftStart && $shiftEnd) {
             foreach ($closedBreaks as $break) {
@@ -118,12 +134,33 @@ class AttendanceBillingService
                 $allowedBreakMinutes = ((int) $hours * 60) + min(59, max(0, (int) $minutes));
             }
 
-            $deductBreakMinutes = max($allowedBreakMinutes, $regularBreakMinutes);
             $coveredInsideShift = max(0, (int) $regularStart->diffInMinutes($regularEnd));
+
+            // CareVMA short-session break rule:
+            // - The UI continues to display the ACTUAL break_taken value only.
+            // - For payroll, the assigned break allowance is deducted only after the
+            //   VA has covered more minutes inside the shift than that allowance.
+            // - A very short attendance must not be reduced to zero just because the
+            //   shift has a larger assigned break. Actual break taken is still unpaid.
+            // Examples with a 30m allowance:
+            //   covered 15m, actual break 0m  => 15m regular
+            //   covered 90m, actual break 0m  => 60m regular
+            //   covered 120m, actual break 35m => 85m regular
+            if ($coveredInsideShift <= $allowedBreakMinutes) {
+                $deductBreakMinutes = min($coveredInsideShift, $regularBreakMinutes);
+            } else {
+                $deductBreakMinutes = max($allowedBreakMinutes, $regularBreakMinutes);
+            }
+
             $workedInsideShift = max(0, $coveredInsideShift - $deductBreakMinutes);
 
             $scheduledNetMinutes = max(0, $scheduledMinutes - $allowedBreakMinutes);
-            $workedInsideShift = min($workedInsideShift, $scheduledNetMinutes);
+            // Do not cap short sessions by scheduled net minutes when the shift itself
+            // is shorter than/equal to the assigned break allowance. Otherwise keep
+            // the normal scheduled-net cap.
+            if ($scheduledMinutes > $allowedBreakMinutes) {
+                $workedInsideShift = min($workedInsideShift, $scheduledNetMinutes);
+            }
         }
 
         $attendance->total_minutes = $workedInsideShift;
@@ -133,7 +170,7 @@ class AttendanceBillingService
 
         if (Schema::hasColumn('attendances', 'overtime_status')) {
             // Recalculation must not silently erase an HR/Admin decision.
-            // New overtime is queued immediately for HR/Admin review; approved minutes can never exceed actual OT.
+            // New overtime starts as review_required; approved minutes can never exceed actual OT.
             if ($overtime <= 0) {
                 $attendance->overtime_status = 'none';
                 $attendance->approved_overtime_minutes = 0;
@@ -141,7 +178,7 @@ class AttendanceBillingService
                 $attendance->overtime_approved_by = null;
                 $attendance->overtime_approved_at = null;
             } elseif (!in_array($attendance->overtime_status, ['pending', 'approved', 'rejected'], true)) {
-                $attendance->overtime_status = 'pending';
+                $attendance->overtime_status = 'review_required';
                 $attendance->approved_overtime_minutes = 0;
                 $attendance->overtime_amount = null;
             } elseif ($attendance->overtime_status === 'approved') {

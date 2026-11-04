@@ -218,7 +218,19 @@ class WorkSessionService
             $mirror->save();
         }
 
-        $seconds = (int) $attendance->breaks()->whereNotNull('end_time')->get()->sum(
+        // Only count break mirrors that belong to THIS work session.
+        // Attendance IDs can be reused after test-data truncation, so legacy
+        // employee_breaks rows with the same attendance_id must never leak
+        // into a newly-created work session attendance.
+        $sessionBreakIds = $session->breaks->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $validBreaks = $attendance->breaks()->whereNotNull('end_time');
+        if ($sessionBreakIds === []) {
+            $validBreaks->whereRaw('1 = 0');
+        } else {
+            $validBreaks->whereIn('work_session_break_id', $sessionBreakIds);
+        }
+
+        $seconds = (int) $validBreaks->get()->sum(
             fn ($b) => max(0, $b->end_time->timestamp - $b->start_time->timestamp)
         );
         if ((int) $attendance->break_taken !== $seconds) {
