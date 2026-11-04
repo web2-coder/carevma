@@ -1,16 +1,53 @@
-CareVMA Invoice Filters + Live Workforce Layout Patch
+CareVMA Safe Patch - Salary Slips
+Date: 2026-11-03
 
-Changes:
-1. Invoice list filters: month, year, custom date range, Doctor/Client, Invoice #, status.
-2. Filters are applied server-side and work across pagination.
-3. Send PDF action is icon-only with Send PDF hover/title tooltip.
-4. Live Workforce Online, Checked In, On Break, Late, Offline tabs reuse the same compact card renderer/layout.
-5. Preserves latest runtime online status logic from the combined patch.
-6. No invoice/attendance calculation logic changed.
+PURPOSE
+- Adds the missing Salary Slip Generation + Admin/HR Approval workflow.
+- Works for every employee record: VA, SEO, developer, HR-support staff, or any other non-VA employee.
+- Keeps existing project structure unchanged.
+- Does NOT replace or modify invoice, attendance, overtime, schedule, or doctor-timezone calculation logic.
 
-Files:
-- resources/js/pages/Management.jsx
+WHAT IS ADDED
+1. New salary_slips database table.
+2. Admin + HR Salary Slips page.
+3. Employee "My Salary Slips" page (approved slips only).
+4. Generate draft salary slip from existing employee PKR/USD salary.
+5. Optional bonus / allowance and deduction.
+6. Admin/HR approval locks the salary slip.
+7. PDF download for Admin/HR and the owning employee.
+8. Search/filter payroll register.
+
+FILES IN THIS PATCH
+- routes/web.php
 - app/Http/Controllers/Api/AdminApiController.php
+- app/Http/Controllers/Api/SalarySlipController.php
+- app/Models/SalarySlip.php
+- database/migrations/2026_11_03_100000_create_salary_slips_table.php
+- resources/js/app.jsx
+- resources/js/components/AppShell.jsx
+- resources/js/pages/SalarySlips.jsx
+- resources/views/salary_slips/pdf.blade.php
 
-After copying patch files locally run: npm run build
-Then commit generated public/build assets together with these source files.
+SAFE DEPLOYMENT
+1. Back up the current live project and database.
+2. Extract this ZIP over the project root, preserving folders.
+3. Run:
+   php artisan migrate --force
+   php artisan optimize:clear
+4. Build frontend in the normal project build environment:
+   npm install
+   npm run build
+5. Upload/deploy the generated public/build if production hosting does not have Node/npm.
+6. Login as Admin/HR and open Salary Slips.
+
+NOTES
+- Existing salary_pkr / salary_usd is used only as the default base amount. It can be adjusted while the slip is a draft.
+- Approved salary slips cannot be edited or deleted by this module.
+- Employees only see their own approved salary slips.
+- Duplicate slip for the same employee + exact period + currency is prevented by a database unique key.
+
+VALIDATION PERFORMED
+- PHP lint passed for all new/modified PHP files.
+- JSX syntax parsed successfully for the new/modified React files.
+- Full Vite build could not run in the sandbox because the uploaded node_modules contains Windows Rollup native packages, not the Linux native package required by this environment.
+- artisan route:list could not run in the sandbox because this PHP runtime is missing mbstring (mb_split).

@@ -183,9 +183,13 @@ class InvoiceGenerator
                 $regularMinutes = (int) $records->sum('total_minutes');
                 $approvedOvertime = Schema::hasColumn('attendances', 'approved_overtime_minutes')
                     ? (int) $records->sum(function (Attendance $record) {
-                        return ($record->overtime_status ?? null) === 'approved'
-                            ? min(max(0, (int) ($record->approved_overtime_minutes ?? 0)), max(0, (int) ($record->overtime ?? 0)))
-                            : 0;
+                        if (($record->overtime_status ?? 'none') !== 'approved') {
+                            return 0;
+                        }
+                        return min(
+                            max(0, (int) ($record->approved_overtime_minutes ?? 0)),
+                            max(0, (int) ($record->overtime ?? 0))
+                        );
                     })
                     : 0;
 
@@ -195,10 +199,13 @@ class InvoiceGenerator
                 ])->value('per_hour_rate') ?? $client->per_hour_charges ?? 0;
 
                 $overtimePayment = $records->sum(function (Attendance $record) use ($rate) {
-                    if (($record->overtime_status ?? null) !== 'approved') {
+                    if (($record->overtime_status ?? 'none') !== 'approved') {
                         return 0;
                     }
-                    $minutes = min(max(0, (int) ($record->approved_overtime_minutes ?? 0)), max(0, (int) ($record->overtime ?? 0)));
+                    $minutes = min(
+                        max(0, (int) ($record->approved_overtime_minutes ?? 0)),
+                        max(0, (int) ($record->overtime ?? 0))
+                    );
                     return $record->overtime_amount !== null
                         ? (float) $record->overtime_amount
                         : ($minutes / 60 * $rate);

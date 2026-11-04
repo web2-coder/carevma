@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, UserRoundCog, CalendarDays, Clock3, FileCheck2, TimerReset,
   ReceiptText, SlidersHorizontal, Bell, UserCircle2, Settings, LogOut, Menu, X, BriefcaseBusiness,
-  Stethoscope, ClipboardList, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, Activity, CircleDollarSign, BookOpenText
+  Stethoscope, ClipboardList, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, Activity, CircleDollarSign, BookOpenText, Banknote
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api';
@@ -45,6 +45,7 @@ function navFor(user) {
       { label: 'Overtime Review', to: '/admin/overtime', icon: TimerReset },
       { label: 'Invoices', to: '/admin/invoices', icon: ReceiptText },
       { label: 'Company Finance', to: '/admin/company-finance', icon: CircleDollarSign },
+      { label: 'Salary Slips', to: '/admin/salary-slips', icon: Banknote },
       { label: 'Notebook', to: '/admin/notebook', icon: BookOpenText },
       {
         label: 'Configuration', icon: SlidersHorizontal, children: [
@@ -66,6 +67,7 @@ function navFor(user) {
       { label: 'Attendance', to: '/hr/attendance', icon: Clock3 },
       { label: 'Change Requests', to: '/hr/change-requests', icon: FileCheck2 },
       { label: 'Overtime Review', to: '/hr/overtime', icon: TimerReset },
+      { label: 'Salary Slips', to: '/hr/salary-slips', icon: Banknote },
       { label: 'Notebook', to: '/hr/notebook', icon: BookOpenText },
       {
         label: 'HR Configuration', icon: SlidersHorizontal, children: [
@@ -89,6 +91,7 @@ function navFor(user) {
       { label: 'Dashboard', to: '/employee/dashboard', icon: LayoutDashboard },
       { label: 'My Schedule', to: '/employee/schedule', icon: CalendarDays },
       { label: 'My Attendance', to: '/employee/attendance', icon: Clock3 },
+      { label: 'My Salary Slips', to: '/employee/salary-slips', icon: Banknote },
       { label: 'My Profile', to: '/employee/profile', icon: UserCircle2 },
       { label: 'Shared Documents', to: '/employee/documents', icon: BookOpenText },
       { label: 'Notifications', to: '/employee/notifications', icon: Bell },

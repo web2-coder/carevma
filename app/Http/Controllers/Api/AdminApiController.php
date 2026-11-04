@@ -1710,7 +1710,7 @@ class AdminApiController extends Controller
         });
 
         return response()->json(array_merge([
-            'employees' => Employee::orderBy('first_name')->get(['id', 'user_id', 'employee_code', 'first_name', 'last_name', 'email', 'timezone']),
+            'employees' => Employee::with(['department:id,name', 'designation:id,name'])->orderBy('first_name')->get(['id', 'user_id', 'employee_code', 'first_name', 'last_name', 'email', 'timezone', 'salary_pkr', 'salary_usd', 'department_id', 'designation_id']),
             'clients' => Client::orderBy('name')->get(['id', 'user_id', 'name', 'email', 'business_name', 'timezone', 'per_hour_charges']),
         ], $references, [
             'business_timezone' => $this->timezones->businessTimezone(),
