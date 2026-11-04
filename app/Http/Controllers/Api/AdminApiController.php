@@ -196,7 +196,7 @@ class AdminApiController extends Controller
             })->values();
         }
         $pendingOvertime = Schema::hasColumn('attendances', 'overtime_status')
-            ? Attendance::whereIn('overtime_status', ['pending', 'review_required'])->count()
+            ? Attendance::where('overtime_status', 'pending')->count()
             : Attendance::where('overtime', '>', 0)->count();
 
         $employeeTimezoneCounts = Employee::query()
@@ -1034,11 +1034,7 @@ class AdminApiController extends Controller
 
     public function attendance(Request $request)
     {
-        $query = Attendance::with([
-            'employee:id,first_name,last_name,employee_code,timezone,profile_picture',
-            'breaks',
-            'schedule:id,client_id,employee_id,start_time,end_time,timezone,break_allowed_hours',
-        ]);
+        $query = Attendance::with(['employee:id,first_name,last_name,employee_code,timezone,profile_picture', 'breaks']);
         if (Schema::hasColumn('attendances', 'client_id')) $query->with('client:id,name,business_name,timezone');
         if ($request->filled('employee_id')) $query->where('employee_id', $request->integer('employee_id'));
         $selectedClientId = $request->filled('client_id') && Schema::hasColumn('attendances', 'client_id')
@@ -1071,44 +1067,6 @@ class AdminApiController extends Controller
             $row->setAttribute('clock_out_client', $this->timezones->isoInZone($row->clock_out, $clientZone));
             $row->setAttribute('clock_in_employee', $this->timezones->isoInZone($row->clock_in, $employeeZone));
             $row->setAttribute('clock_out_employee', $this->timezones->isoInZone($row->clock_out, $employeeZone));
-
-            // Keep every attendance surface aligned with the billing rule:
-            // effective break = max(assigned allowance, actual break taken).
-            $actualBreakMinutes = (int) floor(max(0, (int) ($row->break_taken ?? 0)) / 60);
-            $allowedBreakMinutes = 0;
-            if (!empty($row->break_limit)) {
-                $parts = array_map('intval', explode(':', (string) $row->break_limit));
-                $allowedBreakMinutes = max(0, (($parts[0] ?? 0) * 60) + ($parts[1] ?? 0));
-            } elseif ($row->schedule) {
-                $raw = number_format(max(0, (float) ($row->schedule->break_allowed_hours ?? 0)), 2, '.', '');
-                [$hours, $minutes] = array_pad(explode('.', $raw, 2), 2, '00');
-                $allowedBreakMinutes = ((int) $hours * 60) + min(59, max(0, (int) $minutes));
-            }
-            $effectiveBreakMinutes = max($allowedBreakMinutes, $actualBreakMinutes);
-            $regularMinutes = max(0, (int) ($row->total_minutes ?? 0));
-            $approvedOvertime = ($row->overtime_status ?? null) === 'approved'
-                ? min(max(0, (int) ($row->approved_overtime_minutes ?? 0)), max(0, (int) ($row->overtime ?? 0)))
-                : 0;
-
-            $row->setAttribute('allowed_break_minutes', $allowedBreakMinutes);
-            $row->setAttribute('actual_break_minutes', $actualBreakMinutes);
-            $row->setAttribute('effective_break_minutes', $effectiveBreakMinutes);
-            $row->setAttribute('regular_minutes', $regularMinutes);
-            $row->setAttribute('payable_minutes', $regularMinutes + $approvedOvertime);
-
-            // Fallback shift window for older rows that pre-date shift snapshots.
-            if ((!$row->shift_start_snapshot || !$row->shift_end_snapshot) && $row->schedule) {
-                $date = $row->date?->toDateString() ?: ($row->clock_in?->copy()->setTimezone($clientZone)->toDateString());
-                if ($date) {
-                    $scheduleZone = $row->schedule->timezone ?: $clientZone;
-                    $start = Carbon::parse($date.' '.$row->schedule->start_time, $scheduleZone);
-                    $end = Carbon::parse($date.' '.$row->schedule->end_time, $scheduleZone);
-                    if ($end->lte($start)) $end->addDay();
-                    $row->setAttribute('scheduled_shift_start', $start->copy()->utc()->toIso8601ZuluString());
-                    $row->setAttribute('scheduled_shift_end', $end->copy()->utc()->toIso8601ZuluString());
-                }
-            }
-
             return $row;
         });
         return response()->json($attendance);
@@ -1152,11 +1110,11 @@ class AdminApiController extends Controller
     private function liveUsersFromWorkSessions()
     {
         $serverNow=$this->clock->now('UTC');
-        $open=WorkSession::query()->with(['employee.user:id,name,email,last_seen_at','attendances.client','attendances.schedule','attendances.breaks','breaks'])->whereNull('clock_out')->latest('clock_in')->get()->map(function(WorkSession $session) use($serverNow){
+        $open=WorkSession::query()->with(['employee.user:id,name,email,last_seen_at','employee.department:id,name','attendances.client','attendances.schedule','attendances.breaks','breaks'])->whereNull('clock_out')->latest('clock_in')->get()->map(function(WorkSession $session) use($serverNow){
             try { return $this->workSessions->reconcile($session,$serverNow); }
             catch (\Throwable $e) {
                 \Log::error('Live Workforce reconcile skipped for one session.', ['work_session_id'=>$session->id,'error'=>$e->getMessage()]);
-                return $session->fresh(['employee.user:id,name,email,last_seen_at','attendances.client','attendances.schedule','attendances.breaks','breaks']);
+                return $session->fresh(['employee.user:id,name,email,last_seen_at','employee.department:id,name','attendances.client','attendances.schedule','attendances.breaks','breaks']);
             }
         });
         $sessions=$open->map(function(WorkSession $session) use($serverNow){
@@ -1171,6 +1129,8 @@ class AdminApiController extends Controller
                     'attendance_id'=>$attendance->id,
                     'client_id'=>$attendance->client_id,
                     'name'=>$attendance->client?->name?:$attendance->client?->business_name?:'Doctor',
+                    'email'=>$attendance->client?->email,
+                    'relationship_type'=>in_array(strtolower(trim((string)($attendance->client?->email))), ['obim@carevma.com'], true)?'reporting':'doctor',
                     'profile_picture'=>$attendance->client?->profile_picture,
                     'timezone'=>$segmentZone,
                     'shift_label'=>($segmentStart&&$segmentEnd)?$segmentStart->format('D, M d, g:i A').' – '.$segmentEnd->format('D, M d, g:i A'):null,
@@ -1188,7 +1148,7 @@ class AdminApiController extends Controller
             $lastSeen=$employee?->user?->last_seen_at; $online=$lastSeen&&Carbon::parse($lastSeen)->gt($serverNow->copy()->subMinutes(5));
             $late=(int)$active->max(fn($a)=>(int)($a->late_minutes??0)); $zone=$primary?$this->timezones->forAttendance($primary,false):null;
             $scheduleLabel=null; if($primary?->shift_start_snapshot&&$primary?->shift_end_snapshot){$st=$primary->shift_start_snapshot->copy()->setTimezone($zone?:'UTC');$en=$primary->shift_end_snapshot->copy()->setTimezone($zone?:'UTC');$scheduleLabel=$st->format('D, M d, g:i A').' – '.$en->format('D, M d, g:i A');}
-            return ['id'=>'work-session-'.$session->id,'work_session_id'=>$session->id,'employee'=>$employee,'client'=>$primary?->client,'clients'=>$active->pluck('client')->filter()->values(),'doctor_names'=>$doctorNames,'doctor_segments'=>$doctorSegments,'schedule'=>$primary?->schedule,'clock_in'=>$session->clock_in->toIso8601ZuluString(),'clock_in_utc'=>$session->clock_in->toIso8601ZuluString(),'clock_in_doctor_label'=>$zone?$session->clock_in->copy()->setTimezone($zone)->format('M d, Y, g:i A'):null,'elapsed_seconds'=>$elapsed,'doctor_timezone'=>$zone,'schedule_doctor_label'=>$scheduleLabel,'late_minutes'=>$late,'break_limit'=>$primary?->break_limit,'completed_break_seconds'=>$completed,'current_break_seconds'=>$current,'total_break_seconds'=>$completed+$current,'is_on_break'=>(bool)$openBreak,'is_online'=>(bool)$online,'last_seen_at'=>$lastSeen?->toIso8601String(),'attendance_status'=>'Checked in','status_key'=>$openBreak?'break':($late>0?'late':'checked_in'),'status_label'=>$openBreak?'On Break':($late>0?'Late':'Checked In')];
+            return ['id'=>'work-session-'.$session->id,'work_session_id'=>$session->id,'employee'=>$employee,'employee_department'=>$employee?->department?->name,'client'=>$primary?->client,'clients'=>$active->pluck('client')->filter()->values(),'doctor_names'=>$doctorNames,'doctor_segments'=>$doctorSegments,'schedule'=>$primary?->schedule,'clock_in'=>$session->clock_in->toIso8601ZuluString(),'clock_in_utc'=>$session->clock_in->toIso8601ZuluString(),'clock_in_doctor_label'=>$zone?$session->clock_in->copy()->setTimezone($zone)->format('M d, Y, g:i A'):null,'elapsed_seconds'=>$elapsed,'doctor_timezone'=>$zone,'schedule_doctor_label'=>$scheduleLabel,'late_minutes'=>$late,'break_limit'=>$primary?->break_limit,'completed_break_seconds'=>$completed,'current_break_seconds'=>$current,'total_break_seconds'=>$completed+$current,'is_on_break'=>(bool)$openBreak,'is_online'=>(bool)$online,'last_seen_at'=>$lastSeen?->toIso8601String(),'attendance_status'=>'Checked in','status_key'=>$openBreak?'break':($late>0?'late':'checked_in'),'status_label'=>$openBreak?'On Break':($late>0?'Late':'Checked In')];
         })->values();
         $activeIds=$open->pluck('employee_id')->map(fn($id)=>(int)$id)->all();
         $offline=Employee::query()->with('user:id,name,email,last_seen_at')->whereNotIn('id',$activeIds?:[0])->orderBy('first_name')->get(['id','user_id','first_name','last_name','email','employee_code','profile_picture','timezone','location'])->map(function(Employee $employee) use($serverNow){$last=$employee->user?->last_seen_at;$online=$last&&Carbon::parse($last)->gt($serverNow->copy()->subMinutes(5));return ['id'=>'employee-'.$employee->id,'employee'=>$employee,'client'=>null,'clients'=>[],'doctor_names'=>[],'doctor_segments'=>[],'schedule'=>null,'clock_in'=>null,'elapsed_seconds'=>0,'doctor_timezone'=>null,'schedule_doctor_label'=>null,'late_minutes'=>0,'completed_break_seconds'=>0,'current_break_seconds'=>0,'total_break_seconds'=>0,'is_on_break'=>false,'is_online'=>(bool)$online,'last_seen_at'=>$last?->toIso8601String(),'attendance_status'=>'Not checked in','status_key'=>$online?'online':'offline','status_label'=>$online?'Online':'Offline'];});
