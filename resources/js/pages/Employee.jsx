@@ -176,7 +176,11 @@ function LiveSessionCounter({active, serverNow, activeBreak, employeeTimezone}){
   const startMs=Date.parse(active?.shift_start_snapshot||''),endMs=Date.parse(active?.shift_end_utc||active?.shift_end_snapshot||'');
   const total=Number.isFinite(startMs)&&Number.isFinite(endMs)&&endMs>startMs?Math.floor((endMs-startMs)/1000):0;
   const left=Number.isFinite(endMs)?Math.max(0,Math.floor((endMs-nowMs)/1000)):null;
-  const pct=total?Math.min(100,Math.round(elapsed/total*100)):0;
+  // The ring represents the Doctor's scheduled shift progress, not only time worked after a late check-in.
+  // Example: for a 9:00 AM-11:10 AM shift, at 11:07 AM the ring is about 98% even if the VA checked in late.
+  // Once the scheduled end is reached, Remaining duration is 0 and the ring is 100%.
+  const scheduledElapsed=total&&Number.isFinite(startMs)?Math.max(0,Math.min(total,Math.floor((nowMs-startMs)/1000))):0;
+  const pct=total?Math.max(0,Math.min(100,Math.round(scheduledElapsed/total*100))):0;
   const doctorTz=active?.doctor_timezone||active?.client?.timezone||'UTC';
   const {h:hours,m:minutes,s:seconds}=MONO_HMS(segment);
   const pad=value=>String(value).padStart(2,'0');

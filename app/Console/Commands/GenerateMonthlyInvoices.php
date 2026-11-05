@@ -62,9 +62,11 @@ class GenerateMonthlyInvoices extends Command
             // No exact-cycle skip here: the generator bills only VAs not yet on an invoice
             // for these dates, so a partial manual invoice does not strand the rest.
             try {
-                $invoice = $generator->generate($client, $periodStart, $periodEnd, true);
-                if ($invoice) {
-                    $created->push($invoice->loadMissing('salaries'));
+                $invoices = $generator->generateMany($client, $periodStart, $periodEnd, true);
+                if ($invoices->isNotEmpty()) {
+                    foreach ($invoices as $invoice) {
+                        $created->push($invoice->loadMissing('salaries'));
+                    }
                 } else {
                     $noBillableAttendance++;
                 }

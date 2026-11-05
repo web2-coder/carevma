@@ -199,13 +199,24 @@
                     $mins = $minutes % 60;
                     return $hours > 0 ? sprintf('%dh %02dm', $hours, $mins) : sprintf('%dm', $mins);
                 };
-                $regularTotal = max(0, (int) $salary->employee->attendances->sum('total_minutes'));
-                $approvedOtTotal = (int) $salary->employee->attendances->where('overtime_status', 'approved')->sum(fn ($a) => min(max(0, (int) $a->approved_overtime_minutes), max(0, (int) $a->overtime)));
-                $payableTotal = $regularTotal + $approvedOtTotal;
+                $actualWorkedMinutesForAttendance = function ($attendance): int {
+                    if (!$attendance->clock_in || !$attendance->clock_out) {
+                        return 0;
+                    }
+                    // Total Hours follows the minute values visible in this PDF.
+                    // Break is displayed/deducted separately in Payable Hours.
+                    $clockIn = \Carbon\Carbon::parse($attendance->clock_in)->startOfMinute();
+                    $clockOut = \Carbon\Carbon::parse($attendance->clock_out)->startOfMinute();
+                    if ($clockOut->lte($clockIn)) {
+                        return 0;
+                    }
+                    return max(0, (int) $clockIn->diffInMinutes($clockOut));
+                };
+                $actualWorkedTotal = (int) $salary->employee->attendances->sum($actualWorkedMinutesForAttendance);
             @endphp
             <h4 style="background:#f2f2f2;padding:8px;margin-top:20px;">
                 {{ $salary->employee->first_name }} {{ $salary->employee->last_name }}
-                (Working Hours: {{ $formatAttendanceMinutes($payableTotal) }})
+                (Working Hours: {{ $formatAttendanceMinutes($actualWorkedTotal) }})
             </h4>
             <table style="font-size:8px;">
                 <thead>
@@ -300,6 +311,7 @@
                                 $clockOut = $clockOutLocal ? $clockOutLocal->format('h:i A') : '-';
                                 $actualBreakMinutes = (int) floor(max(0, (int) ($attendance->break_taken ?? 0)) / 60);
                                 $regularMinutes = max(0, (int) ($attendance->total_minutes ?? 0));
+                                $actualWorkedMinutes = $actualWorkedMinutesForAttendance($attendance);
                                 $overtimeMinutes = max(0, (int) ($attendance->overtime ?? 0));
                                 $approvedMinutes = max(0, (int) ($attendance->approved_overtime_minutes ?? 0));
                                 // Only approved overtime is billed, capped at the recorded overtime like the generator.
@@ -343,7 +355,7 @@
                                 <td>{{ $clockIn }}</td>
                                 <td>{{ $clockOut }}</td>
                                 <td>{{ $formatAttendanceMinutes($breakMinutes) }}</td>
-                                <td>{{ $formatAttendanceMinutes($regularMinutes) }}</td>
+                                <td>{{ $formatAttendanceMinutes($actualWorkedMinutes) }}</td>
                                 <td>{{ $overtimeLabel }}</td>
                                 <td>{{ $formatAttendanceMinutes($payableMinutes) }}</td>
                             </tr>

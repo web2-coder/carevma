@@ -1544,7 +1544,8 @@ class AdminApiController extends Controller
 
         $client = Client::findOrFail($data['client_id']);
         try {
-            $invoice = $generator->generate($client, $data['period_start'], $data['period_end'], false, $employeeIds);
+            $invoices = $generator->generateMany($client, $data['period_start'], $data['period_end'], false, $employeeIds);
+            $invoice = $invoices->first();
         } catch (\Throwable $e) {
             Log::error('Manual invoice generation failed', [
                 'client_id' => $client->id,
@@ -1564,8 +1565,12 @@ class AdminApiController extends Controller
         }
 
         return response()->json([
-            'message' => 'Invoice generated as an editable draft.',
+            'message' => $invoices->count() === 1
+                ? 'Invoice generated as an editable draft.'
+                : $invoices->count().' separate VA invoices generated as editable drafts.',
+            // Keep the legacy key for the existing UI while also returning every VA-wise invoice.
             'invoice' => $invoice,
+            'invoices' => $invoices->values(),
         ], 201);
     }
 
@@ -1668,15 +1673,43 @@ class AdminApiController extends Controller
 
             $totalHours = 0;
             $totalAmount = 0;
+            $effectiveLineStarts = [];
 
             foreach ($data['lines'] as $lineData) {
                 $line = $invoice->salaries()->whereKey($lineData['id'])->firstOrFail();
+
+                // First-month hard guard: even if Admin manually selects an older
+                // invoice start date, a VA line can never begin before that VA's
+                // first actual check-in with this Doctor/Client.
+                $effectiveLineStart = Carbon::parse($data['period_start'])->toDateString();
+                $firstCheckIn = Attendance::query()
+                    ->where('client_id', $invoice->client_id)
+                    ->where('employee_id', $line->employee_id)
+                    ->whereNotNull('clock_in')
+                    ->orderBy('clock_in')
+                    ->value('clock_in');
+
+                if ($firstCheckIn) {
+                    $firstCheckInDate = $this->timezones->localDate($firstCheckIn, $invoice->client);
+                    if ($firstCheckInDate > $effectiveLineStart) {
+                        $effectiveLineStart = $firstCheckInDate;
+                    }
+                }
+
+                if ($effectiveLineStart > Carbon::parse($data['period_end'])->toDateString()) {
+                    throw ValidationException::withMessages([
+                        'period_end' => 'The selected invoice period ends before this VA first checked in for the Doctor.',
+                    ]);
+                }
+
+                $effectiveLineStarts[] = $effectiveLineStart;
+
                 $line->update([
                     'total_hours' => round((float) $lineData['total_hours'], 2),
                     'total_late' => (int) ($lineData['total_late'] ?? 0),
                     'total_overtime' => (float) ($lineData['total_overtime'] ?? 0),
                     'salary_amount' => round((float) $lineData['salary_amount'], 2),
-                    'period_start' => $data['period_start'],
+                    'period_start' => $effectiveLineStart,
                     'period_end' => $data['period_end'],
                 ]);
                 $totalHours += (float) $lineData['total_hours'];
@@ -1702,8 +1735,15 @@ class AdminApiController extends Controller
 
             $grandTotal = max(0, round($totalAmount + $adjustmentTotal, 2));
 
+            // New invoices are VA-wise. For legacy multi-line invoices use the
+            // earliest allowed VA start for the header; each salary line keeps
+            // its own first-check-in clamp.
+            $effectiveInvoiceStart = $effectiveLineStarts
+                ? min($effectiveLineStarts)
+                : Carbon::parse($data['period_start'])->toDateString();
+
             $invoice->update([
-                'period_start' => $data['period_start'],
+                'period_start' => $effectiveInvoiceStart,
                 'period_end' => $data['period_end'],
                 'status' => $data['status'] ?? $invoice->status ?? 'draft',
                 'total_hours' => round($totalHours, 2),

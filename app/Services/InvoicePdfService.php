@@ -45,6 +45,44 @@ class InvoicePdfService
         }
 
         $employeeIds = $invoice->salaries->pluck('employee_id')->filter()->unique()->values();
+
+        // PDF hard guard for legacy/manual records: never render dates before a
+        // VA's first actual check-in with this Doctor, even if an older start date
+        // is stored or was manually selected.
+        $firstCheckInDateByEmployee = collect();
+        if ($employeeIds->isNotEmpty()) {
+            $firstRows = Attendance::query()
+                ->whereIn('employee_id', $employeeIds)
+                ->whereNotNull('clock_in');
+            if (Schema::hasColumn('attendances', 'client_id')) {
+                $firstRows->where('client_id', $invoice->client_id);
+            }
+            $firstCheckInDateByEmployee = $firstRows
+                ->orderBy('clock_in')
+                ->get(['employee_id', 'clock_in'])
+                ->groupBy('employee_id')
+                ->map(function ($rows) use ($invoice) {
+                    $first = $rows->first();
+                    return $first?->clock_in
+                        ? $this->timezones->localDate($first->clock_in, $invoice->client)
+                        : null;
+                })
+                ->filter();
+
+            $effectiveStarts = $invoice->salaries->map(function ($salary) use ($invoiceStart, $firstCheckInDateByEmployee) {
+                $storedStart = $this->dateString($salary->period_start) ?: $invoiceStart;
+                $firstCheckInDate = $firstCheckInDateByEmployee->get($salary->employee_id);
+                return $firstCheckInDate && $firstCheckInDate > $storedStart
+                    ? $firstCheckInDate
+                    : $storedStart;
+            })->filter();
+
+            if ($effectiveStarts->isNotEmpty()) {
+                $invoiceStart = $effectiveStarts->min();
+                $invoice->period_start = $invoiceStart;
+            }
+        }
+
         $attendanceByEmployee = collect();
         if ($employeeIds->isNotEmpty()) {
             [$startUtc, $endUtc] = $this->timezones->utcBoundsForLocalDates(
@@ -66,6 +104,13 @@ class InvoicePdfService
         foreach ($invoice->salaries as $salary) {
             if ($salary->employee) {
                 $salaryStart = $this->dateString($salary->period_start) ?: $invoiceStart;
+                $firstCheckInDate = $firstCheckInDateByEmployee->get($salary->employee_id);
+                if ($firstCheckInDate && $firstCheckInDate > $salaryStart) {
+                    $salaryStart = $firstCheckInDate;
+                }
+                // Keep the Blade attendance cursor and item From date aligned with
+                // the effective first-check-in start.
+                $salary->period_start = $salaryStart;
                 $salaryEnd = $this->dateString($salary->period_end) ?: $invoiceEnd;
                 $rows = $attendanceByEmployee->get($salary->employee_id, collect())->filter(function (Attendance $attendance) use ($invoice, $salaryStart, $salaryEnd) {
                     if (! $attendance->clock_in) {
