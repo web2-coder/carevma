@@ -317,8 +317,8 @@
                                 // Only approved overtime is billed, capped at the recorded overtime like the generator.
                                 $countedOvertimeMinutes = $attendance->overtime_status === 'approved' ? min($approvedMinutes, $overtimeMinutes) : 0;
                                 $payableMinutes = $regularMinutes + $countedOvertimeMinutes;
-                                $overtimeLabel = $formatAttendanceMinutes($countedOvertimeMinutes)
-                                    .($attendance->overtime_status === 'pending' && $overtimeMinutes > 0 ? ' ('.$formatAttendanceMinutes($overtimeMinutes).' pending)' : '');
+                                // Invoice shows overtime only after approval. Pending/rejected OT stays 0m.
+                                $overtimeLabel = $formatAttendanceMinutes($countedOvertimeMinutes);
                                 $shiftStartLocal = $attendance->shift_start_snapshot ? \Carbon\Carbon::parse($attendance->shift_start_snapshot)->setTimezone($timezone) : null;
                                 $shiftEndLocal = $attendance->shift_end_snapshot ? \Carbon\Carbon::parse($attendance->shift_end_snapshot)->setTimezone($timezone) : null;
                                 $matchedSchedule = $daySchedules->first(function ($schedule) use ($attendance) {
