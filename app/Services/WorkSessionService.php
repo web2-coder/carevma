@@ -92,6 +92,28 @@ class WorkSessionService
             if ($segments->isNotEmpty()) {
                 $latestShiftEnd = $segments->map(fn(Attendance $a) => $a->shift_end_snapshot?->copy()->utc())->filter()->sortByDesc(fn(Carbon $c) => $c->timestamp)->first();
 
+                // Safety auto-checkout: do not depend only on Laravel's scheduler/cron.
+                // Any request that reconciles an overdue work session will close it at
+                // exactly two hours after the latest assigned Doctor shift ends. This
+                // prevents a forgotten/open session from running indefinitely on local
+                // setups or hosts where schedule:run was delayed or not configured.
+                if (!$locked->clock_out && $latestShiftEnd) {
+                    $autoCheckoutAt = $latestShiftEnd->copy()->addHours(2);
+                    if ($nowUtc->gte($autoCheckoutAt)) {
+                        $openBreak = $locked->breaks()->whereNull('end_time')->lockForUpdate()->latest('id')->first();
+                        if ($openBreak) {
+                            $openBreak->update(['end_time' => $autoCheckoutAt]);
+                        }
+
+                        $locked->update([
+                            'clock_out' => $autoCheckoutAt,
+                            'status' => 'completed',
+                        ]);
+                        $locked->refresh();
+                        $sessionEnd = $autoCheckoutAt;
+                    }
+                }
+
                 foreach ($segments as $segment) {
                     $this->syncBreaksForAttendance($locked, $segment, $sessionEnd);
                     if ($segment->clock_out || !$segment->shift_end_snapshot || !$latestShiftEnd) continue;
