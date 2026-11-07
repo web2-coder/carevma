@@ -24,3 +24,5 @@ Homestead.yaml
 Thumbs.db
 
 .env
+/storage/app/private/**
+/storage/framework/cache/carevma-mail-provider-slot.lock
