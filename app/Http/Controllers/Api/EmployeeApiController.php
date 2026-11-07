@@ -74,10 +74,12 @@ class EmployeeApiController extends Controller
             $active->setAttribute('elapsed_seconds', $elapsedSeconds);
             $active->setAttribute('completed_break_seconds', $completedBreakSeconds);
             $active->setAttribute('current_break_elapsed_seconds', $currentBreakSeconds);
-            // Working time since the last break ended (or since clock-in); 0 while a break is open.
-            $lastEndedBreak = $breakCollection->whereNotNull('end_time')->sortByDesc('end_time')->first();
-            $segmentStart = max($clockInUtc->timestamp, $lastEndedBreak ? Carbon::parse($lastEndedBreak->end_time)->utc()->timestamp : 0);
-            $active->setAttribute('segment_elapsed_seconds', $openBreak ? 0 : max(0, $nowUtc->timestamp - $segmentStart));
+            // Cumulative active-work time for the whole VA session. Breaks pause this
+            // counter instead of resetting it, so after a break ends the timer
+            // resumes from the pre-break value. While a break is open the
+            // frontend shows current_break_elapsed_seconds instead.
+            $activeWorkSeconds = max(0, $elapsedSeconds - $completedBreakSeconds - $currentBreakSeconds);
+            $active->setAttribute('segment_elapsed_seconds', $activeWorkSeconds);
             $active->setAttribute('clock_in_utc', $clockInUtc->toIso8601ZuluString());
             $active->setAttribute('active_work_session_id', $workSession?->id);
             $active->setAttribute('check_in_comment', $workSession?->check_in_comment ?: $active->check_in_comment);
@@ -498,6 +500,7 @@ class EmployeeApiController extends Controller
         $employee->setAttribute('profile_missing_fields', $missing);
         $employee->setAttribute('profile_completion_percent', $total ? (int) round((($total - count($missing)) / $total) * 100) : 100);
         $employee->setAttribute('assigned_doctor_timezone', $this->currentDoctorTimezoneForEmployee($employee));
+        $employee->setAttribute('probation', $employee->probationStatusData($this->clock->now(config('carevma.business_timezone', 'Asia/Karachi'))));
         return response()->json($employee);
     }
 
