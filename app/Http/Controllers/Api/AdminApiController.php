@@ -27,12 +27,14 @@ use App\Models\Service;
 use App\Models\ShiftType;
 use App\Models\User;
 use App\Services\InvoiceGenerator;
+use App\Services\InvoiceAutoGenerationSchedule;
 use App\Services\FxRateService;
 use App\Services\TrustedTimeService;
 use App\Services\ClientTimezoneService;
 use App\Services\AttendanceBillingService;
 use App\Services\WorkSessionService;
 use App\Services\InvoicePdfService;
+use App\Services\OperationalNotifier;
 use DateTimeZone;
 use App\Mail\EmployeeInvitationMail;
 use App\Mail\ClientSetPasswordMail;
@@ -43,6 +45,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\Storage;
@@ -58,6 +61,7 @@ class AdminApiController extends Controller
         private ClientTimezoneService $timezones,
         private AttendanceBillingService $attendanceBilling,
         private WorkSessionService $workSessions,
+        private InvoiceAutoGenerationSchedule $invoiceAutoSchedule,
     ) {
     }
 
@@ -212,8 +216,31 @@ class AdminApiController extends Controller
                 ];
             });
 
+        // Do not hydrate every employee just to discover today's birthdays. Across
+        // world timezones the local calendar date can differ from business time by at
+        // most one day, so pre-filter to those three month/day candidates in SQL and
+        // then keep the existing exact per-employee timezone check below.
+        $birthdayCandidates = collect([-1, 0, 1])
+            ->map(fn (int $offset) => $appNow->copy()->addDays($offset)->format('m-d'))
+            ->unique()
+            ->values();
+        $birthdayDriver = DB::getDriverName();
         $birthdaysToday = Employee::query()
             ->whereNotNull('date_of_birth')
+            ->where(function ($query) use ($birthdayCandidates, $birthdayDriver) {
+                foreach ($birthdayCandidates as $candidate) {
+                    if (in_array($birthdayDriver, ['mysql', 'mariadb'], true)) {
+                        $query->orWhereRaw("DATE_FORMAT(date_of_birth, '%m-%d') = ?", [$candidate]);
+                    } elseif ($birthdayDriver === 'sqlite') {
+                        $query->orWhereRaw("strftime('%m-%d', date_of_birth) = ?", [$candidate]);
+                    } elseif ($birthdayDriver === 'pgsql') {
+                        $query->orWhereRaw("TO_CHAR(date_of_birth, 'MM-DD') = ?", [$candidate]);
+                    } else {
+                        // Unknown driver: keep correctness over optimization.
+                        $query->orWhereNotNull('date_of_birth');
+                    }
+                }
+            })
             ->get(['id', 'first_name', 'last_name', 'date_of_birth', 'timezone', 'profile_picture'])
             ->filter(function (Employee $employee) {
                 $timezone = $this->validTimezoneValue($employee->timezone ?: $this->timezones->businessTimezone(), $this->timezones->businessTimezone());
@@ -238,7 +265,9 @@ class AdminApiController extends Controller
         $openCycleStart = BillingCycle::openStart($appNow);
         $cycleStart = $openCycleStart->toDateString();
         $cycleEnd = BillingCycle::endOf($openCycleStart)->toDateString();
-        $scheduledClose = BillingCycle::dueAfter($openCycleStart);
+        $scheduledClose = $this->invoiceAutoSchedule->dueAt($cycleEnd);
+        $cycleEndOpenAttendance = $this->invoiceAutoSchedule->openAttendanceCount($cycleEnd);
+        $doctorInvoiceRuns = $this->invoiceAutoSchedule->doctorRunDetails($cycleStart, $cycleEnd, $this->clock->now('UTC'));
 
         $cycleInvoices = Invoice::query()
             ->where('auto_generated', true)
@@ -252,6 +281,40 @@ class AdminApiController extends Controller
             ->distinct('employee_id')
             ->count('employee_id');
         $lastGeneratedAt = (clone $cycleInvoices)->max('generated_at');
+        $lastCompletedCycle = null;
+
+        // Once this cycle has generated automatic drafts, keep its totals as the
+        // previous run summary but move the dashboard focus to the next cycle.
+        if ($cycleCount > 0) {
+            $lastCompletedCycle = [
+                'period_start' => $cycleStart,
+                'period_end' => $cycleEnd,
+                'generated_count' => $cycleCount,
+                'billed_va_count' => $cycleVaCount,
+                'total_amount' => round($cycleAmount, 2),
+                'last_generated_at' => $lastGeneratedAt,
+            ];
+
+            $openCycleStart = Carbon::parse($cycleEnd, $this->timezones->businessTimezone())->addDay()->startOfDay();
+            $cycleStart = $openCycleStart->toDateString();
+            $cycleEnd = BillingCycle::endOf($openCycleStart)->toDateString();
+            $scheduledClose = $this->invoiceAutoSchedule->dueAt($cycleEnd);
+            $cycleEndOpenAttendance = $this->invoiceAutoSchedule->openAttendanceCount($cycleEnd);
+            $doctorInvoiceRuns = $this->invoiceAutoSchedule->doctorRunDetails($cycleStart, $cycleEnd, $this->clock->now('UTC'));
+
+            $cycleInvoices = Invoice::query()
+                ->where('auto_generated', true)
+                ->whereDate('period_start', $cycleStart)
+                ->whereDate('period_end', $cycleEnd);
+            $cycleInvoiceIds = (clone $cycleInvoices)->pluck('id');
+            $cycleCount = $cycleInvoiceIds->count();
+            $cycleAmount = (float) (clone $cycleInvoices)->sum('total_amount');
+            $cycleVaCount = $cycleInvoiceIds->isEmpty() ? 0 : EmployeeSalary::query()
+                ->whereIn('invoice_id', $cycleInvoiceIds)
+                ->distinct('employee_id')
+                ->count('employee_id');
+            $lastGeneratedAt = (clone $cycleInvoices)->max('generated_at');
+        }
 
         $financeRangeStart = $appNow->copy()->subMonthsNoOverflow(5)->startOfMonth();
         $financeRangeEnd = $appNow->copy()->endOfMonth();
@@ -303,10 +366,15 @@ class AdminApiController extends Controller
                 'billed_va_count' => $cycleVaCount,
                 'total_amount' => round($cycleAmount, 2),
                 'last_generated_at' => $lastGeneratedAt,
-                'status' => $cycleCount > 0 ? 'generated' : (!$billingSettings['auto_generate'] ? 'disabled' : ($appNow->lt($scheduledClose) ? 'scheduled' : 'no_billable_invoices')),
+                'status' => $cycleCount > 0 ? 'generated' : (!$billingSettings['auto_generate'] ? 'disabled' : ($this->clock->now('UTC')->lt($scheduledClose) ? 'scheduled' : ($cycleEndOpenAttendance > 0 ? 'waiting_for_checkout' : 'ready'))),
                 'cycle_start_day' => $billingSettings['cycle_start_day'],
                 'generation_time' => $billingSettings['generation_time'],
                 'auto_generate' => $billingSettings['auto_generate'],
+                'open_cycle_end_attendance' => $cycleEndOpenAttendance,
+                'generation_rule' => 'after_final_cycle_end_shift',
+                'admin_timezone' => $this->timezones->businessTimezone(),
+                'doctor_runs' => $doctorInvoiceRuns,
+                'last_completed_cycle' => $lastCompletedCycle,
             ],
             'finance' => $finance,
             'finance_trend' => $financeTrend,
@@ -537,7 +605,7 @@ class AdminApiController extends Controller
 
     public function employees(Request $request)
     {
-        $query = Employee::with(['user:id,name,email,role,last_seen_at', 'department', 'designation', 'employmentType', 'shiftType', 'employeeStatus', 'expertise', 'reportingManager']);
+        $query = Employee::with(['user:id,name,email,role,is_active,last_seen_at', 'department', 'designation', 'employmentType', 'shiftType', 'employeeStatus', 'expertise', 'reportingManager']);
         if ($search = trim((string) $request->query('search'))) {
             $query->where(function ($q) use ($search) {
                 $q->where('first_name', 'like', "%{$search}%")
@@ -558,7 +626,7 @@ class AdminApiController extends Controller
 
     public function employee(Employee $employee)
     {
-        $employee->load(['user:id,name,email,role,last_seen_at', 'department', 'role', 'employmentType', 'shiftType', 'designation', 'employeeStatus', 'expertise', 'reportingManager']);
+        $employee->load(['user:id,name,email,role,is_active,last_seen_at', 'department', 'role', 'employmentType', 'shiftType', 'designation', 'employeeStatus', 'expertise', 'reportingManager']);
         $employee->setAttribute('upload_documents', Employee::documentUrls($employee->upload_documents));
 
         // "This month" in the VA's own timezone, so the figures match what they see.
@@ -578,6 +646,7 @@ class AdminApiController extends Controller
             'pending_overtime_minutes' => (int) $month->pending_overtime_minutes,
         ]);
         $employee->setAttribute('is_live', Attendance::query()->where('employee_id', $employee->id)->whereNull('clock_out')->exists());
+        $employee->setAttribute('probation', $employee->probationStatusData($today));
 
         return response()->json($employee);
     }
@@ -585,6 +654,9 @@ class AdminApiController extends Controller
     public function storeEmployee(Request $request)
     {
         $data = $this->validateEmployee($request);
+        if (empty($data['probation_end_date']) && !empty($data['date_of_joining'])) {
+            $data['probation_end_date'] = Carbon::parse($data['date_of_joining'])->addMonthsNoOverflow(3)->toDateString();
+        }
 
         [$employee, $user] = DB::transaction(function () use ($data, $request) {
             // Admin/HR never needs to know the VA password. The account receives an
@@ -650,6 +722,86 @@ class AdminApiController extends Controller
             $employee->user?->update($userData);
             return response()->json(['message' => 'Employee updated.', 'employee' => $employee->fresh()]);
         });
+    }
+
+    public function updateProbation(Request $request, Employee $employee)
+    {
+        $data = $request->validate([
+            'action' => ['required', Rule::in(['end_now', 'extend'])],
+            'end_date' => ['nullable', 'date'],
+        ]);
+
+        $today = $this->clock->now(config('carevma.business_timezone', 'Asia/Karachi'))->startOfDay();
+        $employee->loadMissing('user');
+
+        if ($data['action'] === 'extend') {
+            if (empty($data['end_date'])) {
+                throw ValidationException::withMessages(['end_date' => ['Choose the new probation end date.']]);
+            }
+            $end = Carbon::parse($data['end_date'])->startOfDay();
+            if ($end->lte($today)) {
+                throw ValidationException::withMessages(['end_date' => ['The extended probation end date must be after today.']]);
+            }
+            if ($employee->date_of_regularisation && Carbon::parse($employee->date_of_regularisation)->lte($today)) {
+                throw ValidationException::withMessages(['end_date' => ['This employee is already permanent.']]);
+            }
+
+            $employee->forceFill([
+                'probation_end_date' => $end->toDateString(),
+                'is_probation_email_sent' => false,
+            ])->save();
+
+            if ($employee->user) {
+                app(OperationalNotifier::class)->send(
+                    $employee->user,
+                    'Probation period updated',
+                    'Your probation period has been extended until '.$end->format('d M Y').'.',
+                    'ProbationExtended',
+                    '/employee/profile',
+                    ['employee_id' => $employee->id, 'probation_end_date' => $end->toDateString()]
+                );
+            }
+
+            return response()->json([
+                'message' => 'Probation extended successfully.',
+                'employee' => $employee->fresh(),
+                'probation' => $employee->fresh()->probationStatusData($today),
+            ]);
+        }
+
+        $permanentTypeId = EmploymentType::query()
+            ->whereRaw('LOWER(name) = ?', ['permanent'])
+            ->value('id');
+
+        $employee->forceFill(array_filter([
+            'date_of_regularisation' => $today->toDateString(),
+            // Ending probation now must close the active probation period today. Keeping
+            // an old future date can make profile/status UIs look like probation is active.
+            'probation_end_date' => $today->toDateString(),
+            'employment_type_id' => $permanentTypeId ?: $employee->employment_type_id,
+            'is_probation_email_sent' => true,
+        ], fn ($value) => $value !== null))->save();
+
+        // Reload the employment type before deriving the response status so the same API
+        // response already reports Permanent without requiring another request/reload.
+        $employee->refresh()->load('employmentType');
+
+        if ($employee->user) {
+            app(OperationalNotifier::class)->send(
+                $employee->user,
+                'Probation completed',
+                'Your probation period has been completed. Your CareVMA employment status is now Permanent.',
+                'ProbationCompleted',
+                '/employee/profile',
+                ['employee_id' => $employee->id, 'regularisation_date' => $today->toDateString()]
+            );
+        }
+
+        return response()->json([
+            'message' => 'Probation ended and employee marked permanent.',
+            'employee' => $employee,
+            'probation' => $employee->probationStatusData($today),
+        ]);
     }
 
     public function destroyEmployee(Employee $employee)
@@ -740,7 +892,7 @@ class AdminApiController extends Controller
 
     public function clients(Request $request)
     {
-        $query = Client::with(['user:id,name,email,role', 'service', 'contractType']);
+        $query = Client::with(['user:id,name,email,role,is_active', 'service', 'contractType']);
         if ($search = trim((string) $request->query('search'))) {
             $query->where(fn ($q) => $q->where('name', 'like', "%{$search}%")
                 ->orWhere('email', 'like', "%{$search}%")
@@ -853,6 +1005,75 @@ class AdminApiController extends Controller
             $client->delete();
             $user?->delete();
             return response()->json(['message' => 'Client deleted.']);
+        });
+    }
+
+
+    private function offboardingData(Request $request): array
+    {
+        return $request->validate([
+            'effective_date' => ['required', 'date'],
+            'reason' => ['required', 'string', 'max:100'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+        ]);
+    }
+
+    private function recordOffboarding(string $type, int $id, string $action, ?string $date, ?string $reason, ?string $notes, Request $request): void
+    {
+        DB::table('offboarding_events')->insert([
+            'subject_type' => $type, 'subject_id' => $id, 'action' => $action,
+            'effective_date' => $date, 'reason' => $reason, 'notes' => $notes,
+            'performed_by' => $request->user()?->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
+    public function deactivateEmployee(Request $request, Employee $employee)
+    {
+        $data = $this->offboardingData($request);
+        if (Attendance::where('employee_id', $employee->id)->whereNull('clock_out')->exists()) {
+            return response()->json(['message' => 'Employee is currently checked in. Check them out before deactivation.'], 422);
+        }
+        return DB::transaction(function () use ($request, $employee, $data) {
+            $employee->update(['offboarded_at'=>$data['effective_date'],'offboarding_reason'=>$data['reason'],'offboarding_notes'=>$data['notes'] ?? null]);
+            $employee->user?->update(['is_active'=>false]);
+            EmployeeClientSchedule::where('employee_id',$employee->id)->where('enabled',true)->update(['enabled'=>false]);
+            $this->recordOffboarding('employee',$employee->id,'deactivated',$data['effective_date'],$data['reason'],$data['notes'] ?? null,$request);
+            return response()->json(['message'=>'Employee deactivated. Login and active schedules are disabled; history is preserved.','employee'=>$employee->fresh()->load('user')]);
+        });
+    }
+
+    public function reactivateEmployee(Request $request, Employee $employee)
+    {
+        return DB::transaction(function () use ($request, $employee) {
+            $employee->update(['offboarded_at'=>null,'offboarding_reason'=>null,'offboarding_notes'=>null]);
+            $employee->user?->update(['is_active'=>true]);
+            $this->recordOffboarding('employee',$employee->id,'reactivated',now()->toDateString(),'Reactivated',null,$request);
+            return response()->json(['message'=>'Employee reactivated. Previous schedules remain disabled until Admin enables/assigns them.','employee'=>$employee->fresh()->load('user')]);
+        });
+    }
+
+    public function deactivateClient(Request $request, Client $client)
+    {
+        $data = $this->offboardingData($request);
+        if (Attendance::where('client_id', $client->id)->whereNull('clock_out')->exists()) {
+            return response()->json(['message' => 'This Doctor has open attendance. Close it before deactivation.'], 422);
+        }
+        return DB::transaction(function () use ($request, $client, $data) {
+            $client->update(['offboarded_at'=>$data['effective_date'],'offboarding_reason'=>$data['reason'],'offboarding_notes'=>$data['notes'] ?? null]);
+            $client->user?->update(['is_active'=>false]);
+            EmployeeClientSchedule::where('client_id',$client->id)->where('enabled',true)->update(['enabled'=>false]);
+            $this->recordOffboarding('client',$client->id,'deactivated',$data['effective_date'],$data['reason'],$data['notes'] ?? null,$request);
+            return response()->json(['message'=>'Doctor / Client deactivated. Login and active schedules are disabled; attendance and invoice history is preserved.','client'=>$client->fresh()->load('user')]);
+        });
+    }
+
+    public function reactivateClient(Request $request, Client $client)
+    {
+        return DB::transaction(function () use ($request, $client) {
+            $client->update(['offboarded_at'=>null,'offboarding_reason'=>null,'offboarding_notes'=>null]);
+            $client->user?->update(['is_active'=>true]);
+            $this->recordOffboarding('client',$client->id,'reactivated',now()->toDateString(),'Reactivated',null,$request);
+            return response()->json(['message'=>'Doctor / Client reactivated. Previous schedules remain disabled until Admin enables/assigns them.','client'=>$client->fresh()->load('user')]);
         });
     }
 
@@ -1108,6 +1329,19 @@ class AdminApiController extends Controller
             $row->setAttribute('clock_out_client', $this->timezones->isoInZone($row->clock_out, $clientZone));
             $row->setAttribute('clock_in_employee', $this->timezones->isoInZone($row->clock_in, $employeeZone));
             $row->setAttribute('clock_out_employee', $this->timezones->isoInZone($row->clock_out, $employeeZone));
+
+            // Live attendance must show the real break records, not a stale aggregate field.
+            // Completed rows keep the persisted aggregate for backward compatibility.
+            if (!$row->clock_out && $row->relationLoaded('breaks')) {
+                $nowUtc = $this->clock->now('UTC');
+                $breakSeconds = (int) $row->breaks->sum(function ($break) use ($nowUtc) {
+                    if (!$break->start_time) return 0;
+                    $start = Carbon::parse($break->start_time)->utc();
+                    $end = $break->end_time ? Carbon::parse($break->end_time)->utc() : $nowUtc;
+                    return max(0, $end->timestamp - $start->timestamp);
+                });
+                $row->setAttribute('break_taken', $breakSeconds);
+            }
 
             // Keep every attendance surface aligned with the billing rule:
             // effective break = max(assigned allowance, actual break taken).
@@ -1489,6 +1723,59 @@ class AdminApiController extends Controller
         return $this->financeSummaryFromDaily($this->financeDailySeries($from, $to), $from, $to);
     }
 
+    public function invoiceOverview(Request $request)
+    {
+        $month = trim((string) $request->query('month', now()->format('Y-m')));
+        if (!preg_match('/^\\d{4}-\\d{2}$/', $month)) {
+            $month = now()->format('Y-m');
+        }
+        $monthDate = Carbon::createFromFormat('Y-m-d', $month.'-01')->startOfMonth();
+        $monthEnd = $monthDate->copy()->endOfMonth();
+
+        // Keep the month filter sargable so MySQL/MariaDB can use the billing-cycle
+        // and period_end indexes even when the invoice table grows into millions of rows.
+        $monthStart = $monthDate->toDateString();
+        $monthEndDate = $monthEnd->toDateString();
+        $invoiceQuery = Invoice::query()->where(function ($q) use ($monthStart, $monthEndDate) {
+            $q->where('billing_cycle_month', $monthStart)
+              ->orWhere(function ($fallback) use ($monthStart, $monthEndDate) {
+                  $fallback->whereNull('billing_cycle_month')->whereBetween('period_end', [$monthStart, $monthEndDate]);
+              });
+        });
+
+        $totalDoctors = Client::query()->count();
+        $autoDoctors = (clone $invoiceQuery)->where('auto_generated', true)->distinct()->count('client_id');
+        $manualDoctors = (clone $invoiceQuery)->where('auto_generated', false)->distinct()->count('client_id');
+        $autoInvoices = (clone $invoiceQuery)->where('auto_generated', true)->count();
+        $manualInvoices = (clone $invoiceQuery)->where('auto_generated', false)->count();
+        $sentDoctors = Schema::hasColumn('invoices', 'sent_at')
+            ? (clone $invoiceQuery)->whereNotNull('sent_at')->distinct()->count('client_id') : 0;
+        $sentInvoices = Schema::hasColumn('invoices', 'sent_at')
+            ? (clone $invoiceQuery)->whereNotNull('sent_at')->count() : 0;
+
+        $failedDoctorIds = Schema::hasTable('invoice_generation_failures')
+            ? DB::table('invoice_generation_failures')->where('billing_month', $month)->whereNull('resolved_at')->pluck('client_id')->unique()
+            : collect();
+        $failed = $failedDoctorIds->count();
+        $coveredDoctorIds = (clone $invoiceQuery)->pluck('client_id')->filter()->unique();
+        $pending = max(0, $totalDoctors - $coveredDoctorIds->count() - $failed);
+        $remainingToSend = max(0, $coveredDoctorIds->count() - $sentDoctors);
+
+        return response()->json([
+            'month' => $month,
+            'total_doctors' => $totalDoctors,
+            'auto_generated_invoices' => $autoInvoices,
+            'auto_generated_doctors' => $autoDoctors,
+            'manual_invoices' => $manualInvoices,
+            'manual_doctors' => $manualDoctors,
+            'pending_doctors' => $pending,
+            'failed_doctors' => $failed,
+            'sent_invoices' => $sentInvoices,
+            'sent_doctors' => $sentDoctors,
+            'remaining_to_send' => $remainingToSend,
+        ]);
+    }
+
     public function invoices(Request $request)
     {
         $query = Invoice::with([
@@ -1510,7 +1797,18 @@ class AdminApiController extends Controller
         }
 
         if ($month = trim((string) $request->query('month', ''))) {
-            $query->whereRaw("DATE_FORMAT(COALESCE(billing_cycle_month, period_end), '%Y-%m') = ?", [$month]);
+            if (preg_match('/^\d{4}-\d{2}$/', $month)) {
+                $monthDate = Carbon::createFromFormat('Y-m-d', $month.'-01')->startOfMonth();
+                $monthStart = $monthDate->toDateString();
+                $monthEnd = $monthDate->copy()->endOfMonth()->toDateString();
+                $query->where(function ($monthQuery) use ($monthStart, $monthEnd) {
+                    $monthQuery->where('billing_cycle_month', $monthStart)
+                        ->orWhere(function ($fallback) use ($monthStart, $monthEnd) {
+                            $fallback->whereNull('billing_cycle_month')
+                                ->whereBetween('period_end', [$monthStart, $monthEnd]);
+                        });
+                });
+            }
         }
 
         if ($year = (int) $request->query('year', 0)) {
@@ -1535,12 +1833,19 @@ class AdminApiController extends Controller
     {
         $data = $request->validate([
             'client_id' => ['required', 'exists:clients,id'],
-            'period_start' => ['required', 'date'],
-            'period_end' => ['required', 'date', 'after_or_equal:period_start'],
+            'invoice_month' => ['nullable', 'date_format:Y-m'],
+            'period_start' => ['required_without:invoice_month', 'nullable', 'date'],
+            'period_end' => ['required_without:invoice_month', 'nullable', 'date', 'after_or_equal:period_start'],
             'employee_ids' => ['nullable', 'array', 'min:1'],
             'employee_ids.*' => ['integer', 'exists:employees,id'],
         ]);
         $employeeIds = $data['employee_ids'] ?? null;
+
+        // Bulk generation sends only the invoice month. Resolve the exact period here
+        // from the same Invoice Settings/BillingCycle service used by auto generation.
+        if (!empty($data['invoice_month'])) {
+            [$data['period_start'], $data['period_end']] = BillingCycle::forInvoiceMonth($data['invoice_month']);
+        }
 
         $client = Client::findOrFail($data['client_id']);
         try {
@@ -1598,8 +1903,14 @@ class AdminApiController extends Controller
                 new InvoiceNotificationMail($invoice, $pdfContent)
             );
             $mail = ['sent' => true, 'error' => null];
+            if (Schema::hasColumn('invoices', 'sent_at')) {
+                $invoice->forceFill(['sent_at' => now(), 'send_failed_at' => null, 'send_error' => null])->save();
+            }
         } catch (\Throwable $e) {
             report($e);
+            if (Schema::hasColumn('invoices', 'send_failed_at')) {
+                $invoice->forceFill(['send_failed_at' => now(), 'send_error' => mb_substr($e->getMessage(), 0, 1000)])->save();
+            }
             return response()->json(['message' => 'Invoice email could not be prepared. Check the Laravel mail log and try again.'], 422);
         }
 
@@ -1908,7 +2219,7 @@ class AdminApiController extends Controller
             'expertise_id' => ['nullable', 'exists:expertises,id'], 'reporting_manager_id' => ['nullable', 'exists:reporting_managers,id'],
             'salary_pkr' => ['nullable', 'numeric', 'min:0'], 'salary_usd' => ['nullable', 'numeric', 'min:0'],
             'source_of_hire' => ['nullable', 'string', 'max:120'], 'date_of_joining' => ['nullable', 'date'],
-            'date_of_regularisation' => ['nullable', 'date'], 'break_allowed_hours' => ['nullable', 'numeric', 'min:0', 'max:12'],
+            'probation_end_date' => ['nullable', 'date'], 'date_of_regularisation' => ['nullable', 'date'], 'break_allowed_hours' => ['nullable', 'numeric', 'min:0', 'max:12'],
             'gender' => ['nullable', Rule::in(['male','female','other'])], 'marital_status' => ['nullable', Rule::in(['single','married','divorced','widowed'])],
             'date_of_birth' => ['nullable', 'date'], 'age' => ['nullable', 'integer', 'min:16', 'max:100'], 'about_me_notes' => ['nullable', 'string', 'max:3000'],
             'profile_picture' => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],

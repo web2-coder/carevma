@@ -60,17 +60,20 @@ class InvoiceSettingsTest extends TestCase
         $hr = $this->user('hr', 'hr@carevma.test');
 
         $this->actingAs($admin)->getJson('/api/management/invoice-settings')
-            ->assertOk()->assertJson(['cycle_start_day' => 26, 'generation_time' => '00:15', 'auto_generate' => true]);
+            ->assertOk()->assertJson(['cycle_start_day' => 26, 'auto_generate' => true]);
 
-        $this->actingAs($admin)->putJson('/api/admin/invoice-settings', ['cycle_start_day' => 29, 'generation_time' => '06:00', 'auto_generate' => true])
+        $this->actingAs($admin)->putJson('/api/admin/invoice-settings', ['cycle_start_day' => 30, 'auto_generate' => true])
+            ->assertOk()->assertJsonPath('settings.cycle_start_day', 30);
+
+        $this->actingAs($admin)->putJson('/api/admin/invoice-settings', ['cycle_start_day' => 31, 'auto_generate' => true])
             ->assertStatus(422)->assertJsonValidationErrors(['cycle_start_day']);
 
-        $this->actingAs($admin)->putJson('/api/admin/invoice-settings', ['cycle_start_day' => 1, 'generation_time' => '06:00', 'auto_generate' => false])
+        $this->actingAs($admin)->putJson('/api/admin/invoice-settings', ['cycle_start_day' => 1, 'auto_generate' => false])
             ->assertOk()->assertJsonPath('settings.cycle_start_day', 1);
 
         $this->actingAs($hr)->getJson('/api/management/invoice-settings')
-            ->assertOk()->assertJson(['cycle_start_day' => 1, 'generation_time' => '06:00', 'auto_generate' => false]);
-        $this->actingAs($hr)->putJson('/api/admin/invoice-settings', ['cycle_start_day' => 5, 'generation_time' => '06:00', 'auto_generate' => true])
+            ->assertOk()->assertJson(['cycle_start_day' => 1, 'auto_generate' => false]);
+        $this->actingAs($hr)->putJson('/api/admin/invoice-settings', ['cycle_start_day' => 5, 'auto_generate' => true])
             ->assertStatus(403);
 
         $this->assertSame(1, BillingCycle::startDay());
@@ -85,22 +88,23 @@ class InvoiceSettingsTest extends TestCase
         $this->assertSame(['2026-09-15', '2026-10-14'], BillingCycle::latestCompleted(Carbon::parse('2026-11-03', 'UTC')));
         $this->assertSame(['2026-10-15', '2026-11-14'], BillingCycle::latestCompleted(Carbon::parse('2026-11-20', 'UTC')));
         $this->assertSame('2026-12-15 00:15:00', BillingCycle::dueAfter(Carbon::parse('2026-11-15', 'UTC'))->format('Y-m-d H:i:s'));
-        BillingCycle::save(['generation_time' => '06:30']);
-        $this->assertSame('2026-12-15 06:30:00', BillingCycle::dueAfter(Carbon::parse('2026-11-15', 'UTC'))->format('Y-m-d H:i:s'));
+
+        BillingCycle::save(['cycle_start_day' => 30]);
+        $this->assertSame(['2026-01-30', '2026-02-27'], BillingCycle::latestCompleted(Carbon::parse('2026-03-01', 'UTC')));
     }
 
     public function test_monthly_run_uses_the_configured_cycle_and_can_be_switched_off(): void
     {
         $this->clientWithOctoberShift();
-        BillingCycle::save(['cycle_start_day' => 1, 'generation_time' => '06:00', 'auto_generate' => true]);
+        BillingCycle::save(['cycle_start_day' => 1, 'auto_generate' => true]);
 
-        // 05:00 on the 1st: before the configured 06:00, so not due yet.
-        $this->pretendNowIs('2026-11-01 05:00:00');
+        // Before the cycle closes: not due yet.
+        $this->pretendNowIs('2026-10-31 23:00:00');
         $this->artisan('invoices:generate-monthly')->assertExitCode(0);
         $this->assertSame(0, Invoice::count());
 
-        // 07:00 on the 1st: due, and the cycle is the calendar month that just ended.
-        $this->pretendNowIs('2026-11-01 07:00:00');
+        // After midnight on the next day (with no configured final-day shift): due.
+        $this->pretendNowIs('2026-11-01 00:05:00');
         $this->artisan('invoices:generate-monthly')->assertExitCode(0);
         $invoice = Invoice::sole();
         $this->assertSame('2026-10-01', $invoice->period_start->toDateString());

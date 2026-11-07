@@ -27,6 +27,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'profile.complete' => \App\Http\Middleware\EnsureProfileIsComplete::class,
             'role' => \App\Http\Middleware\RoleMiddleware::class,
             'module' => \App\Http\Middleware\EnsureModuleAccess::class,
+            'account.active' => \App\Http\Middleware\EnsureAccountIsActive::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

@@ -945,3 +945,88 @@ a.metric-card:focus-visible { outline: 2px solid var(--primary); outline-offset:
 /* Row numbers */
 .smart-table th.row-index, .smart-table td.row-index { width: 2.75rem; padding-right: .25rem; text-align: right; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
 .smart-table td.row-index { font-size: .75rem; }
+
+/* CAREVMA mobile topbar hotfix 2026-11-06
+   Keep desktop unchanged; phones get a compact single-row header. */
+@media (max-width: 640px) {
+  .topbar {
+    min-width: 0;
+    height: 64px;
+    padding: .625rem .5rem;
+    gap: .375rem;
+    overflow: visible;
+  }
+  .topbar-left,
+  .topbar-right {
+    min-width: 0;
+    gap: .375rem;
+  }
+  .topbar-left { flex: 0 0 auto; }
+  .topbar-right { flex: 1 1 auto; justify-content: flex-end; }
+
+  /* Requested: remove CareVMA / Administrator identity copy on mobile. */
+  .topbar-context { display: none !important; }
+
+  .topbar .icon-btn,
+  .topbar-search {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    flex: 0 0 36px;
+    border-radius: 10px;
+  }
+
+  .topbar .navbar-live-clock {
+    min-width: 0;
+    min-height: 36px;
+    height: 36px;
+    padding: 4px 7px;
+    gap: 0;
+    flex: 0 1 auto;
+  }
+  .topbar .navbar-live-clock-icon,
+  .topbar .navbar-live-clock-zone,
+  .topbar .navbar-live-clock-copy small { display: none; }
+  .topbar .navbar-live-clock-copy { min-width: 0; }
+  .topbar .navbar-live-clock-copy strong {
+    font-size: 9px;
+    white-space: nowrap;
+  }
+
+  .topbar .profile-menu-trigger {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    padding: 2px;
+    gap: 0;
+    justify-content: center;
+    border-radius: 10px;
+  }
+  .topbar .profile-menu-trigger-copy,
+  .topbar .profile-menu-trigger > svg { display: none; }
+  .topbar .profile-menu-trigger .avatar.small {
+    width: 30px;
+    height: 30px;
+    flex: 0 0 30px;
+  }
+
+  .topbar .notification-menu-wrap,
+  .topbar .profile-menu-wrap { flex: 0 0 auto; }
+  .topbar .notification-dropdown,
+  .topbar .profile-dropdown { max-width: calc(100vw - 1.5rem); }
+}
+
+@media (max-width: 380px) {
+  .topbar { padding-left: .375rem; padding-right: .375rem; gap: .25rem; }
+  .topbar-left, .topbar-right { gap: .25rem; }
+  .topbar .icon-btn,
+  .topbar-search,
+  .topbar .profile-menu-trigger {
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+    flex-basis: 34px;
+  }
+  .topbar .navbar-live-clock { height: 34px; min-height: 34px; padding-left: 5px; padding-right: 5px; }
+  .topbar .navbar-live-clock-copy strong { font-size: 8.5px; }
+}

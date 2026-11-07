@@ -53,7 +53,7 @@ class WorkSessionService
             // The selected Doctor is explicitly eligible up to 15 minutes before shift start.
             $this->ensureAttendance($session, $selectedSchedule, $shiftStart->copy()->utc(), $shiftEnd->copy()->utc(), $timezone, $comment);
             return $this->reconcile($session, $nowUtc);
-        });
+        }, 3);
     }
 
     public function reconcileForEmployee(Employee $employee, ?Carbon $nowUtc = null): ?WorkSession
@@ -130,7 +130,7 @@ class WorkSessionService
             }
 
             return $locked->fresh(['employee','attendances.client','attendances.schedule','attendances.breaks','breaks']);
-        });
+        }, 3);
     }
 
     public function close(WorkSession $session, ?Carbon $clockOutUtc = null): WorkSession
@@ -144,7 +144,7 @@ class WorkSessionService
                 $locked->update(['clock_out' => $clockOutUtc, 'status' => 'completed']);
             }
             return $this->reconcile($locked->fresh(), $clockOutUtc);
-        });
+        }, 3);
     }
 
     public function startBreak(WorkSession $session, ?string $notes = null): WorkSessionBreak
@@ -158,7 +158,7 @@ class WorkSessionService
             if ($allowed <= 0) throw new \RuntimeException('No break time is allowed for the active Doctor shift(s).');
             if ($used >= $allowed) throw new \RuntimeException('Your allowed break time has already been used.');
             return $locked->breaks()->create(['start_time'=>$this->clock->now('UTC'),'notes'=>$notes]);
-        });
+        }, 3);
     }
 
     public function endBreak(WorkSession $session): void
@@ -170,7 +170,7 @@ class WorkSessionService
             $end = $this->clock->now('UTC')->utc();
             $break->update(['end_time'=>$end]);
             $this->reconcile($locked->fresh(), $end);
-        });
+        }, 3);
     }
 
     public function autoCheckoutDueSessions(): int

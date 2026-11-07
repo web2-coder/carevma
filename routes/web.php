@@ -34,7 +34,7 @@ Route::prefix('api')->group(function () {
             ->header('Pragma', 'no-cache');
     });
 
-    Route::middleware(['auth', OperationalActivityNotifier::class])->group(function () {
+    Route::middleware(['auth', 'account.active', OperationalActivityNotifier::class])->group(function () {
         Route::get('/me', [AuthApiController::class, 'me']);
         Route::get('/time', [AuthApiController::class, 'time']);
         Route::post('/logout', [AuthApiController::class, 'logout']);
@@ -66,6 +66,8 @@ Route::prefix('api')->group(function () {
             Route::get('/employees/{employee}', [AdminApiController::class, 'employee'])->middleware('module:employees');
             Route::put('/employees/{employee}', [AdminApiController::class, 'updateEmployee'])->middleware('module:employees');
             Route::delete('/employees/{employee}', [AdminApiController::class, 'destroyEmployee'])->middleware('module:employees');
+            Route::post('/employees/{employee}/deactivate', [AdminApiController::class, 'deactivateEmployee'])->middleware('module:employees');
+            Route::post('/employees/{employee}/reactivate', [AdminApiController::class, 'reactivateEmployee'])->middleware('module:employees');
 
             Route::get('/schedules', [AdminApiController::class, 'schedules'])->middleware('module:schedules');
             Route::post('/schedules', [AdminApiController::class, 'storeSchedule'])->middleware('module:schedules');
@@ -110,7 +112,10 @@ Route::prefix('api')->group(function () {
             Route::put('/clients/{client}', [AdminApiController::class, 'updateClient'])->middleware('module:clients');
             Route::delete('/clients/{client}', [AdminApiController::class, 'destroyClient'])->middleware('module:clients');
             Route::post('/clients/{client}/resend-invite', [AdminApiController::class, 'resendClientInvitation'])->middleware('module:clients');
+            Route::post('/clients/{client}/deactivate', [AdminApiController::class, 'deactivateClient'])->middleware('module:clients');
+            Route::post('/clients/{client}/reactivate', [AdminApiController::class, 'reactivateClient'])->middleware('module:clients');
             Route::get('/invoices', [AdminApiController::class, 'invoices'])->middleware('module:invoices');
+            Route::get('/invoices-overview', [AdminApiController::class, 'invoiceOverview'])->middleware('module:invoices');
             Route::post('/invoices/generate', [AdminApiController::class, 'generateInvoice'])->middleware('module:invoices');
             Route::put('/invoice-settings', [InvoiceSettingsController::class, 'update'])->middleware('module:invoice-settings');
             Route::get('/invoices/{invoice}', [AdminApiController::class, 'invoice'])->middleware('module:invoices');

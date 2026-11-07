@@ -9,6 +9,9 @@ use Illuminate\Database\Eloquent\Model;
 class Client extends Model
 {
     protected $fillable = [
+        'offboarded_at',
+        'offboarding_reason',
+        'offboarding_notes',
         'user_id',
         'profile_picture',
         'name',

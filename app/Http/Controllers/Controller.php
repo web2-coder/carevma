@@ -41,6 +41,7 @@ class Controller extends BaseController
             $query->orderBy('id', 'desc');
         }
 
-        return $query->paginate(min(max((int) $request->query('per_page', $defaultPerPage), 1), 100));
+        $maxPerPage = max(10, min(500, (int) config('carevma.performance.max_per_page', 100)));
+        return $query->paginate(min(max((int) $request->query('per_page', $defaultPerPage), 1), $maxPerPage));
     }
 }

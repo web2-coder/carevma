@@ -3159,3 +3159,38 @@ html, body, button, input, select, textarea, .app-shell {
   .admin-timezone-clock-grid{grid-template-columns:1fr}
   .admin-timezone-clock-heading{align-items:flex-start}
 }
+
+/* Automatic invoice cycle: clearer next-cycle and Karachi-time presentation */
+.billing-cycle-card .card-head{align-items:flex-start;gap:16px;flex-wrap:wrap}
+.billing-cycle-card .card-head > div:first-child{min-width:0;flex:1 1 360px}
+.billing-cycle-card .card-head .row-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto;flex-wrap:wrap;justify-content:flex-end}
+.billing-karachi-time{margin-top:6px!important;color:#48627d!important}
+.billing-karachi-time strong{display:inline!important;color:var(--cv-navy-900);font-size:inherit!important;margin:0!important}
+.billing-last-run-label{margin-top:16px;padding-top:14px;border-top:1px solid #e6eef7;color:#70849a;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase}
+.billing-cycle-stats{align-items:stretch}
+.billing-cycle-stats>div{min-height:82px;display:flex;flex-direction:column;justify-content:center}
+.billing-cycle-foot{min-height:58px}
+@media (max-width:760px){.billing-cycle-card .card-head .row-actions{width:100%;justify-content:flex-start}.billing-cycle-card .card-head .row-actions .btn,.billing-cycle-card .card-head .row-actions .btn-link{width:auto}}
+
+/* CareVMA fixed monthly billing cycle + invoice run modal polish */
+.invoice-fixed-cycle{display:flex;flex-direction:column;gap:4px;padding:12px 14px;border:1px solid var(--border,#dbe5f1);border-radius:12px;background:var(--surface-soft,#f7f9fc)}
+.invoice-fixed-cycle strong{font-size:14px;color:var(--text,#0f2744)}
+.invoice-fixed-cycle span{font-size:12px;color:var(--muted,#66758a)}
+.billing-cycle-card .card-head .row-actions .btn{white-space:nowrap}
+.billing-cycle-card .card-head .row-actions svg{flex:0 0 auto}
+.modal .activity-row{align-items:flex-start;gap:12px}
+.modal .activity-main-copy{min-width:0;display:flex;flex-direction:column;gap:4px;line-height:1.45}
+.modal .activity-main-copy span,.modal .activity-main-copy small{display:block;white-space:normal;overflow-wrap:anywhere}
+.modal .activity-row > .badge{flex:0 0 auto;white-space:nowrap;margin-left:auto}
+@media (max-width:700px){.modal .activity-row{flex-wrap:wrap}.modal .activity-row > .badge{margin-left:48px}}
+
+/* Invoice run actions/modal readability */
+.billing-cycle-card .card-head .row-actions{display:flex;align-items:center;gap:10px;flex-wrap:nowrap}
+.billing-cycle-card .card-head .row-actions .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:42px;padding:0 15px;white-space:nowrap}
+.billing-cycle-card .card-head .row-actions .btn svg{width:17px;height:17px;display:block;flex:0 0 17px}
+.billing-cycle-card .card-head .row-actions .btn-link{margin:0}
+.billing-cycle-card + .modal .activity-row,.modal .activity-list .activity-row{align-items:flex-start;gap:12px}
+.modal .activity-list .activity-main-copy{display:flex;flex-direction:column;gap:4px;min-width:0}
+.modal .activity-list .activity-main-copy>strong,.modal .activity-list .activity-main-copy>span,.modal .activity-list .activity-main-copy>small{display:block;line-height:1.45}
+.modal .activity-list .badge{flex:0 0 auto;white-space:nowrap;margin-left:auto}
+@media(max-width:760px){.billing-cycle-card .card-head .row-actions{width:100%;flex-wrap:wrap;justify-content:flex-start}.modal .activity-list .activity-row{flex-wrap:wrap}.modal .activity-list .badge{margin-left:44px}}

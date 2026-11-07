@@ -23,6 +23,7 @@ class User extends Authenticatable
         'last_seen_at',
         'password',
         'role',
+        'is_active',
         'profile_picture'
     ];
 
@@ -47,6 +48,7 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'last_seen_at' => 'datetime',
+            'is_active' => 'boolean',
             'birthday_popup_seen_date' => 'date',
         ];
     }

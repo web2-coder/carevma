@@ -2,8 +2,8 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   Users, Stethoscope, Clock3, TimerReset, ReceiptText, Plus, Pencil, Trash2, RefreshCw,
-  CalendarDays, UserCheck, CircleDollarSign, Check, X, Bell, Save, KeyRound, Building2,
-  ShieldCheck, Send, Coffee, Activity, ClipboardCopy, Eye, ArrowLeft, UserRound, MapPin, Zap, CheckCircle2, FileText, Globe, ChevronDown
+  CalendarDays, UserCheck, UserX, CircleDollarSign, Check, X, Bell, Save, KeyRound, Building2,
+  ShieldCheck, Send, Coffee, Activity, ClipboardCopy, Eye, ArrowLeft, UserRound, MapPin, Zap, CheckCircle2, FileText, Globe, ChevronDown, AlertTriangle, Mail
 } from 'lucide-react';
 import api, { messageFrom } from '../api';
 import { attendanceColumns, vaColumn, AttCell, attCity, tzAbbr, clock12 } from '../attendanceColumns';
@@ -76,6 +76,7 @@ export function ManagementDashboard(){
   const {user}=useAuth();
   const [data,setData]=useState(null);
   const [loading,setLoading]=useState(true);
+  const [invoiceRunOpen,setInvoiceRunOpen]=useState(false);
   const n=useNotice();
   const load=async(silent=false)=>{if(!silent)setLoading(true);try{setData((await api.get('/management/dashboard')).data)}catch(e){if(!silent)n.error(messageFrom(e))}finally{if(!silent)setLoading(false)}};
   useEffect(()=>{
@@ -95,8 +96,14 @@ export function ManagementDashboard(){
   const timezoneClocks=Array.isArray(data?.timezone_clocks)?data.timezone_clocks:[];
   const billing=data?.auto_invoice_cycle||{};
   const billingGenerated=billing.status==='generated';
-  const billingStatus=billingGenerated?'Generated':billing.status==='scheduled'?'Scheduled':billing.status==='disabled'?'Automatic generation off':'No billable invoices';
+  const lastCompletedCycle=billing.last_completed_cycle||null;
+  const billingStats=lastCompletedCycle||billing;
+  const billingStatus=billingGenerated?'Generated':billing.status==='scheduled'?'Scheduled':billing.status==='waiting_for_checkout'?'Waiting for checkout':billing.status==='ready'?'Ready to generate':billing.status==='disabled'?'Automatic generation off':'No billable invoices';
   const billingDate=value=>value?String(value).slice(0,10):'—';
+  const doctorRuns=Array.isArray(billing.doctor_runs)?billing.doctor_runs:[];
+  const adminInvoiceTimezone=billing.admin_timezone||'Asia/Karachi';
+  const runStatusLabel=(status,periodEnd)=>status==='generated'?'Generated':status==='waiting_for_shift'?`Waiting for ${periodEnd?new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',timeZone:'UTC'}).format(new Date(`${String(periodEnd).slice(0,10)}T12:00:00Z`)):'cycle-end'} shift`:status==='waiting_for_checkout'?'Waiting for checkout':status==='ready'?'Ready to generate':'Scheduled';
+  const runStatusTone=status=>status==='generated'?'success':status==='ready'?'info':status==='waiting_for_checkout'?'warning':'neutral';
   const finance=data?.finance||{};
   const financeTrend=Array.isArray(data?.finance_trend)?data.finance_trend:[];
   const financeMax=Math.max(...financeTrend.flatMap(x=>[Number(x.income)||0,Number(x.outgoing)||0]),1);
@@ -127,23 +134,25 @@ export function ManagementDashboard(){
     </Card>}
 
     <div className="dashboard-notice-grid">
-      <Card className={`billing-cycle-card ${billingGenerated?'is-generated':''}`} title="Automatic monthly invoices" subtitle={`${cycleLabel(billing.cycle_start_day)} · drafts generate after the cycle closes`} actions={can(user,'invoice-settings')&&<Link className="btn btn-ghost btn-link" to="/admin/invoice-settings">Settings</Link>}>
+      <Card className={`billing-cycle-card ${billingGenerated?'is-generated':''}`} title="Automatic monthly invoices" subtitle={`${cycleLabel(billing.cycle_start_day)} · drafts generate after each Doctor's final cycle-end VA shift`} actions={<div className="row-actions"><Button variant="secondary" icon={Eye} aria-label="View invoice run times" title="View invoice run times" onClick={()=>setInvoiceRunOpen(true)} />{can(user,'invoice-settings')&&<Link className="btn btn-ghost btn-link" to="/admin/invoice-settings">Settings</Link>}</div>}>
         <div className="billing-cycle-status-row">
           <div className="billing-cycle-icon"><ReceiptText size={21}/></div>
           <div className="billing-cycle-copy">
             <span>Current cycle</span>
             <strong>{billingDate(billing.period_start)} → {billingDate(billing.period_end)}</strong>
-            <small>Processing: {ordinal(Number(billing.cycle_start_day)||26)} at {clock12(billing.generation_time||'00:15')} · each Doctor's local time</small>
+            <small>{billing.scheduled_for?`Invoices will generate after ${dateTime(billing.scheduled_for,user?.assigned_timezone)} · final ${billingDate(billing.period_end)} shift`:`Invoices generate after the final ${billingDate(billing.period_end)} shift`}{Number(billing.open_cycle_end_attendance||0)>0?` · waiting for ${billing.open_cycle_end_attendance} open session(s)`:''}</small>
+            {billing.scheduled_for&&<small className="billing-karachi-time"><strong>Asia/Karachi:</strong> {dateTime(billing.scheduled_for,'Asia/Karachi')}</small>}
           </div>
           <Badge tone={billingGenerated?'success':billing.status==='scheduled'?'info':'neutral'}>{billingStatus}</Badge>
         </div>
+        {lastCompletedCycle&&<div className="billing-last-run-label">Last generated cycle · {billingDate(lastCompletedCycle.period_start)} → {billingDate(lastCompletedCycle.period_end)}</div>}
         <div className="billing-cycle-stats">
-          <div><span>Draft invoices</span><strong>{billing.generated_count||0}</strong></div>
-          <div><span>VAs billed</span><strong>{billing.billed_va_count||0}</strong></div>
-          <div><span>Total amount</span><strong>{money(billing.total_amount||0)}</strong></div>
+          <div><span>{lastCompletedCycle?'Last run drafts':'Draft invoices'}</span><strong>{billingStats.generated_count||0}</strong></div>
+          <div><span>{lastCompletedCycle?'Last run VAs billed':'VAs billed'}</span><strong>{billingStats.billed_va_count||0}</strong></div>
+          <div><span>{lastCompletedCycle?'Last run total':'Total amount'}</span><strong>{money(billingStats.total_amount||0)}</strong></div>
         </div>
         <div className="billing-cycle-foot">
-          <span>{billingGenerated?`Last auto generation: ${billing.last_generated_at?dateTime(billing.last_generated_at,user?.assigned_timezone):'completed'}`:'CareVMA will generate duplicate-safe editable drafts automatically.'}</span>
+          <span>{lastCompletedCycle?`Last auto generation: ${lastCompletedCycle.last_generated_at?dateTime(lastCompletedCycle.last_generated_at,user?.assigned_timezone):'completed'}`:(billingGenerated?`Last auto generation: ${billing.last_generated_at?dateTime(billing.last_generated_at,user?.assigned_timezone):'completed'}`:'CareVMA waits for all scheduled cycle-end VA shifts and any open attendance sessions before generating editable drafts.')}</span>
           {can(user,'invoices')&&<Link className="btn btn-secondary btn-link" to="/admin/invoices">Review invoices</Link>}
         </div>
       </Card>
@@ -164,6 +173,31 @@ export function ManagementDashboard(){
         <div className="currently-working-dashboard-footer"><Link className="btn btn-secondary btn-link" to={`${roleBase(user.role)}/live-users`}>View All</Link></div>
       </Card>
     </div>
+
+    <Modal open={invoiceRunOpen} onClose={()=>setInvoiceRunOpen(false)} title="Automatic invoice run details" wide footer={<Button variant="secondary" onClick={()=>setInvoiceRunOpen(false)}>Close</Button>}>
+      <div className="notice notice-info">
+        <strong>Cycle {billingDate(billing.period_start)} → {billingDate(billing.period_end)}</strong>
+        <span>Each Doctor waits for their final scheduled VA shift on {billingDate(billing.period_end)}. If that attendance is still open, CareVMA waits for checkout before generating the editable draft.</span>
+        <span>Admin timezone: <strong>{adminInvoiceTimezone}</strong></span>
+      </div>
+      <div className="activity-list">
+        {doctorRuns.length?doctorRuns.map(run=>{
+          const generated=run.status==='generated';
+          return <div className="activity-row" key={run.client_id}>
+            <div className="avatar"><Stethoscope size={18}/></div>
+            <div className="activity-main-copy">
+              <strong><Link to={`/admin/client/${run.client_id}/profile`}>{run.doctor_name||'Doctor'}</Link></strong>
+              <span>Doctor timezone: {run.doctor_timezone||'UTC'}</span>
+              <small>Doctor time: {dateTime(run.scheduled_for,run.doctor_timezone||'UTC')}</small>
+              <small>Admin time: {dateTime(run.scheduled_for,adminInvoiceTimezone)} · {adminInvoiceTimezone}</small>
+              {Number(run.open_cycle_end_attendance||0)>0&&<small>Waiting for {run.open_cycle_end_attendance} open cycle-end attendance session(s).</small>}
+              {generated&&<small>{run.invoice_number?<>Invoice <Link to={`/admin/invoices/${run.invoice_id}/edit`}>{run.invoice_number}</Link> generated{run.generated_at?` · ${dateTime(run.generated_at,adminInvoiceTimezone)}`:''}.</>:<>Invoice generated.</>}</small>}
+            </div>
+            <Badge tone={runStatusTone(run.status)}>{runStatusLabel(run.status,run.period_end||billing.period_end)}</Badge>
+          </div>;
+        }):<EmptyState title="No Doctors found" description="Doctor/client invoice run times will appear here once clients are configured."/>}
+      </div>
+    </Modal>
 
     {can(user,'company-finance')&&<Card className="dashboard-finance-card" title="Company finance" subtitle="Current month cash position with a six-month income/outgoing trend">
       <div className="dashboard-finance-top">
@@ -324,7 +358,7 @@ export function LiveUsersPage(){
               <div className="live-avatar-wrap"><AvatarMedia className="live-user-profile-photo" src={employee.profile_picture} alt={name} fallback={vaFallback}/><span className={`advanced-live-dot ${runtimeOnline?'online':'offline'}`}/></div>
               <span>VA</span><strong><EmployeeLink employee={employee}>{name}</EmployeeLink></strong><small>{employee.employee_code||employee.email||'—'}</small>
             </div>
-            <div className="live-user-profile-link"><span>{r.client?`working with ${doctorSegments.length||1} Doctor${(doctorSegments.length||1)===1?'':'s'}`:'status'}</span><i>→</i></div>
+            <div className="live-user-profile-link"><span>{r.client?'working with':'status'}</span></div>
             {doctorSegments.length>0?<div className="live-user-doctor-stack">{doctorSegments.map(segment=>{const fallback=String(segment.name||'D').split(/\s+/).filter(Boolean).slice(0,2).map(part=>part[0]).join('').toUpperCase()||'D';return <div className="live-user-profile-block doctor" key={segment.attendance_id||segment.client_id}><AvatarMedia className="live-user-profile-photo" src={segment.profile_picture} alt={segment.name||'Doctor'} fallback={fallback}/><span>Doctor · Active</span><strong>{segment.name||'Doctor'}</strong><small>{segment.timezone||'UTC'}</small></div>})}</div>:<div className="live-user-profile-block doctor"><AvatarMedia className="live-user-profile-photo" src={r.client?.profile_picture} alt={doctorName} fallback={doctorFallback}/><span>{r.client?'Doctor':'Presence'}</span><strong>{r.client?doctorName:(runtimeOnline?'Portal Online':'Portal Offline')}</strong><small>{r.doctor_timezone||relativeLastSeen(r.last_seen_at)}</small></div>}
           </div>
         </article>;
@@ -362,20 +396,54 @@ function EmployeeFormModal({open,onClose,form,setForm,options,busy,onSave,onProb
   };
   const probationLabel=form.date_of_regularisation?'Completed':(form.probation_end_date?`Ends ${form.probation_end_date}`:'Not configured');
   return <>
-    <Modal open={open} onClose={onClose} title="Edit employee" wide footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button loading={busy} icon={Save} onClick={onSave}>Save changes</Button></>}>
+    <Modal open={open} onClose={onClose} title={form.id?'Edit employee':'Add employee'} wide footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button loading={busy} icon={Save} onClick={onSave}>{form.id?'Save changes':'Create employee'}</Button></>}>
       <div className="form-section"><h3>Identity & login</h3><div className="form-grid"><Input label="First name *" value={form.first_name||''} onChange={e=>set('first_name',e.target.value)}/><Input label="Last name *" value={form.last_name||''} onChange={e=>set('last_name',e.target.value)}/><Input label="Email *" type="email" value={form.email||''} onChange={e=>set('email',e.target.value)}/><Input label="Phone" value={form.phone||''} onChange={e=>set('phone',e.target.value)}/><Input label="Location" value={form.location||''} onChange={e=>set('location',e.target.value)}/><TimezonePicker label="Timezone *" value={form.timezone||''} onChange={value=>set('timezone',value)} onCitySelect={place=>setForm(current=>({...current,timezone:place.timezone,location:[place.city,place.country].filter(Boolean).join(', ')}))}/></div></div>
       <div className="form-section"><h3>Work & hierarchy</h3><div className="form-grid"><Select label="Department" value={form.department_id||''} onChange={e=>set('department_id',e.target.value)}><option value="">Select</option>{opts('departments')}</Select><Select label="Role" value={form.role_id||''} onChange={e=>set('role_id',e.target.value)}><option value="">Select</option>{opts('roles')}</Select><Select label="Employment type" value={form.employment_type_id||''} onChange={e=>set('employment_type_id',e.target.value)}><option value="">Select</option>{opts('employment_types')}</Select><Select label="Shift type" value={form.shift_type_id||''} onChange={e=>set('shift_type_id',e.target.value)}><option value="">Select</option>{opts('shift_types')}</Select><Select label="Designation" value={form.designation_id||''} onChange={e=>set('designation_id',e.target.value)}><option value="">Select</option>{opts('designations')}</Select><Select label="Employee status" value={form.employee_status_id||''} onChange={e=>set('employee_status_id',e.target.value)}><option value="">Select</option>{opts('employee_statuses')}</Select><Select label="Expertise" value={form.expertise_id||''} onChange={e=>set('expertise_id',e.target.value)}><option value="">Select</option>{opts('expertises')}</Select><Select label="Reporting manager" value={form.reporting_manager_id||''} onChange={e=>set('reporting_manager_id',e.target.value)}><option value="">Select</option>{opts('reporting_managers')}</Select><Input label="Joining date" type="date" value={form.date_of_joining||''} onChange={e=>set('date_of_joining',e.target.value)}/><Input label="Regularisation date" type="date" value={form.date_of_regularisation||''} onChange={e=>set('date_of_regularisation',e.target.value)}/><SalaryConverter pkr={form.salary_pkr} usd={form.salary_usd} onPkrChange={value=>set('salary_pkr',value)} onUsdChange={value=>set('salary_usd',value)}/><Input label="Source of hire" value={form.source_of_hire||''} onChange={e=>set('source_of_hire',e.target.value)}/></div></div>
-      {form.id&&<div className="form-section"><h3>Probation</h3><p className="muted">Current status: <strong>{probationLabel}</strong>. Use one simple popup to configure or finish probation.</p><div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginTop:12}}><Button variant="secondary" icon={CalendarDays} onClick={openProbation}>Manage probation</Button></div></div>}
+      <div className="form-section"><h3>Probation</h3><p className="muted">{form.id?<>Current status: <strong>{probationLabel}</strong>. Use one simple popup to configure or finish probation.</>:<>Optional at creation. Configure the probation end date now, or leave it blank and manage probation after the employee is created.</>}</p><div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginTop:12}}><Button variant="secondary" icon={CalendarDays} onClick={openProbation}>{form.id?'Manage probation':'Configure probation'}</Button>{!form.id&&form.probation_end_date&&<Badge tone="warning">Ends {form.probation_end_date}</Badge>}</div></div>
       <div className="form-section"><h3>Personal</h3><div className="form-grid"><Select label="Gender" value={form.gender||''} onChange={e=>set('gender',e.target.value)}><option value="">Not specified</option><option value="male">Male</option><option value="female">Female</option><option value="other">Other</option></Select><MaritalStatusSelect label="Marital status" value={form.marital_status||''} onChange={e=>set('marital_status',e.target.value)}/><Input label="Date of birth" type="date" value={form.date_of_birth||''} onChange={e=>set('date_of_birth',e.target.value)}/><Input label="Age" type="number" value={form.age||''} onChange={e=>set('age',e.target.value)}/><Textarea label="About employee" value={form.about_me_notes||''} onChange={e=>set('about_me_notes',e.target.value)}/></div></div>
     </Modal>
-    <Modal open={probationOpen} onClose={()=>!busy&&setProbationOpen(false)} title="Manage probation" footer={<><Button variant="ghost" disabled={busy} onClick={()=>setProbationOpen(false)}>Cancel</Button><Button variant="danger" loading={busy} onClick={()=>applyProbation('end_now')}>End probation now</Button><Button loading={busy} disabled={!probationEndDate} icon={Save} onClick={()=>applyProbation('extend')}>Save end date</Button></>}>
-      <div className="form-section"><h3>Probation settings</h3><p className="muted">Set or extend the probation end date here. If probation should finish today, use “End probation now”; the employee will be marked permanent immediately.</p><div className="form-grid"><Input label="Probation end date" type="date" value={probationEndDate} onChange={e=>setProbationEndDate(e.target.value)}/><div><span className="field-label">Current status</span><div style={{marginTop:8}}><Badge tone={form.date_of_regularisation?'success':(form.probation_end_date?'warning':'neutral')}>{probationLabel}</Badge></div></div></div></div>
+    <Modal open={probationOpen} onClose={()=>!busy&&setProbationOpen(false)} title={form.id?'Manage probation':'Configure probation'} footer={<><Button variant="ghost" disabled={busy} onClick={()=>setProbationOpen(false)}>Cancel</Button>{form.id&&<Button variant="danger" loading={busy} onClick={()=>applyProbation('end_now')}>End probation now</Button>}<Button loading={busy} disabled={!probationEndDate} icon={Save} onClick={async()=>{if(form.id){await applyProbation('extend');return;}set('probation_end_date',probationEndDate);setProbationOpen(false)}}>{form.id?'Save end date':'Use this date'}</Button></>}>
+      <div className="form-section"><h3>Probation settings</h3><p className="muted">{form.id?'Set or extend the probation end date here. If probation should finish today, use “End probation now”; the employee will be marked permanent immediately.':'Choose the probation end date before creating the employee. The date will be saved with the new employee record.'}</p><div className="form-grid"><Input label="Probation end date" type="date" value={probationEndDate} onChange={e=>setProbationEndDate(e.target.value)}/><div><span className="field-label">Current status</span><div style={{marginTop:8}}><Badge tone={form.date_of_regularisation?'success':(form.probation_end_date?'warning':'neutral')}>{probationLabel}</Badge></div></div></div></div>
     </Modal>
   </>;
 }
+function OffboardingModal({state,onClose,onSubmit,busy}){
+  const target=state?.target||null;
+  const kind=state?.kind||'employee';
+  const reactivate=state?.action==='reactivate';
+  const [effectiveDate,setEffectiveDate]=useState(()=>new Date().toISOString().slice(0,10));
+  const [reason,setReason]=useState(kind==='client'?'Contract Ended':'Resigned');
+  const [notes,setNotes]=useState('');
+  useEffect(()=>{
+    if(!state)return;
+    setEffectiveDate(new Date().toISOString().slice(0,10));
+    setReason(state.kind==='client'?'Contract Ended':'Resigned');
+    setNotes('');
+  },[state]);
+  if(!state||!target)return null;
+  const name=kind==='client'?(target.name||target.email||'Doctor / Client'):`${target.first_name||''} ${target.last_name||''}`.trim()||target.email||'Employee';
+  const reasons=kind==='client'?['Contract Ended','Left Company','Terminated','Other']:['Resigned','Terminated','Contract Ended','Other'];
+  const submit=()=>{
+    if(reactivate)return onSubmit({});
+    if(!effectiveDate||!reason)return;
+    onSubmit({effective_date:effectiveDate,reason,notes});
+  };
+  return <Modal open={true} onClose={busy?()=>{}:onClose} title={reactivate?`Reactivate ${kind==='client'?'Doctor / Client':'Employee'}`:`Deactivate ${kind==='client'?'Doctor / Client':'Employee'}`} footer={<><Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button><Button variant={reactivate?'primary':'danger'} loading={busy} icon={reactivate?UserCheck:UserX} onClick={submit}>{reactivate?'Reactivate':'Deactivate'}</Button></>}>
+    <div className="form-section">
+      <div className="offboarding-target"><strong>{name}</strong><span>{reactivate?'Account access will be restored. Previous schedules stay disabled until manually enabled or assigned.':'Historical attendance, invoices and records will be preserved.'}</span></div>
+      {!reactivate&&<div className="form-grid">
+        <Input label="Last working date *" type="date" value={effectiveDate} onChange={e=>setEffectiveDate(e.target.value)}/>
+        <Select label="Reason *" value={reason} onChange={e=>setReason(e.target.value)}>{reasons.map(item=><option key={item} value={item}>{item}</option>)}</Select>
+        <div style={{gridColumn:'1 / -1'}}><Textarea label="Notes" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional offboarding notes"/></div>
+      </div>}
+      {reactivate&&<div className="notice warning"><AlertTriangle size={18}/><span>Reactivation restores login access only. Old schedules are not automatically re-enabled.</span></div>}
+    </div>
+  </Modal>;
+}
+
 export function EmployeesPage(){
   const {user}=useAuth(); const navigate=useNavigate(); const location=useLocation();
-  const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[search,setSearch]=useState(queryParam('search')),[page,setPage]=useState(1),[busy,setBusy]=useState(false),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[form,setForm]=useState(emptyEmployee),[options,setOptions]=useState({}),[inviteLink,setInviteLink]=useState(null),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'id',dir:'desc'}); const n=useNotice();
+  const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[search,setSearch]=useState(queryParam('search')),[page,setPage]=useState(1),[busy,setBusy]=useState(false),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[form,setForm]=useState(emptyEmployee),[options,setOptions]=useState({}),[inviteLink,setInviteLink]=useState(null),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'id',dir:'desc'}),[offboarding,setOffboarding]=useState(null); const n=useNotice();
   const emptyFilters={department_id:'',designation_id:'',employee_status_id:'',timezone:''};const [filters,setFilters]=useState(emptyFilters);const setFilter=(key,value)=>{setFilters(f=>({...f,[key]:value}));setPage(1)};
   const load=async()=>{setBusy(true);try{const [r,o]=await Promise.all([api.get('/management/employees',{params:{search,...filters,page,per_page:perPage,sort:sort.key,direction:sort.dir}}),api.get('/management/options')]);setRows(r.data.data);setMeta(r.data);setOptions(o.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
   useEffect(()=>{const t=setTimeout(load,220);return()=>clearTimeout(t)},[search,filters,page,perPage,sort]);
@@ -401,21 +469,25 @@ export function EmployeesPage(){
   const probationAction=async (action,endDate=null)=>{if(!edit)return;setBusy(true);try{const {data}=await api.post(`/management/employees/${edit.id}/probation`,{action,end_date:action==='extend'?(endDate||form.probation_end_date||null):null});n.success(data?.message||'Probation updated.');const fresh=(await api.get(`/management/employees/${edit.id}`)).data;setEdit(fresh);setForm(employeeForm(fresh));await load();return true}catch(e){n.error(messageFrom(e));throw e}finally{setBusy(false)}};
   const remove=async row=>{try{await api.delete(`/management/employees/${row.id}`);n.success('Employee deleted.');load()}catch(e){n.error(messageFrom(e))}};
   const resendInvite=async row=>{try{const {data}=await api.post(`/management/employees/${row.id}/resend-invite`);const activationUrl=data?.activation_url||'';setInviteLink(activationUrl?{url:activationUrl,label:`${row.first_name||''} ${row.last_name||''}`.trim()||row.email}:null);if(data?.invitation_sent){n.success(data?.message||'Activation invitation sent again.')}else{n.error(data?.message||'Email delivery failed. Use the activation link below.')}}catch(e){n.error(messageFrom(e))}};
+  const toggleEmployeeActive=row=>setOffboarding({kind:'employee',action:row.user?.is_active===false?'reactivate':'deactivate',target:row});
+  const submitEmployeeOffboarding=async payload=>{if(!offboarding?.target)return;setBusy(true);try{const action=offboarding.action;const {data}=await api.post(`/management/employees/${offboarding.target.id}/${action}`,payload);n.success(data.message);setOffboarding(null);await load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
   const copyEmployeeInvite=async()=>{if(!inviteLink?.url)return;try{await navigator.clipboard.writeText(inviteLink.url);n.success('Activation link copied.')}catch{n.error('Could not copy the activation link. Please copy it manually.')}};
-  const columns=[{key:'employee_code',label:'Emp #',sortKey:'employee_code'},{key:'name',label:'Employee',sortKey:'first_name',render:r=><Link className="person-cell employee-profile-link" to={`${roleBase(user.role)}/employees/${r.id}`}><div className="avatar">{r.first_name?.[0]}{r.last_name?.[0]}</div><div><strong>{r.first_name} {r.last_name}</strong><span>{r.email}</span></div></Link>},{key:'department',label:'Department',render:r=>r.department?.name||'—'},{key:'designation',label:'Designation',render:r=>r.designation?.name||'—'},{key:'status',label:'Status',render:r=><Badge tone={statusTone(r.employee_status?.name)}>{r.employee_status?.name||'Not set'}</Badge>},{key:'timezone',label:'Timezone',sortKey:'timezone'},{key:'salary',label:'Salary',sortKey:'salary_usd',render:r=>r.salary_usd?money(r.salary_usd):'—'},{key:'actions',label:'Actions',render:r=><div className="row-actions"><button title="View profile" onClick={()=>navigate(`${roleBase(user.role)}/employees/${r.id}`)}><Eye size={16}/></button><button title="Resend activation invite" onClick={()=>resendInvite(r)}><Send size={16}/></button><button title="Edit employee" onClick={()=>openEdit(r)}><Pencil size={16}/></button><button title="Delete employee" className="danger" onClick={()=>remove(r)}><Trash2 size={16}/></button></div>}];
+  const columns=[{key:'employee_code',label:'Emp #',sortKey:'employee_code'},{key:'name',label:'Employee',sortKey:'first_name',render:r=><Link className="person-cell employee-profile-link" to={`${roleBase(user.role)}/employees/${r.id}`}><div className="avatar">{r.first_name?.[0]}{r.last_name?.[0]}</div><div><strong>{r.first_name} {r.last_name}</strong><span>{r.email}</span></div></Link>},{key:'department',label:'Department',render:r=>r.department?.name||'—'},{key:'designation',label:'Designation',render:r=>r.designation?.name||'—'},{key:'status',label:'Status',render:r=>{const active=r.user?.is_active!==false;return <Badge tone={active?'success':'danger'}>{active?'Active':'Inactive'}</Badge>}},{key:'timezone',label:'Timezone',sortKey:'timezone'},{key:'salary',label:'Salary',sortKey:'salary_usd',render:r=>r.salary_usd?money(r.salary_usd):'—'},{key:'actions',label:'Actions',render:r=><div className="row-actions"><button title="View profile" onClick={()=>navigate(`${roleBase(user.role)}/employees/${r.id}`)}><Eye size={16}/></button><button title="Resend activation invite" onClick={()=>resendInvite(r)}><Send size={16}/></button><button title="Edit employee" onClick={()=>openEdit(r)}><Pencil size={16}/></button><button title={r.user?.is_active===false?'Reactivate employee':'Deactivate employee'} className={r.user?.is_active===false?'':'danger'} onClick={()=>toggleEmployeeActive(r)}>{r.user?.is_active===false?<UserCheck size={16}/>:<UserX size={16}/>}</button><button title="Delete employee" className="danger" onClick={()=>remove(r)}><Trash2 size={16}/></button></div>}];
   return <><PageHeader eyebrow="Workforce" title="Employees" description="Manage VA identities, work details, hierarchy, timezone and compensation." actions={<Button icon={Plus} onClick={openNew}>Add employee</Button>}/>{inviteLink&&<Card title="Activation link"><div className="invite-link-box"><div><strong>{inviteLink.label}</strong><a href={inviteLink.url} target="_blank" rel="noreferrer">{inviteLink.url}</a></div><Button variant="secondary" icon={ClipboardCopy} onClick={copyEmployeeInvite}>Copy link</Button></div></Card>}<Card><div className="toolbar"><SearchBox value={search} onChange={v=>{setSearch(v);setPage(1)}} placeholder="Search name, email or employee #"/><span className="record-count">{meta?.total??rows.length} employees</span></div><div className="filter-grid employee-filters"><Select label="Department" value={filters.department_id} onChange={e=>setFilter('department_id',e.target.value)}><option value="">All departments</option>{(options.departments||[]).map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</Select><Select label="Designation" value={filters.designation_id} onChange={e=>setFilter('designation_id',e.target.value)}><option value="">All designations</option>{(options.designations||[]).map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</Select><Select label="Status" value={filters.employee_status_id} onChange={e=>setFilter('employee_status_id',e.target.value)}><option value="">All statuses</option>{(options.employee_statuses||[]).map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</Select><Select label="Timezone" value={filters.timezone} onChange={e=>setFilter('timezone',e.target.value)}><option value="">All timezones</option>{timezones.map(tz=><option key={tz} value={tz}>{tz}</option>)}</Select><div className="filter-actions"><Button variant="ghost" onClick={()=>{setFilters(emptyFilters);setPage(1)}} disabled={!Object.values(filters).some(Boolean)}>Reset</Button></div></div>{busy&&!rows.length?<Loading inline/>:<Table columns={columns} rows={rows} emptyTitle="No employees found" emptyDescription="Change your search or add the first employee." meta={meta} onPage={setPage} perPage={perPage} onPerPage={v=>{setPerPage(v);setPage(1)}} sort={sort} onSort={s=>{setSort(s);setPage(1)}}/>}</Card>
-  <EmployeeFormModal open={modal} onClose={()=>setModal(false)} form={form} setForm={setForm} options={options} busy={busy} onSave={save} onProbationAction={probationAction}/></>;
+  <EmployeeFormModal open={modal} onClose={()=>setModal(false)} form={form} setForm={setForm} options={options} busy={busy} onSave={save} onProbationAction={probationAction}/><OffboardingModal state={offboarding} onClose={()=>setOffboarding(null)} onSubmit={submitEmployeeOffboarding} busy={busy}/></>;
 }
 
 const emptyClient={name:'',email:'',password:'',business_name:'',phone_number:'',country:'United States',timezone:'America/New_York',per_hour_charges:'',contract_type_id:'',service_id:'',ring_center:false};
 export function ClientsPage(){
  const navigate=useNavigate();
- const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[search,setSearch]=useState(queryParam('search')),[page,setPage]=useState(1),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[form,setForm]=useState(emptyClient),[options,setOptions]=useState({}),[busy,setBusy]=useState(false),[inviteLink,setInviteLink]=useState(null),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'id',dir:'desc'});const n=useNotice();
+ const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[search,setSearch]=useState(queryParam('search')),[page,setPage]=useState(1),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[form,setForm]=useState(emptyClient),[options,setOptions]=useState({}),[busy,setBusy]=useState(false),[inviteLink,setInviteLink]=useState(null),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'id',dir:'desc'}),[offboarding,setOffboarding]=useState(null);const n=useNotice();
  const load=async()=>{setBusy(true);try{const [r,o]=await Promise.all([api.get('/admin/clients',{params:{search,page,per_page:perPage,sort:sort.key,direction:sort.dir}}),api.get('/management/options')]);setRows(r.data.data);setMeta(r.data);setOptions(o.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};useEffect(()=>{const t=setTimeout(load,200);return()=>clearTimeout(t)},[search,page,perPage,sort]);
  const open=(r=null)=>{setEdit(r);setForm(r?{...emptyClient,...r,password:'',ring_center:!!r.ring_center}:emptyClient);setModal(true)};const set=(k,v)=>setForm(f=>({...f,[k]:v}));
  const save=async()=>{setBusy(true);try{const {data}=edit?await api.put(`/admin/clients/${edit.id}`,form):await api.post('/admin/clients',form);if(!edit&&data?.activation_url)setInviteLink({url:data.activation_url,label:form.name||form.email});data?.invitation_sent===false?n.error(data?.message||'Client created, but email delivery failed.'):n.success(data?.message||(edit?'Client updated.':'Client created.'));window.dispatchEvent(new CustomEvent('carevma:timezone-updated',{detail:{clientId:data?.client?.id||edit?.id||null,timezone:form.timezone,source:'admin-clients'}}));setModal(false);load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};const remove=async r=>{try{await api.delete(`/admin/clients/${r.id}`);n.success('Client deleted.');load()}catch(e){n.error(messageFrom(e))}};const resendInvite=async r=>{setBusy(true);try{const {data}=await api.post(`/admin/clients/${r.id}/resend-invite`);setInviteLink(data?.activation_url?{url:data.activation_url,label:r.name||r.email}:null);data?.invitation_sent?n.success(data.message):n.error(data.message)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};const copyClientInvite=async()=>{if(!inviteLink?.url)return;try{await navigator.clipboard.writeText(inviteLink.url);n.success('Activation link copied.')}catch{n.error('Could not copy the activation link. Please copy it manually.')}};
- const columns=[{key:'name',label:'Client',sortKey:'name',render:r=><div className="person-cell"><div className="avatar client-avatar">{r.name?.[0]}</div><div><strong><ClientLink client={r}>{r.name}</ClientLink></strong><span>{r.email}</span></div></div>},{key:'business_name',label:'Business',sortKey:'business_name'},{key:'country',label:'Country',sortKey:'country'},{key:'rate',label:'Rate / hr',sortKey:'per_hour_charges',render:r=>r.per_hour_charges?money(r.per_hour_charges):'—'},{key:'timezone',label:'Timezone',sortKey:'timezone'},{key:'service',label:'Service',render:r=>r.service?.name||'—'},{key:'actions',label:'Actions',render:r=><div className="row-actions"><button className="client-profile-open-btn" title="Open client profile" onClick={()=>navigate(`/admin/client/${r.id}/profile`)}><Stethoscope size={16}/></button><button title="Resend password setup email" onClick={()=>resendInvite(r)}><Send size={16}/></button><button title="Edit client" onClick={()=>open(r)}><Pencil size={16}/></button><button title="Delete client" className="danger" onClick={()=>remove(r)}><Trash2 size={16}/></button></div>}];
- return <><PageHeader eyebrow="Client operations" title="Clients" description="Manage doctor/client accounts, rates, contract classification and timezone." actions={<Button icon={Plus} onClick={()=>open()}>Add client</Button>}/>{inviteLink&&<Card title="Activation link"><div className="invite-link-box"><div><strong>{inviteLink.label}</strong><a href={inviteLink.url} target="_blank" rel="noreferrer">{inviteLink.url}</a></div><Button variant="secondary" icon={ClipboardCopy} onClick={copyClientInvite}>Copy link</Button></div></Card>}<Card><div className="toolbar"><SearchBox value={search} onChange={v=>{setSearch(v);setPage(1)}} placeholder="Search client or business"/><span className="record-count">{meta?.total??rows.length} clients</span></div><Table columns={columns} rows={rows} emptyTitle="No clients found" meta={meta} onPage={setPage} perPage={perPage} onPerPage={v=>{setPerPage(v);setPage(1)}} sort={sort} onSort={s=>{setSort(s);setPage(1)}}/></Card><Modal open={modal} onClose={()=>setModal(false)} title={edit?'Edit client':'Add client'} wide footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={save} icon={Save}>Save client</Button></>}><div className="form-grid"><Input label="Name *" value={form.name||''} onChange={e=>set('name',e.target.value)}/><Input label="Email *" type="email" value={form.email||''} onChange={e=>set('email',e.target.value)}/>{!edit&&<div className="client-invite-note"><strong>Password setup by email</strong><span>The Client / Doctor will receive a secure CareVMA link and choose their own password.</span></div>}<Input label="Business name" value={form.business_name||''} onChange={e=>set('business_name',e.target.value)}/><Input label="Phone" value={form.phone_number||''} onChange={e=>set('phone_number',e.target.value)}/><Input label="Country" value={form.country||''} onChange={e=>set('country',e.target.value)}/><TimezonePicker label="Timezone *" value={form.timezone||''} onChange={value=>set('timezone',value)} onCitySelect={place=>setForm(current=>({...current,timezone:place.timezone,country:place.country||current.country}))}/><Input label="Per hour charge" type="number" step="0.01" value={form.per_hour_charges||''} onChange={e=>set('per_hour_charges',e.target.value)}/><Select label="Service" value={form.service_id||''} onChange={e=>set('service_id',e.target.value)}><option value="">Select</option>{(options.services||[]).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</Select><Select label="Contract type" value={form.contract_type_id||''} onChange={e=>set('contract_type_id',e.target.value)}><option value="">Select</option>{(options.contracts||[]).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</Select><label className="check field-check"><input type="checkbox" checked={!!form.ring_center} onChange={e=>set('ring_center',e.target.checked)}/><span>Ring Center enabled</span></label></div></Modal></>;
+ const toggleClientActive=r=>setOffboarding({kind:'client',action:r.user?.is_active===false?'reactivate':'deactivate',target:r});
+ const submitClientOffboarding=async payload=>{if(!offboarding?.target)return;setBusy(true);try{const action=offboarding.action;const {data}=await api.post(`/admin/clients/${offboarding.target.id}/${action}`,payload);n.success(data.message);setOffboarding(null);await load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+ const columns=[{key:'name',label:'Client',sortKey:'name',render:r=><div className="person-cell"><div className="avatar client-avatar">{r.name?.[0]}</div><div><strong><ClientLink client={r}>{r.name}</ClientLink></strong><span>{r.email}</span></div></div>},{key:'business_name',label:'Business',sortKey:'business_name'},{key:'country',label:'Country',sortKey:'country'},{key:'rate',label:'Rate / hr',sortKey:'per_hour_charges',render:r=>r.per_hour_charges?money(r.per_hour_charges):'—'},{key:'timezone',label:'Timezone',sortKey:'timezone'},{key:'service',label:'Service',render:r=>r.service?.name||'—'},{key:'status',label:'Status',render:r=>{const active=r.user?.is_active!==false;return <Badge tone={active?'success':'danger'}>{active?'Active':'Inactive'}</Badge>}},{key:'actions',label:'Actions',render:r=><div className="row-actions"><button className="client-profile-open-btn" title="Open client profile" onClick={()=>navigate(`/admin/client/${r.id}/profile`)}><Stethoscope size={16}/></button><button title="Resend password setup email" onClick={()=>resendInvite(r)}><Send size={16}/></button><button title="Edit client" onClick={()=>open(r)}><Pencil size={16}/></button><button title={r.user?.is_active===false?'Reactivate Doctor / Client':'Deactivate Doctor / Client'} className={r.user?.is_active===false?'':'danger'} onClick={()=>toggleClientActive(r)}>{r.user?.is_active===false?<UserCheck size={16}/>:<UserX size={16}/>}</button><button title="Delete client" className="danger" onClick={()=>remove(r)}><Trash2 size={16}/></button></div>}];
+ return <><PageHeader eyebrow="Client operations" title="Clients" description="Manage doctor/client accounts, rates, contract classification and timezone." actions={<Button icon={Plus} onClick={()=>open()}>Add client</Button>}/>{inviteLink&&<Card title="Activation link"><div className="invite-link-box"><div><strong>{inviteLink.label}</strong><a href={inviteLink.url} target="_blank" rel="noreferrer">{inviteLink.url}</a></div><Button variant="secondary" icon={ClipboardCopy} onClick={copyClientInvite}>Copy link</Button></div></Card>}<Card><div className="toolbar"><SearchBox value={search} onChange={v=>{setSearch(v);setPage(1)}} placeholder="Search client or business"/><span className="record-count">{meta?.total??rows.length} clients</span></div><Table columns={columns} rows={rows} emptyTitle="No clients found" meta={meta} onPage={setPage} perPage={perPage} onPerPage={v=>{setPerPage(v);setPage(1)}} sort={sort} onSort={s=>{setSort(s);setPage(1)}}/></Card><Modal open={modal} onClose={()=>setModal(false)} title={edit?'Edit client':'Add client'} wide footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={save} icon={Save}>Save client</Button></>}><div className="form-grid"><Input label="Name *" value={form.name||''} onChange={e=>set('name',e.target.value)}/><Input label="Email *" type="email" value={form.email||''} onChange={e=>set('email',e.target.value)}/>{!edit&&<div className="client-invite-note"><strong>Password setup by email</strong><span>The Client / Doctor will receive a secure CareVMA link and choose their own password.</span></div>}<Input label="Business name" value={form.business_name||''} onChange={e=>set('business_name',e.target.value)}/><Input label="Phone" value={form.phone_number||''} onChange={e=>set('phone_number',e.target.value)}/><Input label="Country" value={form.country||''} onChange={e=>set('country',e.target.value)}/><TimezonePicker label="Timezone *" value={form.timezone||''} onChange={value=>set('timezone',value)} onCitySelect={place=>setForm(current=>({...current,timezone:place.timezone,country:place.country||current.country}))}/><Input label="Per hour charge" type="number" step="0.01" value={form.per_hour_charges||''} onChange={e=>set('per_hour_charges',e.target.value)}/><Select label="Service" value={form.service_id||''} onChange={e=>set('service_id',e.target.value)}><option value="">Select</option>{(options.services||[]).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</Select><Select label="Contract type" value={form.contract_type_id||''} onChange={e=>set('contract_type_id',e.target.value)}><option value="">Select</option>{(options.contracts||[]).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</Select><label className="check field-check"><input type="checkbox" checked={!!form.ring_center} onChange={e=>set('ring_center',e.target.checked)}/><span>Ring Center enabled</span></label></div></Modal><OffboardingModal state={offboarding} onClose={()=>setOffboarding(null)} onSubmit={submitClientOffboarding} busy={busy}/></>;
 }
 
 function parseTime12(value='00:00'){
@@ -799,13 +871,18 @@ const DEFAULT_INVOICE_SETTINGS={cycle_start_day:26,generation_time:'00:15',auto_
 const ordinal=n=>{const v=n%100;return n+(['th','st','nd','rd'][(v-20)%10]||['th','st','nd','rd'][v]||'th')};
 const cycleLabel=startDay=>{const s=Number(startDay)||26;return s>1?`${ordinal(s)} → ${ordinal(s-1)} of next month`:'1st → last day of the month'};
 const isoUTC=d=>`${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
-// A cycle starts on `startDay` and ends the day before that day next month; `open` is a cycle start.
-const cycleFrom=(open,startDay)=>({period_start:isoUTC(open),period_end:isoUTC(new Date(Date.UTC(open.getUTCFullYear(),open.getUTCMonth()+1,startDay)-86400000))});
+const monthBoundaryUTC=(year,monthIndex,startDay)=>{const last=new Date(Date.UTC(year,monthIndex+1,0)).getUTCDate();return new Date(Date.UTC(year,monthIndex,Math.min(Math.max(1,Number(startDay)||26),last)))};
+// A cycle starts on the configured day (or the month's last valid day) and ends one day before the next boundary.
+const cycleFrom=(open,startDay)=>{const next=monthBoundaryUTC(open.getUTCFullYear(),open.getUTCMonth()+1,startDay);return {period_start:isoUTC(open),period_end:isoUTC(new Date(next.getTime()-86400000))}};
 function billingCycleWindows(startDay=26,timeZone=DEFAULT_TIMEZONE){
-  const s=Math.min(28,Math.max(1,Number(startDay)||26));
+  const s=Math.min(30,Math.max(1,Number(startDay)||26));
   const [y,m,d]=todayInZone(timeZone).split('-').map(Number);
-  const open=new Date(Date.UTC(y,(m-1)-(d>=s?0:1),s));
-  return {completed:cycleFrom(new Date(Date.UTC(open.getUTCFullYear(),open.getUTCMonth()-1,s)),s),open:cycleFrom(open,s),due_on:isoUTC(new Date(Date.UTC(open.getUTCFullYear(),open.getUTCMonth()+1,s)))};
+  const thisBoundary=monthBoundaryUTC(y,m-1,s);
+  const today=new Date(Date.UTC(y,m-1,d));
+  const open=today>=thisBoundary?thisBoundary:monthBoundaryUTC(y,m-2,s);
+  const previous=monthBoundaryUTC(open.getUTCFullYear(),open.getUTCMonth()-1,s);
+  const next=monthBoundaryUTC(open.getUTCFullYear(),open.getUTCMonth()+1,s);
+  return {completed:cycleFrom(previous,s),open:cycleFrom(open,s),due_on:isoUTC(next)};
 }
 function latestCompletedBillingCycle(timeZone=DEFAULT_TIMEZONE,startDay=26){return billingCycleWindows(startDay,timeZone).completed}
 
@@ -813,6 +890,7 @@ export function InvoicesPage(){
   const [rows,setRows]=useState([]);
   const [options,setOptions]=useState({});
   const [meta,setMeta]=useState(null);
+  const [invoiceOverview,setInvoiceOverview]=useState(null);
   const [page,setPage]=useState(1);
   const [createOpen,setCreateOpen]=useState(false);
   const [editOpen,setEditOpen]=useState(false);
@@ -828,19 +906,22 @@ export function InvoicesPage(){
     setBusy(true);
     try{
       const params={page:nextPage,per_page:perPage,sort:sort.key,direction:sort.dir,...Object.fromEntries(Object.entries(filters).filter(([,value])=>value!==''&&value!=null))};
-      const [r,o]=await Promise.all([api.get('/admin/invoices',{params}),api.get('/management/options')]);
+      const overviewMonth=filters.month||new Date().toISOString().slice(0,7);
+      const [r,o,v]=await Promise.all([api.get('/admin/invoices',{params}),api.get('/management/options'),api.get('/admin/invoices-overview',{params:{month:overviewMonth}})]);
       setRows(r.data.data||[]);
       setMeta(r.data);
       setOptions(o.data);
+      setInvoiceOverview(v.data);
     }catch(e){n.error(messageFrom(e))}finally{setBusy(false)}
   };
   useEffect(()=>{load(page)},[page,perPage,sort]);
   useEffect(()=>{const timer=setTimeout(()=>{if(page!==1)setPage(1);else load(1)},250);return()=>clearTimeout(timer)},[filters.month,filters.year,filters.date_from,filters.date_to,filters.client_id,filters.invoice_number,filters.status]);
   const clearFilters=()=>setFilters({month:'',year:'',date_from:'',date_to:'',client_id:'',invoice_number:'',status:''});
   useEffect(()=>{api.get('/management/invoice-settings').then(r=>setCycleSettings({...DEFAULT_INVOICE_SETTINGS,...r.data})).catch(()=>{})},[]);
-  // Invoice month = the month the cycle ends in, so its start is the previous month's start day (same month when the cycle starts on the 1st).
-  const bulkCycle=month=>{if(!month)return null;const s=cycleSettings.cycle_start_day;const [y,m]=month.split('-').map(Number);return cycleFrom(new Date(Date.UTC(y,m-1-(s>1?1:0),s)),s)};
-  const bulkGenerate=async()=>{const cycle=bulkCycle(bulkMonth);if(!cycle||!bulkClients.length){n.error('Select invoice month and at least one Doctor / Client.');return}setBusy(true);let created=0,skipped=0;for(const client_id of bulkClients){try{await api.post('/admin/invoices/generate',{client_id,...cycle});created++}catch(e){skipped++}}n.success(`Bulk generation complete: ${created} created, ${skipped} skipped / unavailable.`);setBusy(false);await load(1)};
+  // Bulk generation sends the invoice month only. The server resolves the exact
+  // configured cycle, keeping manual bulk and automatic generation on one source of truth.
+  const bulkCycle=month=>{if(!month)return null;const s=Math.min(30,Math.max(1,Number(cycleSettings.cycle_start_day)||26));const [y,m]=month.split('-').map(Number);const start=monthBoundaryUTC(y,m-1-(s>1?1:0),s);return cycleFrom(start,s)};
+  const bulkGenerate=async()=>{if(!bulkMonth||!bulkClients.length){n.error('Select invoice month and at least one Doctor / Client.');return}setBusy(true);let created=0,skipped=0;for(const client_id of bulkClients){try{await api.post('/admin/invoices/generate',{client_id,invoice_month:bulkMonth});created++}catch(e){skipped++}}n.success(`Bulk generation complete: ${created} created, ${skipped} skipped / unavailable.`);setBusy(false);await load(1)};
   const bulkEmail=async()=>{if(!bulkMonth||!bulkClients.length){n.error('Select invoice month and at least one Doctor / Client.');return}setBusy(true);try{const {data}=await api.get('/admin/invoices',{params:{month:bulkMonth,per_page:100}});const selected=new Set(bulkClients.map(String));const invoices=(data.data||[]).filter(x=>selected.has(String(x.client_id)));let sent=0,failed=0;for(const invoice of invoices){try{await api.post(`/admin/invoices/${invoice.id}/send`);sent++}catch(e){failed++}}n.success(`Bulk email complete: ${sent} sent, ${failed} failed.`)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
 
   const filterYears=Array.from({length:9},(_,i)=>String(new Date().getFullYear()+2-i));
@@ -962,10 +1043,11 @@ export function InvoicesPage(){
     <PageHeader
       eyebrow="Client billing"
       title="Invoices"
-      description={`Billing periods run ${cycleLabel(cycleSettings.cycle_start_day)}. Drafts auto-generate once a cycle closes${cycleSettings.auto_generate?` (${ordinal(cycleSettings.cycle_start_day)} at ${clock12(cycleSettings.generation_time)}, Doctor local time)`:' — currently switched off'}; every invoice is filed under the month its period ends in.`}
+      description={`Billing periods run ${cycleLabel(cycleSettings.cycle_start_day)}. ${cycleSettings.auto_generate?"Drafts auto-generate Doctor-by-Doctor after each Doctor’s final enabled VA shift on the cycle-end date and any open attendance is closed.":"Automatic generation is currently switched off."} Every invoice is filed under the month its period ends in.`}
       actions={<Button icon={Plus} onClick={()=>{setCreateForm(emptyInvoiceForm());setAssignedVas([]);setCreateOpen(true)}}>Generate invoice</Button>}
     />
-    <Card title="Bulk invoice actions" subtitle="Choose an invoice month and one or more Doctors / Clients. Existing exact-cycle invoices are safely skipped by the server."><div className="form-grid invoice-bulk-grid"><Input label="Invoice month" type="month" value={bulkMonth} onChange={e=>setBulkMonth(e.target.value)}/><SearchableMultiSelect label="Doctors / Clients" values={bulkClients} onChange={setBulkClients} placeholder="Select Doctors / Clients" searchPlaceholder="Search Doctors / Clients…" options={(options.clients||[]).map(x=>({value:String(x.id),label:x.name||x.business_name||x.email,meta:x.timezone||'',searchText:`${x.business_name||''} ${x.email||''}`}))}/><div className="bulk-invoice-actions"><Button loading={busy} onClick={bulkGenerate}>Generate selected</Button><Button loading={busy} variant="secondary" icon={Send} onClick={bulkEmail}>Email selected PDFs</Button></div></div></Card>
+{invoiceOverview&&<Card title={`Invoice monitoring · ${invoiceOverview.month}`} subtitle="Current invoice-month status across Doctors / Clients. Failed and pending counts help Admin follow up and generate invoices manually when needed."><div className="metrics-grid"><MetricCard label="Auto generated" value={invoiceOverview.auto_generated_invoices||0} icon={FileText}/><MetricCard label="Pending Doctors" value={invoiceOverview.pending_doctors||0} icon={Clock3}/><MetricCard label="Failed Doctors" value={invoiceOverview.failed_doctors||0} icon={AlertTriangle}/><MetricCard label="Manual invoices" value={invoiceOverview.manual_invoices||0} icon={Pencil}/><MetricCard label="Doctors sent" value={invoiceOverview.sent_doctors||0} icon={Send}/><MetricCard label="Remaining to send" value={invoiceOverview.remaining_to_send||0} icon={Mail}/></div><div className="invoice-cycle-hint">Doctors covered this month: {(invoiceOverview.auto_generated_doctors||0)+(invoiceOverview.manual_doctors||0)} · Total Doctors / Clients: {invoiceOverview.total_doctors||0}. “Failed” means automatic generation threw an error; “Pending” means no invoice has been created for that Doctor in this invoice month yet.</div></Card>}
+    <Card title="Bulk invoice actions" subtitle={`Choose the invoice month (the month the configured cycle ends in). ${bulkMonth&&bulkCycle(bulkMonth)?`${bulkCycle(bulkMonth).period_start} → ${bulkCycle(bulkMonth).period_end}`:'The server uses the same cycle as automatic generation.'} Existing exact-cycle invoices are safely skipped.`}><div className="form-grid invoice-bulk-grid"><Input label="Invoice month" type="month" value={bulkMonth} onChange={e=>setBulkMonth(e.target.value)}/><SearchableMultiSelect label="Doctors / Clients" values={bulkClients} onChange={setBulkClients} placeholder="Select Doctors / Clients" searchPlaceholder="Search Doctors / Clients…" options={(options.clients||[]).map(x=>({value:String(x.id),label:x.name||x.business_name||x.email,meta:x.timezone||'',searchText:`${x.business_name||''} ${x.email||''}`}))}/><div className="bulk-invoice-actions"><Button loading={busy} onClick={bulkGenerate}>Generate selected</Button><Button loading={busy} variant="secondary" icon={Send} onClick={bulkEmail}>Email selected PDFs</Button></div></div></Card>
     <Card title="Invoice filters" subtitle="Filter invoices by month, year, custom date range, Doctor / Client, invoice number or status. Filters can be combined.">
       <div className="form-grid invoice-filter-grid">
         <Input label="Month" type="month" value={filters.month} onChange={e=>setFilters({...filters,month:e.target.value})}/>
@@ -1201,13 +1283,12 @@ export function InvoiceSettingsPage(){
   useEffect(()=>{api.get('/management/invoice-settings').then(r=>setForm({...DEFAULT_INVOICE_SETTINGS,...r.data})).catch(e=>n.error(messageFrom(e)))},[]);
   const save=async()=>{setBusy(true);try{const {data}=await api.put('/admin/invoice-settings',form);setForm({...form,...(data.settings||{})});n.success(data.message||'Invoice settings saved.')}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
   if(!form)return <Loading/>;
-  const s=Math.min(28,Math.max(1,Number(form.cycle_start_day)||26)),w=billingCycleWindows(s);
+  const s=Math.max(1,Math.min(30,Number(form.cycle_start_day)||26)),w=billingCycleWindows(s);
   return <><PageHeader eyebrow="Billing" title="Invoice settings" description="Control the monthly billing cycle and when draft invoices are generated. Changes apply to future automatic runs; existing invoices keep their periods."/>
     <div className="two-col">
       <Card title="Billing cycle" subtitle="A cycle starts on the chosen day and ends the day before that day in the following month.">
         <div className="form-grid one-col">
-          <Select label="Cycle starts on" value={s} onChange={e=>setForm({...form,cycle_start_day:Number(e.target.value)})}>{Array.from({length:28},(_,i)=><option key={i+1} value={i+1}>{ordinal(i+1)} of every month</option>)}</Select>
-          <Input label="Generate drafts at" type="time" value={form.generation_time} onChange={e=>setForm({...form,generation_time:e.target.value})} hint="Clock time in each Doctor's timezone on the day after the cycle closes."/>
+          <Input label="Cycle start day" type="number" min="1" max="30" value={form.cycle_start_day} onChange={e=>setForm({...form,cycle_start_day:Math.max(1,Math.min(30,Number(e.target.value)||1))})} hint={`Automatic cycle: ${cycleLabel(s)}. The final cycle-end VA shift controls generation.`}/>
           <label className="check field-check"><input type="checkbox" checked={!!form.auto_generate} onChange={e=>setForm({...form,auto_generate:e.target.checked})}/><span>Generate draft invoices automatically</span></label>
           <div><Button loading={busy} icon={Save} onClick={save}>Save settings</Button></div>
         </div>
@@ -1217,7 +1298,7 @@ export function InvoiceSettingsPage(){
           <div><dt>Cycle</dt><dd>{cycleLabel(s)}</dd></div>
           <div><dt>Last completed cycle</dt><dd>{w.completed.period_start} → {w.completed.period_end}</dd></div>
           <div><dt>Current cycle</dt><dd>{w.open.period_start} → {w.open.period_end}</dd></div>
-          <div><dt>Next automatic run</dt><dd>{form.auto_generate?`${w.due_on} at ${clock12(form.generation_time||'00:15')}, per Doctor timezone`:'Off — drafts are created manually from Invoices'}</dd></div>
+          <div><dt>Next automatic run</dt><dd>{form.auto_generate?(form.next_run_at?`${dateTime(form.next_run_at,form.next_run_display_timezone||'Asia/Karachi')} · after final cycle-end VA shift`:`After the final ${w.open.period_end} VA shift`):'Off — drafts are created manually from Invoices'}</dd></div>
           <div><dt>Already invoiced</dt><dd>Only VAs not yet on an invoice for a date range are billed, so changing the cycle never double-bills.</dd></div>
         </dl>
       </Card>

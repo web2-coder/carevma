@@ -20,6 +20,9 @@ class Employee extends Model
     // class Employee extends Model
 
     protected $fillable = [
+        'offboarded_at',
+        'offboarding_reason',
+        'offboarding_notes',
         'user_id',
         'profile_picture',
         'first_name',
@@ -185,6 +188,46 @@ class Employee extends Model
     public function probationReminderDate(): ?Carbon
     {
         return $this->probationEndsOn()?->copy()->subDays(7);
+    }
+
+    /**
+     * Return a stable probation payload for Admin profile/probation APIs.
+     *
+     * The AdminApiController already calls this method from the employee detail
+     * and probation endpoints. Keeping the derivation here prevents those routes
+     * from failing when no probation dates have been configured yet.
+     */
+    public function probationStatusData(?Carbon $today = null): array
+    {
+        $today = ($today ?: Carbon::now())->copy()->startOfDay();
+        $end = $this->probation_end_date
+            ? Carbon::parse($this->probation_end_date)->startOfDay()
+            : null;
+        $regularised = $this->date_of_regularisation
+            ? Carbon::parse($this->date_of_regularisation)->startOfDay()
+            : null;
+
+        if ($regularised) {
+            $status = 'completed';
+            $label = 'Completed';
+        } elseif (!$end) {
+            $status = 'not_configured';
+            $label = 'Not configured';
+        } elseif ($end->lt($today)) {
+            $status = 'due';
+            $label = 'Probation due for regularisation';
+        } else {
+            $status = 'active';
+            $label = 'Active';
+        }
+
+        return [
+            'status' => $status,
+            'label' => $label,
+            'end_date' => $end?->toDateString(),
+            'regularisation_date' => $regularised?->toDateString(),
+            'days_remaining' => $end && !$regularised ? max(0, $today->diffInDays($end, false)) : null,
+        ];
     }
 public function clientRates()
 {

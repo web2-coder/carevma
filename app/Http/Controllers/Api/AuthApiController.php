@@ -39,6 +39,13 @@ class AuthApiController extends Controller
             return response()->json(['message' => 'The email or password is incorrect.'], 422);
         }
 
+        if ($request->user()->is_active === false) {
+            Auth::guard('web')->logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+            return response()->json(['message' => 'This account is inactive. Contact an administrator.'], 403);
+        }
+
         $request->session()->regenerate();
         $user = $request->user()->loadMissing(['employee', 'client']);
 

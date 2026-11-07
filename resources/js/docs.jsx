@@ -194,7 +194,7 @@ export const DOCS = [
     who: 'Administrators by default; grant the module to other roles on Roles & Permissions.',
     steps: [
       'Cycle starts on a day from the 1st to the 28th. A cycle ends the day before that day in the following month; the 1st gives calendar months.',
-      'Generate drafts at sets the clock time, in each Doctor\'s timezone, on the day after the cycle closes.',
+      'Automatic invoice drafts wait for each Doctor’s final cycle-end VA shift and any open attendance to close.',
       'Switch automatic generation off to create drafts manually only. The dashboard card and the invoices page say when it is off.',
       'The preview shows the last completed cycle, the current one and the next automatic run before you save.',
     ],

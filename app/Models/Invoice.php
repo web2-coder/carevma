@@ -19,6 +19,9 @@ class Invoice extends Model
         'generated_at',
         'edited_by',
         'edited_at',
+        'sent_at',
+        'send_failed_at',
+        'send_error',
     ];
 
     protected $casts = [
@@ -28,6 +31,8 @@ class Invoice extends Model
         'auto_generated' => 'boolean',
         'generated_at' => 'datetime',
         'edited_at' => 'datetime',
+        'sent_at' => 'datetime',
+        'send_failed_at' => 'datetime',
     ];
 
     public function client()

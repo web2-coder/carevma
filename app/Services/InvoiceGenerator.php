@@ -313,7 +313,7 @@ class InvoiceGenerator
             ]);
 
             return $invoice->fresh(['client', 'salaries.employee']);
-        });
+        }, 3);
     }
 
     /**
@@ -378,7 +378,7 @@ class InvoiceGenerator
             }
 
             return $master->fresh(['salaries']);
-        });
+        }, 3);
     }
 
     /**
