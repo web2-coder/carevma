@@ -8,6 +8,7 @@ use App\Models\Notification;
 use App\Models\User;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 
 class OperationalNotifier
 {
@@ -18,14 +19,14 @@ class OperationalNotifier
     /**
      * @param iterable<User>|User $recipients
      */
-    public function send(iterable|User $recipients, string $title, string $message, string $type = 'OperationalActivity', ?string $actionUrl = null, array $context = [], bool $sendEmail = true): void
+    public function send(iterable|User $recipients, string $title, string $message, string $type = 'OperationalActivity', ?string $actionUrl = null, array $context = [], bool $sendEmail = true, ?string $dedupeKey = null): void
     {
         $users = $recipients instanceof User ? collect([$recipients]) : collect($recipients);
         $users = $users->filter(fn ($user) => $user instanceof User)->unique('id')->values();
 
         foreach ($users as $user) {
             try {
-                $notification = Notification::create([
+                $attributes = [
                     'user_id' => $user->id,
                     'type' => $type,
                     'title' => $title,
@@ -37,7 +38,33 @@ class OperationalNotifier
                         'action_url' => $actionUrl,
                     ]),
                     'is_read' => false,
-                ]);
+                ];
+
+                if ($dedupeKey !== null) {
+                    // Atomic claim: only the process creating the row may broadcast
+                    // or queue mail. Other cron processes skip this recipient entirely.
+                    $inserted = DB::table('notifications')->insertOrIgnore([
+                        'user_id' => $user->id,
+                        'type' => $type,
+                        'title' => $title,
+                        'message' => $message,
+                        'action_url' => $actionUrl,
+                        'data' => json_encode($attributes['data'], JSON_THROW_ON_ERROR),
+                        'is_read' => false,
+                        'notification_key' => $dedupeKey,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                    if ($inserted !== 1) {
+                        continue;
+                    }
+                    $notification = Notification::query()
+                        ->where('user_id', $user->id)
+                        ->where('notification_key', $dedupeKey)
+                        ->firstOrFail();
+                } else {
+                    $notification = Notification::create($attributes);
+                }
 
                 // Real-time delivery is best-effort. The database notification remains
                 // the source of truth even if Pusher is temporarily unavailable.
@@ -55,6 +82,8 @@ class OperationalNotifier
                     'user_id' => $user->id,
                     'error' => $e->getMessage(),
                 ]);
+                // Never queue email for a delivery that could not be claimed.
+                continue;
             }
 
             if (!$sendEmail || !$user->email) {

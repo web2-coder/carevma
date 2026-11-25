@@ -42,6 +42,12 @@
     $serviceName = $invoice->client?->service?->name ?: 'Medical VA Service';
     $doctorType = $invoice->client?->contractType?->name ?: 'Not specified';
     $generatedLocal = \Carbon\Carbon::parse($invoice->generated_at ?: $invoice->created_at)->setTimezone($clientTimezone);
+    $formatMinutes = static function (int $minutes): string {
+        $minutes = max(0, $minutes);
+        $remainder = $minutes % 60;
+        return intdiv($minutes, 60).'h'.($remainder ? $remainder.'m' : '');
+    };
+
     // Bill month follows the billing cycle end date.
     // Example: 25 Sep 2026 - 29 Oct 2026 => OCTOBER 2026.
     $billingMonthDate = \Carbon\Carbon::parse($invoice->period_end)->setTimezone($clientTimezone);
@@ -86,7 +92,7 @@
         <thead>
             <tr>
                 <th>VA Name</th>
-                <th>Working Hours</th>
+                <th>Payable Hours</th>
                 <th>Rate/h</th>
                 <th>From</th>
                 <th>To</th>
@@ -101,12 +107,6 @@
                 $regularMinutes = max(0, (int) $attendanceRows->sum('total_minutes'));
                 $approvedOtMinutes = (int) $attendanceRows->where('overtime_status', 'approved')->sum(fn ($a) => min(max(0, (int) $a->approved_overtime_minutes), max(0, (int) $a->overtime)));
                 $payableMinutes = $regularMinutes + $approvedOtMinutes;
-                $formatMinutes = function (int $minutes): string {
-                    $minutes = max(0, $minutes);
-                    $hours = intdiv($minutes, 60);
-                    $mins = $minutes % 60;
-                    return $hours > 0 ? sprintf('%dh %02dm', $hours, $mins) : sprintf('%dm', $mins);
-                };
             @endphp
             <tr>
                 <td>{{ $salary->employee->first_name }} {{ $salary->employee->last_name }}</td>
@@ -154,7 +154,7 @@
         <tbody>
             <tr class="subtotal-row">
                 <td class="text-right">Subtotal</td>
-                <td class="text-right" style="width:160px;">${{ number_format($baseSubtotal, 2) }}</td>
+                <td class="text-right" style="width:160px;">${{ number_format((float) $invoice->total_amount, 2) }}</td>
             </tr>
         </tbody>
     </table>
@@ -183,8 +183,8 @@
     </div>
 </div>
 
-<div class="page-break"></div>
-
+{{-- Let attendance flow immediately after Payment & Bank Details; the renderer
+     will start a new page naturally when insufficient space remains. --}}
 <div class="invoice-box">
     <h2 style="color:#083589;">Attendance Records</h2>
     <p><strong>Period:</strong> {{ \Carbon\Carbon::parse($invoice->period_start)->format('d F Y') }} - {{ \Carbon\Carbon::parse($invoice->period_end)->format('d F Y') }}</p>
@@ -193,30 +193,22 @@
     @foreach($invoice->salaries as $salary)
         <div class="attendance-section">
             @php
-                $formatAttendanceMinutes = function (int $minutes): string {
-                    $minutes = max(0, $minutes);
-                    $hours = intdiv($minutes, 60);
-                    $mins = $minutes % 60;
-                    return $hours > 0 ? sprintf('%dh %02dm', $hours, $mins) : sprintf('%dm', $mins);
-                };
-                $actualWorkedMinutesForAttendance = function ($attendance): int {
-                    if (!$attendance->clock_in || !$attendance->clock_out) {
-                        return 0;
-                    }
-                    // Total Hours follows the minute values visible in this PDF.
-                    // Break is displayed/deducted separately in Payable Hours.
-                    $clockIn = \Carbon\Carbon::parse($attendance->clock_in)->startOfMinute();
-                    $clockOut = \Carbon\Carbon::parse($attendance->clock_out)->startOfMinute();
-                    if ($clockOut->lte($clockIn)) {
-                        return 0;
-                    }
-                    return max(0, (int) $clockIn->diffInMinutes($clockOut));
-                };
-                $actualWorkedTotal = (int) $salary->employee->attendances->sum($actualWorkedMinutesForAttendance);
+                // Working Hours on the invoice are billable/payable hours:
+                // regular payable minutes + approved overtime only. Pending/rejected OT
+                // and raw elapsed break time must not inflate the invoice hour total.
+                $totalPayableMinutes = (int) $salary->employee->attendances->sum(function ($attendance) {
+                    $regular = max(0, (int) ($attendance->total_minutes ?? 0));
+                    $overtime = max(0, (int) ($attendance->overtime ?? 0));
+                    $approved = max(0, (int) ($attendance->approved_overtime_minutes ?? 0));
+                    $approvedOt = ($attendance->overtime_status ?? 'none') === 'approved'
+                        ? min($approved, $overtime)
+                        : 0;
+                    return $regular + $approvedOt;
+                });
             @endphp
             <h4 style="background:#f2f2f2;padding:8px;margin-top:20px;">
                 {{ $salary->employee->first_name }} {{ $salary->employee->last_name }}
-                (Working Hours: {{ $formatAttendanceMinutes($actualWorkedTotal) }})
+                (Payable Hours: {{ $formatMinutes($totalPayableMinutes) }})
             </h4>
             <table style="font-size:8px;">
                 <thead>
@@ -298,7 +290,7 @@
                             <td>{{ $dayName }}</td>
                             <td style="font-weight:700;">ABSENT</td>
                             <td>{{ $shiftLabel ?: '-' }}</td>
-                            <td>-</td><td>-</td><td>-</td><td>0m</td><td>0m</td><td>0m</td>
+                            <td>-</td><td>-</td><td>-</td><td>0h</td><td>0h</td><td>0h</td>
                         </tr>
                     @else
                         @foreach($dayAttendances as $attendance)
@@ -311,14 +303,21 @@
                                 $clockOut = $clockOutLocal ? $clockOutLocal->format('h:i A') : '-';
                                 $actualBreakMinutes = (int) floor(max(0, (int) ($attendance->break_taken ?? 0)) / 60);
                                 $regularMinutes = max(0, (int) ($attendance->total_minutes ?? 0));
-                                $actualWorkedMinutes = $actualWorkedMinutesForAttendance($attendance);
                                 $overtimeMinutes = max(0, (int) ($attendance->overtime ?? 0));
                                 $approvedMinutes = max(0, (int) ($attendance->approved_overtime_minutes ?? 0));
                                 // Only approved overtime is billed, capped at the recorded overtime like the generator.
                                 $countedOvertimeMinutes = $attendance->overtime_status === 'approved' ? min($approvedMinutes, $overtimeMinutes) : 0;
+                                // The PDF shows clock-in/out to minute precision. Calculate gross
+                                // elapsed time from those same minute boundaries to prevent a
+                                // seconds-based 1-minute mismatch (08:05–17:04 => 8h59m).
+                                // This affects display only, never billed/payable minutes.
+                                $elapsedMinutes = ($clockInLocal && $clockOutLocal)
+                                    ? max(0, intdiv($clockOutLocal->getTimestamp(), 60) - intdiv($clockInLocal->getTimestamp(), 60))
+                                    : 0;
                                 $payableMinutes = $regularMinutes + $countedOvertimeMinutes;
-                                // Invoice shows overtime only after approval. Pending/rejected OT stays 0m.
-                                $overtimeLabel = $formatAttendanceMinutes($countedOvertimeMinutes);
+                                // Only approved overtime appears on the invoice; pending/rejected time
+                                // stays out of both the displayed overtime and the billed amount.
+                                $overtimeLabel = $formatMinutes($countedOvertimeMinutes);
                                 $shiftStartLocal = $attendance->shift_start_snapshot ? \Carbon\Carbon::parse($attendance->shift_start_snapshot)->setTimezone($timezone) : null;
                                 $shiftEndLocal = $attendance->shift_end_snapshot ? \Carbon\Carbon::parse($attendance->shift_end_snapshot)->setTimezone($timezone) : null;
                                 $matchedSchedule = $daySchedules->first(function ($schedule) use ($attendance) {
@@ -354,10 +353,10 @@
                                 <td>{{ $shiftLabel ?: '-' }}</td>
                                 <td>{{ $clockIn }}</td>
                                 <td>{{ $clockOut }}</td>
-                                <td>{{ $formatAttendanceMinutes($breakMinutes) }}</td>
-                                <td>{{ $formatAttendanceMinutes($actualWorkedMinutes) }}</td>
+                                <td>{{ $formatMinutes($breakMinutes) }}</td>
+                                <td>{{ $formatMinutes($elapsedMinutes) }}</td>
                                 <td>{{ $overtimeLabel }}</td>
-                                <td>{{ $formatAttendanceMinutes($payableMinutes) }}</td>
+                                <td>{{ $formatMinutes($payableMinutes) }}</td>
                             </tr>
                         @endforeach
                     @endif

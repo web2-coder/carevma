@@ -1,17 +1,19 @@
+import '../../css/avatar-display-v6.css';
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   Users, Stethoscope, Clock3, TimerReset, ReceiptText, Plus, Pencil, Trash2, RefreshCw,
   CalendarDays, UserCheck, UserX, CircleDollarSign, Check, X, Bell, Save, KeyRound, Building2,
-  ShieldCheck, Send, Coffee, Activity, ClipboardCopy, Eye, ArrowLeft, UserRound, MapPin, Zap, CheckCircle2, FileText, Globe, ChevronDown, AlertTriangle, Mail
+  ShieldCheck, Send, Coffee, Activity, ClipboardCopy, Eye, ArrowLeft, UserRound, MapPin, Zap, CheckCircle2, FileText, Globe, ChevronDown, AlertTriangle, Mail, ListFilter
 } from 'lucide-react';
-import api, { messageFrom } from '../api';
+import api, { isCancelled, messageFrom, primeCsrf } from '../api';
+import ProfilePhotoPicker from '../components/ProfilePhotoPicker';
 import { attendanceColumns, vaColumn, AttCell, attCity, tzAbbr, clock12 } from '../attendanceColumns';
 import { ClientLink, EmployeeLink, InvoiceLink } from '../recordLinks';
 import { NotificationIcon } from '../notificationIcon';
 import { DEFAULT_TIMEZONE, formatDate, formatDateTime, formatTime as formatTimeInZone, todayInZone, weekdayFromDateOnly } from '../timezone';
 import { useAuth } from '../context/AuthContext';
-import { can } from '../permissions';
+import { can, referenceModule, useCan } from '../permissions';
 import {
   PageHeader, Card, MetricCard, Button, Input, Select, MaritalStatusSelect, SearchableSelect, SearchableMultiSelect, Textarea, SearchBox, Badge, statusTone,
   EmptyState, Loading, useNotice, Modal, Table, Pagination, money, mins, durationHM, dateTime, AvatarMedia, queryParam
@@ -21,6 +23,13 @@ import SalaryConverter from '../components/SalaryConverter';
 import '../../css/live-workforce.css';
 import '../../css/live-workforce-badge.css';
 import '../../css/dual-timezone-tables.css';
+
+function invoiceHours(value) {
+  const hours = Number(value);
+  const minutes = Number.isFinite(hours) ? Math.max(0, Math.round(hours * 60)) : 0;
+  const remainder = minutes % 60;
+  return `${Math.floor(minutes / 60)}h${remainder ? `${remainder}m` : ''}`;
+}
 
 const roleBase = role => role === 'hr' ? '/hr' : '/admin';
 const getList = data => data?.data || [];
@@ -76,31 +85,81 @@ export function ManagementDashboard(){
   const {user}=useAuth();
   const [data,setData]=useState(null);
   const [loading,setLoading]=useState(true);
+  const [birthdayOpen,setBirthdayOpen]=useState(false);
+  const [timezoneOpen,setTimezoneOpen]=useState(false);
+  const [timezoneSearch,setTimezoneSearch]=useState('');
+  const [birthdaySearch,setBirthdaySearch]=useState('');
+  const [timezonePage,setTimezonePage]=useState(1);
+  const [birthdayPage,setBirthdayPage]=useState(1);
   const [invoiceRunOpen,setInvoiceRunOpen]=useState(false);
+  const [invoiceRunRows,setInvoiceRunRows]=useState([]);
+  const [invoiceRunMeta,setInvoiceRunMeta]=useState(null);
+  const [invoiceRunPage,setInvoiceRunPage]=useState(1);
+  const [invoiceRunSearch,setInvoiceRunSearch]=useState('');
+  const [invoiceRunLoading,setInvoiceRunLoading]=useState(false);
   const n=useNotice();
-  const load=async(silent=false)=>{if(!silent)setLoading(true);try{setData((await api.get('/management/dashboard')).data)}catch(e){if(!silent)n.error(messageFrom(e))}finally{if(!silent)setLoading(false)}};
+  const load=async(silent=false,force=false)=>{if(!silent)setLoading(true);try{setData((await api.get('/management/dashboard',{params:force?{_refresh:Date.now()}:undefined})).data);if(force)n.success('Dashboard data refreshed.')}catch(e){if(!silent)n.error(messageFrom(e))}finally{if(!silent)setLoading(false)}};
   useEffect(()=>{
     load();
-    const realtime=()=>load(true);
-    const fallback=setInterval(realtime,15000);
-    window.addEventListener('carevma:notification',realtime);
-    window.addEventListener('focus',realtime);
-    return()=>{clearInterval(fallback);window.removeEventListener('carevma:notification',realtime);window.removeEventListener('focus',realtime)};
+    const refreshFull=()=>load(true);
+    const liveCount=setInterval(async()=>{try{const r=await api.get('/management/live-count');setData(current=>current?{...current,metrics:{...(current.metrics||{}),active:Number(r.data?.total||0)}}:current)}catch{}},30000);
+    // Refresh assigned timezone list when staffing data changes without requiring page reload.
+    const timezoneRefresh=setInterval(()=>load(true),120000);
+    window.addEventListener('carevma:notification',refreshFull);
+    window.addEventListener('focus',refreshFull);
+    return()=>{clearInterval(liveCount);clearInterval(timezoneRefresh);window.removeEventListener('carevma:notification',refreshFull);window.removeEventListener('focus',refreshFull)};
   },[]);
+  useEffect(()=>{
+    if(!invoiceRunOpen||!data?.auto_invoice_cycle?.period_start||!data?.auto_invoice_cycle?.period_end)return;
+    let cancelled=false;
+    const timer=setTimeout(async()=>{
+      setInvoiceRunLoading(true);
+      try{
+        const r=await api.get('/management/invoice-run-details',{params:{period_start:data.auto_invoice_cycle.period_start,period_end:data.auto_invoice_cycle.period_end,search:invoiceRunSearch,page:invoiceRunPage,per_page:25}});
+        if(!cancelled){setInvoiceRunRows(r.data?.data||[]);setInvoiceRunMeta(r.data)}
+      }catch(e){if(!cancelled)n.error(messageFrom(e))}
+      finally{if(!cancelled)setInvoiceRunLoading(false)}
+    },invoiceRunSearch?220:0);
+    return()=>{cancelled=true;clearTimeout(timer)};
+  },[invoiceRunOpen,invoiceRunPage,invoiceRunSearch,data?.auto_invoice_cycle?.period_start,data?.auto_invoice_cycle?.period_end]);
   if(loading&&!data)return <Loading/>;
 
   const m=data?.metrics||{};
   const max=Math.max(...(data?.trend||[]).map(x=>x.sessions),1);
   const birthdays=Array.isArray(data?.birthdays_today)?data.birthdays_today:[];
+  const birthdayPreview=birthdays.slice(0,2);
+  const birthdayNeedle=birthdaySearch.trim().toLowerCase();
+  const birthdayMatches=birthdayNeedle?birthdays.filter(person=>`${person.name||''} ${person.timezone||''}`.toLowerCase().includes(birthdayNeedle)):birthdays;
   const currentlyWorking=Array.isArray(data?.currently_working)?data.currently_working:[];
   const timezoneClocks=Array.isArray(data?.timezone_clocks)?data.timezone_clocks:[];
+  const timezonePreview=timezoneClocks.slice(0,2);
+  const timezoneNeedle=timezoneSearch.trim().toLowerCase();
+  const timezoneMatches=timezoneNeedle?timezoneClocks.filter(item=>String(item.timezone||'').toLowerCase().includes(timezoneNeedle)):timezoneClocks;
+  const popupPageSize=10;
+  const timezoneLastPage=Math.max(1,Math.ceil(timezoneMatches.length/popupPageSize));
+  const birthdayLastPage=Math.max(1,Math.ceil(birthdayMatches.length/popupPageSize));
+  const timezoneCurrentPage=Math.min(timezonePage,timezoneLastPage);
+  const birthdayCurrentPage=Math.min(birthdayPage,birthdayLastPage);
+  const visibleTimezones=timezoneMatches.slice((timezoneCurrentPage-1)*popupPageSize,timezoneCurrentPage*popupPageSize);
+  const visibleBirthdays=birthdayMatches.slice((birthdayCurrentPage-1)*popupPageSize,birthdayCurrentPage*popupPageSize);
+  const popupPagination=(current,last,total,setPage)=> <div className="pagination pagination-enhanced"><span>{`Page ${current} of ${last} · ${total} found`}</span><div className="pagination-buttons"><Button variant="ghost" disabled={current<=1} onClick={()=>setPage(current-1)}>Previous</Button><Button variant="ghost" disabled={current>=last} onClick={()=>setPage(current+1)}>Next</Button></div></div>;
+  const renderTimezoneClock=item=>{
+    const timezone=item.timezone||'UTC';
+    const place=String(timezone).split('/').pop().replaceAll('_',' ');
+    const vaCount=Number(item.va_count||0);
+    const doctorCount=Number(item.doctor_count||0);
+    return <div className="admin-timezone-clock-card" key={timezone}>
+      <div className="admin-timezone-clock-heading"><div><strong>{place}</strong><span>{timezone}</span></div><small>{vaCount} VA{vaCount===1?'':'s'} · {doctorCount} Doctor{doctorCount===1?'':'s'}</small></div>
+      <AssignedTimezoneClock serverNow={data?.server_now} timezone={timezone}/>
+    </div>;
+  };
   const billing=data?.auto_invoice_cycle||{};
   const billingGenerated=billing.status==='generated';
   const lastCompletedCycle=billing.last_completed_cycle||null;
   const billingStats=lastCompletedCycle||billing;
   const billingStatus=billingGenerated?'Generated':billing.status==='scheduled'?'Scheduled':billing.status==='waiting_for_checkout'?'Waiting for checkout':billing.status==='ready'?'Ready to generate':billing.status==='disabled'?'Automatic generation off':'No billable invoices';
   const billingDate=value=>value?String(value).slice(0,10):'—';
-  const doctorRuns=Array.isArray(billing.doctor_runs)?billing.doctor_runs:[];
+  const doctorRuns=invoiceRunRows;
   const adminInvoiceTimezone=billing.admin_timezone||'Asia/Karachi';
   const runStatusLabel=(status,periodEnd)=>status==='generated'?'Generated':status==='waiting_for_shift'?`Waiting for ${periodEnd?new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',timeZone:'UTC'}).format(new Date(`${String(periodEnd).slice(0,10)}T12:00:00Z`)):'cycle-end'} shift`:status==='waiting_for_checkout'?'Waiting for checkout':status==='ready'?'Ready to generate':'Scheduled';
   const runStatusTone=status=>status==='generated'?'success':status==='ready'?'info':status==='waiting_for_checkout'?'warning':'neutral';
@@ -110,31 +169,20 @@ export function ManagementDashboard(){
   const base=user.role==='hr'?'/hr':'/admin';
 
   return <>
-    <PageHeader eyebrow={user.role==='hr'?'Human Resources':'Administration'} title="Operations dashboard" description="Workforce, attendance and billing at a glance." actions={<Button variant="secondary" icon={RefreshCw} onClick={()=>load()}>Refresh</Button>}/>
+    <PageHeader eyebrow={user.role==='hr'?'Human Resources':'Administration'} title="Operations dashboard" description="Workforce, attendance and billing at a glance." actions={<Button variant="secondary" icon={RefreshCw} loading={loading} onClick={()=>load(false,true)}>Refresh</Button>}/>
 
     <div className="metrics-grid">
-      <MetricCard label="Employees" value={m.employees} icon={Users} to={`${base}/employees`}/>
+      <MetricCard label="Employees" value={m.employees} icon={Users} to={can(user,'employees')?`${base}/employees`:undefined}/>
       <MetricCard label="Clients" value={m.clients} icon={Stethoscope} to={can(user,'clients')?'/admin/clients':undefined}/>
-      <MetricCard label="Live employees" value={m.active||0} icon={Activity} live to={`${base}/live-users`}/>
-      <MetricCard label="Pending overtime" value={m.pending_overtime} icon={TimerReset} to={`${base}/overtime`}/>
+      <MetricCard label="Live employees" value={m.active||0} icon={Activity} live to={can(user,'live-users')?`${base}/live-users`:undefined}/>
+      <MetricCard label="Pending overtime" value={m.pending_overtime} icon={TimerReset} to={can(user,'overtime')?`${base}/overtime`:undefined}/>
       {can(user,'invoices')&&<MetricCard label="Invoices" value={m.invoices} icon={ReceiptText} to="/admin/invoices"/>}
     </div>
 
-    {user.role==='admin'&&<Card className="admin-timezone-clocks-card" title="Team time zone clocks" subtitle="Live clocks for every timezone assigned to a VA or Doctor">
-      {timezoneClocks.length?<div className="admin-timezone-clock-grid">{timezoneClocks.map(item=>{
-        const timezone=item.timezone||'UTC';
-        const place=String(timezone).split('/').pop().replaceAll('_',' ');
-        const vaCount=Number(item.va_count||0);
-        const doctorCount=Number(item.doctor_count||0);
-        return <div className="admin-timezone-clock-card" key={timezone}>
-          <div className="admin-timezone-clock-heading"><div><strong>{place}</strong><span>{timezone}</span></div><small>{vaCount} VA{vaCount===1?'':'s'} · {doctorCount} Doctor{doctorCount===1?'':'s'}</small></div>
-          <AssignedTimezoneClock serverNow={data?.server_now} timezone={timezone}/>
-        </div>;
-      })}</div>:<EmptyState title="No assigned timezones" description="Assigned VA and Doctor timezones will appear here automatically."/>}
-    </Card>}
+
 
     <div className="dashboard-notice-grid">
-      <Card className={`billing-cycle-card ${billingGenerated?'is-generated':''}`} title="Automatic monthly invoices" subtitle={`${cycleLabel(billing.cycle_start_day)} · drafts generate after each Doctor's final cycle-end VA shift`} actions={<div className="row-actions"><Button variant="secondary" icon={Eye} aria-label="View invoice run times" title="View invoice run times" onClick={()=>setInvoiceRunOpen(true)} />{can(user,'invoice-settings')&&<Link className="btn btn-ghost btn-link" to="/admin/invoice-settings">Settings</Link>}</div>}>
+      {data?.auto_invoice_cycle&&<Card className={`billing-cycle-card ${billingGenerated?'is-generated':''}`} title="Automatic monthly invoices" subtitle={`${cycleLabel(billing.cycle_start_day)} · drafts generate after each Doctor's final cycle-end VA shift`} actions={<div className="row-actions"><Button variant="secondary" icon={Eye} aria-label="View invoice run times" title="View invoice run times" onClick={()=>{setInvoiceRunPage(1);setInvoiceRunSearch('');setInvoiceRunOpen(true)}} />{can(user,'invoice-settings')&&<Link className="btn btn-ghost btn-link" to="/admin/invoice-settings">Settings</Link>}</div>}>
         <div className="billing-cycle-status-row">
           <div className="billing-cycle-icon"><ReceiptText size={21}/></div>
           <div className="billing-cycle-copy">
@@ -155,7 +203,7 @@ export function ManagementDashboard(){
           <span>{lastCompletedCycle?`Last auto generation: ${lastCompletedCycle.last_generated_at?dateTime(lastCompletedCycle.last_generated_at,user?.assigned_timezone):'completed'}`:(billingGenerated?`Last auto generation: ${billing.last_generated_at?dateTime(billing.last_generated_at,user?.assigned_timezone):'completed'}`:'CareVMA waits for all scheduled cycle-end VA shifts and any open attendance sessions before generating editable drafts.')}</span>
           {can(user,'invoices')&&<Link className="btn btn-secondary btn-link" to="/admin/invoices">Review invoices</Link>}
         </div>
-      </Card>
+      </Card>}
 
       <Card title="Currently Working" subtitle="Latest workforce sessions">
         <div className="activity-list">
@@ -164,7 +212,7 @@ export function ManagementDashboard(){
             const vaName=`${employee.first_name||''} ${employee.last_name||''}`.trim()||'VA';
             const doctorName=(Array.isArray(row.doctor_names)&&row.doctor_names.length?row.doctor_names.join(', '):(doctor.name||doctor.business_name||'Doctor'));
             return <div className="activity-row" key={row.id}>
-              <div className="avatar">{employee.profile_picture?<img src={employee.profile_picture} alt=""/>:<>{employee.first_name?.[0]}{employee.last_name?.[0]}</>}</div>
+              <div className="avatar"><AvatarMedia src={employee.profile_picture} alt={employee.first_name||'Employee'} fallback={`${employee.first_name?.[0]||''}${employee.last_name?.[0]||''}`}/></div>
               <div className="activity-main-copy"><strong><EmployeeLink employee={employee}>{vaName}</EmployeeLink></strong><span>{doctorName} · Live session</span><div className="dashboard-shift-end-list">{(row.doctor_segments||[]).map(segment=><ShiftEndStatus key={segment.id||segment.attendance_id||`${row.id}-${segment.timezone}`} end={segment.shift_ends_at} serverNow={data?.server_now} timeZone={segment.timezone} compact/>)}</div></div>
               <Badge tone="success">Working</Badge>
             </div>;
@@ -180,7 +228,8 @@ export function ManagementDashboard(){
         <span>Each Doctor waits for their final scheduled VA shift on {billingDate(billing.period_end)}. If that attendance is still open, CareVMA waits for checkout before generating the editable draft.</span>
         <span>Admin timezone: <strong>{adminInvoiceTimezone}</strong></span>
       </div>
-      <div className="activity-list">
+      <div style={{margin:'12px 0'}}><SearchBox value={invoiceRunSearch} onChange={value=>{setInvoiceRunSearch(value);setInvoiceRunPage(1)}} placeholder="Search Doctor / business…"/></div>
+      {invoiceRunLoading&&!doctorRuns.length?<Loading/>:<div className="activity-list">
         {doctorRuns.length?doctorRuns.map(run=>{
           const generated=run.status==='generated';
           return <div className="activity-row" key={run.client_id}>
@@ -196,7 +245,8 @@ export function ManagementDashboard(){
             <Badge tone={runStatusTone(run.status)}>{runStatusLabel(run.status,run.period_end||billing.period_end)}</Badge>
           </div>;
         }):<EmptyState title="No Doctors found" description="Doctor/client invoice run times will appear here once clients are configured."/>}
-      </div>
+      </div>}
+      <Pagination meta={invoiceRunMeta} onPage={setInvoiceRunPage}/>
     </Modal>
 
     {can(user,'company-finance')&&<Card className="dashboard-finance-card" title="Company finance" subtitle="Current month cash position with a six-month income/outgoing trend">
@@ -216,17 +266,43 @@ export function ManagementDashboard(){
       </div>)}</div></>:<EmptyState title="No finance activity yet" description="Income and outgoing will chart here once invoices are paid or finance entries are recorded."/>}
     </Card>}
 
-    <Card className={`birthday-dashboard-card ${birthdays.length?'has-birthdays':''}`} title="Today’s birthdays" subtitle="Based on each VA’s assigned timezone">
-      {birthdays.length?<div className="birthday-dashboard-list">{birthdays.map(person=><div className="birthday-dashboard-person" key={person.id}>
-        <div className="birthday-dashboard-avatar">{person.profile_picture?<img src={person.profile_picture} alt=""/>:<span>{String(person.name||'VA').split(' ').map(x=>x[0]).slice(0,2).join('').toUpperCase()}</span>}</div>
-        <div className="activity-main-copy"><strong>🎂 {person.name}</strong></div>
+    {/* Equal-width dashboard widgets: timezone clocks on the left, birthdays on the right. */}
+    <section className="admin-dashboard-timezone-birthday-row" data-dashboard-widgets="timezones-birthdays">
+      <div className="admin-dashboard-timezone-half">
+    <Card className="admin-timezone-clocks-card" title="Team time zone clocks" subtitle="Assigned VA and Doctor timezones" actions={<Button variant="secondary" onClick={()=>{setTimezoneSearch('');setTimezonePage(1);setTimezoneOpen(true)}}>View all ({timezoneClocks.length})</Button>}>
+      {timezoneClocks.length?<div className="admin-timezone-clock-grid">{timezonePreview.map(renderTimezoneClock)}</div>:<EmptyState title="No assigned timezones" description="Assigned VA and Doctor timezones will appear here automatically."/>}
+    </Card>
+      </div>
+      <div className="admin-dashboard-birthday-half">
+    <Card className={`birthday-dashboard-card ${birthdays.length?'has-birthdays':''}`} title="Today’s birthdays" subtitle="Based on each VA’s assigned timezone" actions={<Button variant="secondary" onClick={()=>{setBirthdaySearch('');setBirthdayPage(1);setBirthdayOpen(true)}}>View all ({birthdays.length})</Button>}>
+      {birthdays.length?<div className="birthday-dashboard-list">{birthdayPreview.map(person=><div className="birthday-dashboard-person" key={person.id}>
+        <div className="birthday-dashboard-avatar"><AvatarMedia src={person.profile_picture} alt={person.name||'VA'} fallback={String(person.name||'VA').split(' ').map(x=>x[0]).slice(0,2).join('').toUpperCase()}/></div>
+        <div className="activity-main-copy"><strong>🎂 {person.name}</strong><span>{person.timezone||'Timezone not set'}</span></div>
         <Badge tone="warning">Birthday today</Badge>
       </div>)}</div>:<div className="birthday-dashboard-empty"><strong>No birthdays today</strong><span>Tomorrow reminders are sent to Admin one day before a VA birthday.</span></div>}
     </Card>
+      </div>
+    </section>
+
+    <Modal open={timezoneOpen} onClose={()=>setTimezoneOpen(false)} title={`All team time zones (${timezoneClocks.length})`} wide>
+      <div className="toolbar"><SearchBox value={timezoneSearch} onChange={value=>{setTimezoneSearch(value);setTimezonePage(1)}} placeholder="Search timezone or city"/><span className="record-count">{timezoneMatches.length} found</span></div>
+      {timezoneMatches.length?<div className="admin-timezone-clock-grid admin-timezone-modal-grid">{visibleTimezones.map(renderTimezoneClock)}</div>:<EmptyState title={timezoneClocks.length?'No matching timezones':'No assigned timezones'} description={timezoneClocks.length?'Try a different timezone or city.':'VA and Doctor timezones will appear once assigned.'}/>}
+      {timezoneMatches.length>0&&popupPagination(timezoneCurrentPage,timezoneLastPage,timezoneMatches.length,setTimezonePage)}
+    </Modal>
+
+    <Modal open={birthdayOpen} onClose={()=>setBirthdayOpen(false)} title={`Today’s birthdays (${birthdays.length})`}>
+      <div className="toolbar"><SearchBox value={birthdaySearch} onChange={value=>{setBirthdaySearch(value);setBirthdayPage(1)}} placeholder="Search birthday by name or timezone"/><span className="record-count">{birthdayMatches.length} found</span></div>
+      {birthdayMatches.length?<div className="birthday-dashboard-list">{visibleBirthdays.map(person=><div className="birthday-dashboard-person" key={person.id}>
+        <div className="birthday-dashboard-avatar"><AvatarMedia src={person.profile_picture} alt={person.name||'VA'} fallback={String(person.name||'VA').split(' ').map(x=>x[0]).slice(0,2).join('').toUpperCase()}/></div>
+        <div className="activity-main-copy"><strong>🎂 {person.name}</strong><span>{person.timezone||'Timezone not set'}</span></div>
+        <Badge tone="warning">Birthday today</Badge>
+      </div>)}</div>:<EmptyState title="No birthdays found" description="Try a different name or timezone."/>}
+      {birthdayMatches.length>0&&popupPagination(birthdayCurrentPage,birthdayLastPage,birthdayMatches.length,setBirthdayPage)}
+    </Modal>
 
     <div className="dashboard-grid">
-      <Card title="Attendance activity" subtitle="Sessions recorded this week"><div className="mini-chart">{(data?.trend||[]).map(x=><div className="chart-col" key={x.date}><div className="chart-value">{x.sessions}</div><div className="chart-bar"><span style={{height:`${Math.max(10,x.sessions/max*100)}%`}}/></div><div className="chart-label">{x.label}</div></div>)}</div></Card>
-      <Card title="Recent attendance" subtitle="Latest workforce sessions"><div className="activity-list">{(data?.recent_attendance||[]).length?(data.recent_attendance.slice(0,5).map(a=>{const zone=a.client_timezone||a.client?.timezone||'UTC';return <div className="activity-row" key={a.id}><div className="avatar">{a.employee?.profile_picture?<img src={a.employee.profile_picture} alt=""/>:<>{a.employee?.first_name?.[0]}{a.employee?.last_name?.[0]}</>}</div><div className="activity-main-copy"><strong><EmployeeLink employee={a.employee}>{a.employee?`${a.employee.first_name} ${a.employee.last_name}`:'Unknown employee'}</EmployeeLink></strong><span>{tzDate(a.client_local_date||a.date,zone)} · {a.clock_out?'Completed':'Live session'}</span></div><Badge tone={a.clock_out?'success':'warning'}>{a.clock_out?'Done':'Live'}</Badge></div>})):<EmptyState/>}</div></Card>
+      <Card className="attendance-activity-chart" title="Attendance activity" subtitle="Sessions recorded this week"><div className="mini-chart">{(data?.trend||[]).map(x=><div className="chart-col" key={x.date}><div className="chart-value">{x.sessions}</div><div className="chart-bar">{x.sessions>0&&<span style={{height:`${x.sessions/max*100}%`}}/>}</div><div className="chart-label">{x.label}</div></div>)}</div></Card>
+      <Card title="Recent attendance" subtitle="Latest workforce sessions"><div className="activity-list">{(data?.recent_attendance||[]).length?(data.recent_attendance.slice(0,5).map(a=>{const zone=a.client_timezone||a.client?.timezone||'UTC';return <div className="activity-row" key={a.id}><div className="avatar"><AvatarMedia src={a.employee?.profile_picture} alt={a.employee?.first_name||'Employee'} fallback={`${a.employee?.first_name?.[0]||''}${a.employee?.last_name?.[0]||''}`}/></div><div className="activity-main-copy"><strong><EmployeeLink employee={a.employee}>{a.employee?`${a.employee.first_name} ${a.employee.last_name}`:'Unknown employee'}</EmployeeLink></strong><span>{tzDate(a.client_local_date||a.date,zone)} · {a.clock_out?'Completed':'Live session'}</span></div><Badge tone={a.clock_out?'success':'warning'}>{a.clock_out?'Done':'Live'}</Badge></div>})):<EmptyState/>}</div></Card>
     </div>
   </>;
 }
@@ -314,23 +390,33 @@ export function LiveUsersPage(){
   const [data,setData]=useState({server_now:null,total:0,online:0,checked_in:0,working:0,on_break:0,late:0,offline:0,sessions:[]});
   const [loading,setLoading]=useState(true);
   const [tab,setTab]=useState('checked_in');
+  const [page,setPage]=useState(1);
   const [expandedId,setExpandedId]=useState(null);
   const [,setPresenceTick]=useState(0);
   const n=useNotice();
-  const load=async(silent=false)=>{if(!silent)setLoading(true);try{setData((await api.get('/management/live-users')).data)}catch(e){n.error(messageFrom(e))}finally{if(!silent)setLoading(false)}};
-  useEffect(()=>{load();const poll=setInterval(()=>load(true),15000);const runtime=setInterval(()=>setPresenceTick(v=>v+1),10000);const realtime=()=>load(true);window.addEventListener('carevma:notification',realtime);window.addEventListener('focus',realtime);return()=>{clearInterval(poll);clearInterval(runtime);window.removeEventListener('carevma:notification',realtime);window.removeEventListener('focus',realtime)}},[]);
+  const load=async(silent=false,force=false)=>{
+    if(!silent)setLoading(true);
+    try{
+      const params={status:tab,page,per_page:24};
+      if(force)params._refresh=Date.now();
+      setData((await api.get('/management/live-users',{params})).data);
+      if(force)n.success('Live workforce refreshed.');
+    }catch(e){
+      if(!silent)n.error(messageFrom(e));
+    }finally{
+      if(!silent)setLoading(false);
+    }
+  };
+  useEffect(()=>{load();const poll=setInterval(()=>load(true),15000);const runtime=setInterval(()=>setPresenceTick(v=>v+1),10000);const realtime=()=>load(true);window.addEventListener('carevma:notification',realtime);window.addEventListener('focus',realtime);return()=>{clearInterval(poll);clearInterval(runtime);window.removeEventListener('carevma:notification',realtime);window.removeEventListener('focus',realtime)}},[tab,page]);
   if(loading&&!data.sessions.length)return <Loading/>;
   const base=roleBase(user?.role);
   const isRuntimeOnline=row=>!!row?.last_seen_at&&Math.max(0,Date.now()-new Date(row.last_seen_at).getTime())<5*60*1000;
-  const runtimeOnlineCount=(data.sessions||[]).filter(isRuntimeOnline).length;
   const tabs=[
-    ['checked_in','Checked In',data.checked_in],
+    ['checked_in','Live',data.checked_in],
     ['break','On Break',data.on_break],['late','Late',data.late],['offline','Offline',data.offline],
   ];
-  const rows=(data.sessions||[]).filter(r=>{
-    if(tab==='checked_in')return r.attendance_status==='Checked in';
-    return r.status_key===tab;
-  });
+  const rows=data.sessions||[];
+  const liveMeta={current_page:data.current_page||1,last_page:data.last_page||1,from:data.from??null,to:data.to??null,total:data.total_filtered??0};
   const relativeLastSeen=value=>{
     if(!value)return 'No recent activity';
     const seconds=Math.max(0,Math.floor((Date.now()-new Date(value).getTime())/1000));
@@ -340,12 +426,12 @@ export function LiveUsersPage(){
     return 'Offline';
   };
   // Per-row values shared by the card and the details modal.
-  const derive=r=>{const employee=r.employee||{};const doctorSegments=Array.isArray(r.doctor_segments)?r.doctor_segments:[];const runtimeOnline=isRuntimeOnline(r);const totalBreakSeconds=Math.max(0,Number(r.total_break_seconds||0));return {employee,name:`${employee.first_name||''} ${employee.last_name||''}`.trim()||'Unknown employee',vaFallback:`${employee.first_name?.[0]||''}${employee.last_name?.[0]||''}`.toUpperCase()||'VA',doctorSegments,runtimeOnline,totalBreakSeconds,workedSeconds:Math.max(0,Number(r.elapsed_seconds||0)-totalBreakSeconds),statusKey:(r.status_key==='online'&&!runtimeOnline)?'offline':(r.status_key||'offline'),statusLabel:(r.status_key==='online'&&!runtimeOnline)?'Offline':(r.status_label||'Offline')}};
+  const derive=r=>{const employee=r.employee||{};const doctorSegments=Array.isArray(r.doctor_segments)?r.doctor_segments:[];const runtimeOnline=isRuntimeOnline(r);const totalBreakSeconds=Math.max(0,Number(r.total_break_seconds||0));return {employee,name:`${employee.first_name||''} ${employee.last_name||''}`.trim()||'Unknown employee',vaFallback:`${employee.first_name?.[0]||''}${employee.last_name?.[0]||''}`.toUpperCase()||'VA',doctorSegments,runtimeOnline,totalBreakSeconds,workedSeconds:Math.max(0,Number(r.elapsed_seconds||0)-totalBreakSeconds),statusKey:(r.status_key==='online'&&!runtimeOnline)?'offline':(r.status_key||'offline'),statusLabel:(r.status_key==='online'&&!runtimeOnline)?'Offline':(r.status_key==='checked_in'?'Live':(r.status_label||'Offline'))}};
   const selected=(data.sessions||[]).find(r=>r.id===expandedId)||null;
 
-  return <><PageHeader eyebrow="Real-time workforce" title="VA Live Status" description="One admin view for checked-in, break, late and offline VAs. Attendance and shift calculations continue to use the assigned Doctor timezone." actions={<Button variant="secondary" icon={RefreshCw} onClick={()=>load()}>Refresh</Button>}/>
-    <div className="metrics-grid live-workforce-metrics"><MetricCard label="Checked In" value={data.checked_in} icon={UserCheck} hint="Open attendance sessions"/><MetricCard label="On Break" value={data.on_break} icon={Coffee} hint="Break active now"/><MetricCard label="Late" value={data.late} icon={Clock3} hint="Late arrivals today/session"/><MetricCard label="Offline" value={data.offline} icon={Users} hint="Not active now"/></div>
-    <div className="live-status-tabs" role="tablist">{tabs.map(([key,label,count])=><button key={key} type="button" className={`live-status-tab ${tab===key?'active':''}`} onClick={()=>{setTab(key);setExpandedId(null)}}><span className={`live-tab-dot ${key}`}/>{label}<strong>{count||0}</strong></button>)}</div>
+  return <><PageHeader eyebrow="Real-time workforce" title="VA Live Status" description="One admin view for checked-in, break, late and offline VAs. Attendance and shift calculations continue to use the assigned Doctor timezone." actions={<Button variant="secondary" icon={RefreshCw} loading={loading} onClick={()=>load(false,true)}>Refresh</Button>}/>
+    <div className="metrics-grid live-workforce-metrics"><MetricCard label="Live" value={data.checked_in} icon={UserCheck} hint="Open attendance sessions"/><MetricCard label="On Break" value={data.on_break} icon={Coffee} hint="Break active now"/><MetricCard label="Late" value={data.late} icon={Clock3} hint="Late arrivals today/session"/><MetricCard label="Offline" value={data.offline} icon={Users} hint="Not active now"/></div>
+    <div className="live-status-tabs" role="tablist">{tabs.map(([key,label,count])=><button key={key} type="button" className={`live-status-tab ${tab===key?'active':''}`} onClick={()=>{setTab(key);setPage(1);setExpandedId(null)}}><span className={`live-tab-dot ${key}`}/>{label}<strong>{count||0}</strong></button>)}</div>
 
     <Card title={`${tabs.find(x=>x[0]===tab)?.[1]||'All'} VAs`} subtitle="Status refreshes automatically; activity labels update at runtime without a page reload.">
       {rows.length?<div className="live-user-card-grid">{rows.map(r=>{
@@ -363,6 +449,7 @@ export function LiveUsersPage(){
           </div>
         </article>;
       })}</div>:<EmptyState title={`No ${String(tabs.find(x=>x[0]===tab)?.[1]||'matching').toLowerCase()} VAs`} description="This list will update automatically when workforce status changes."/>}
+      <Pagination meta={liveMeta} onPage={setPage}/>
     </Card>
     {selected&&(()=>{const r=selected;const {employee,name,vaFallback,doctorSegments,runtimeOnline,totalBreakSeconds,workedSeconds,statusKey,statusLabel}=derive(r);
       return <Modal open wide onClose={()=>setExpandedId(null)}
@@ -397,7 +484,9 @@ function EmployeeFormModal({open,onClose,form,setForm,options,busy,onSave,onProb
   const probationLabel=form.date_of_regularisation?'Completed':(form.probation_end_date?`Ends ${form.probation_end_date}`:'Not configured');
   return <>
     <Modal open={open} onClose={onClose} title={form.id?'Edit employee':'Add employee'} wide footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button loading={busy} icon={Save} onClick={onSave}>{form.id?'Save changes':'Create employee'}</Button></>}>
-      <div className="form-section"><h3>Identity & login</h3><div className="form-grid"><Input label="First name *" value={form.first_name||''} onChange={e=>set('first_name',e.target.value)}/><Input label="Last name *" value={form.last_name||''} onChange={e=>set('last_name',e.target.value)}/><Input label="Email *" type="email" value={form.email||''} onChange={e=>set('email',e.target.value)}/><Input label="Phone" value={form.phone||''} onChange={e=>set('phone',e.target.value)}/><Input label="Location" value={form.location||''} onChange={e=>set('location',e.target.value)}/><TimezonePicker label="Timezone *" value={form.timezone||''} onChange={value=>set('timezone',value)} onCitySelect={place=>setForm(current=>({...current,timezone:place.timezone,location:[place.city,place.country].filter(Boolean).join(', ')}))}/></div></div>
+      <div className="form-section"><h3>Identity & login</h3>
+        {form.id && <ProfilePhotoPicker current={form.profile_picture} file={form.photo_file||null} removed={!!form.photo_removed} label="Employee photo" fallback={(form.first_name?.[0]||'E').toUpperCase()} accept="image/jpeg,image/png,image/webp" maxMB={5} onFile={file=>setForm(f=>({...f,photo_file:file,photo_removed:false}))} onRemove={()=>setForm(f=>({...f,photo_file:null,photo_removed:true}))}/>}
+        <div className="form-grid"><Input label="First name *" value={form.first_name||''} onChange={e=>set('first_name',e.target.value)}/><Input label="Last name *" value={form.last_name||''} onChange={e=>set('last_name',e.target.value)}/><Input label="Email *" type="email" value={form.email||''} onChange={e=>set('email',e.target.value)}/><Input label="Phone" value={form.phone||''} onChange={e=>set('phone',e.target.value)}/><Input label="Location" value={form.location||''} onChange={e=>set('location',e.target.value)}/><TimezonePicker label="Timezone *" value={form.timezone||''} onChange={value=>set('timezone',value)} onCitySelect={place=>setForm(current=>({...current,timezone:place.timezone,location:[place.city,place.country].filter(Boolean).join(', ')}))}/></div></div>
       <div className="form-section"><h3>Work & hierarchy</h3><div className="form-grid"><Select label="Department" value={form.department_id||''} onChange={e=>set('department_id',e.target.value)}><option value="">Select</option>{opts('departments')}</Select><Select label="Role" value={form.role_id||''} onChange={e=>set('role_id',e.target.value)}><option value="">Select</option>{opts('roles')}</Select><Select label="Employment type" value={form.employment_type_id||''} onChange={e=>set('employment_type_id',e.target.value)}><option value="">Select</option>{opts('employment_types')}</Select><Select label="Shift type" value={form.shift_type_id||''} onChange={e=>set('shift_type_id',e.target.value)}><option value="">Select</option>{opts('shift_types')}</Select><Select label="Designation" value={form.designation_id||''} onChange={e=>set('designation_id',e.target.value)}><option value="">Select</option>{opts('designations')}</Select><Select label="Employee status" value={form.employee_status_id||''} onChange={e=>set('employee_status_id',e.target.value)}><option value="">Select</option>{opts('employee_statuses')}</Select><Select label="Expertise" value={form.expertise_id||''} onChange={e=>set('expertise_id',e.target.value)}><option value="">Select</option>{opts('expertises')}</Select><Select label="Reporting manager" value={form.reporting_manager_id||''} onChange={e=>set('reporting_manager_id',e.target.value)}><option value="">Select</option>{opts('reporting_managers')}</Select><Input label="Joining date" type="date" value={form.date_of_joining||''} onChange={e=>set('date_of_joining',e.target.value)}/><Input label="Regularisation date" type="date" value={form.date_of_regularisation||''} onChange={e=>set('date_of_regularisation',e.target.value)}/><SalaryConverter pkr={form.salary_pkr} usd={form.salary_usd} onPkrChange={value=>set('salary_pkr',value)} onUsdChange={value=>set('salary_usd',value)}/><Input label="Source of hire" value={form.source_of_hire||''} onChange={e=>set('source_of_hire',e.target.value)}/></div></div>
       <div className="form-section"><h3>Probation</h3><p className="muted">{form.id?<>Current status: <strong>{probationLabel}</strong>. Use one simple popup to configure or finish probation.</>:<>Optional at creation. Configure the probation end date now, or leave it blank and manage probation after the employee is created.</>}</p><div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginTop:12}}><Button variant="secondary" icon={CalendarDays} onClick={openProbation}>{form.id?'Manage probation':'Configure probation'}</Button>{!form.id&&form.probation_end_date&&<Badge tone="warning">Ends {form.probation_end_date}</Badge>}</div></div>
       <div className="form-section"><h3>Personal</h3><div className="form-grid"><Select label="Gender" value={form.gender||''} onChange={e=>set('gender',e.target.value)}><option value="">Not specified</option><option value="male">Male</option><option value="female">Female</option><option value="other">Other</option></Select><MaritalStatusSelect label="Marital status" value={form.marital_status||''} onChange={e=>set('marital_status',e.target.value)}/><Input label="Date of birth" type="date" value={form.date_of_birth||''} onChange={e=>set('date_of_birth',e.target.value)}/><Input label="Age" type="number" value={form.age||''} onChange={e=>set('age',e.target.value)}/><Textarea label="About employee" value={form.about_me_notes||''} onChange={e=>set('about_me_notes',e.target.value)}/></div></div>
@@ -442,16 +531,17 @@ function OffboardingModal({state,onClose,onSubmit,busy}){
 }
 
 export function EmployeesPage(){
-  const {user}=useAuth(); const navigate=useNavigate(); const location=useLocation();
+  const {user}=useAuth();
+  const allowed=useCan('employees'); const navigate=useNavigate(); const location=useLocation();
   const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[search,setSearch]=useState(queryParam('search')),[page,setPage]=useState(1),[busy,setBusy]=useState(false),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[form,setForm]=useState(emptyEmployee),[options,setOptions]=useState({}),[inviteLink,setInviteLink]=useState(null),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'id',dir:'desc'}),[offboarding,setOffboarding]=useState(null); const n=useNotice();
-  const emptyFilters={department_id:'',designation_id:'',employee_status_id:'',timezone:''};const [filters,setFilters]=useState(emptyFilters);const setFilter=(key,value)=>{setFilters(f=>({...f,[key]:value}));setPage(1)};
+  const emptyFilters={department_id:'',designation_id:'',timezone:''};const [filters,setFilters]=useState(emptyFilters);const setFilter=(key,value)=>{setFilters(f=>({...f,[key]:value}));setPage(1)};
   const load=async()=>{setBusy(true);try{const [r,o]=await Promise.all([api.get('/management/employees',{params:{search,...filters,page,per_page:perPage,sort:sort.key,direction:sort.dir}}),api.get('/management/options')]);setRows(r.data.data);setMeta(r.data);setOptions(o.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
   useEffect(()=>{const t=setTimeout(load,220);return()=>clearTimeout(t)},[search,filters,page,perPage,sort]);
-  const timezones=[...new Set((options.employees||[]).map(e=>e.timezone).filter(Boolean))].sort();
+  const timezones=options.employee_timezones||[];
   const openNew=()=>navigate(`${roleBase(user.role)}/employees/new`); const openEdit=row=>{setEdit(row);setForm(employeeForm(row));setModal(true)};
   useEffect(()=>{
     const editId=new URLSearchParams(location.search).get('edit');
-    if(!editId)return;
+    if(!editId||!allowed('edit'))return;
     let cancelled=false;
     const openRequestedEmployee=async()=>{
       let row=rows.find(item=>String(item.id)===String(editId));
@@ -465,29 +555,33 @@ export function EmployeesPage(){
     openRequestedEmployee();
     return()=>{cancelled=true};
   },[location.search,rows]);
-  const save=async()=>{setBusy(true);try{edit?await api.put(`/management/employees/${edit.id}`,form):await api.post('/management/employees',form);n.success(edit?'Employee updated.':'Employee created.');setModal(false);await load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+  const save=async()=>{setBusy(true);try{if(edit && (form.photo_file || form.photo_removed)){const fd=new FormData();Object.entries(form).forEach(([k,v])=>{if(['photo_file','photo_removed','profile_picture','upload_documents','user'].includes(k)||v===null||typeof v==='object')return;fd.append(k,typeof v==='boolean'?(v?'1':'0'):String(v))});fd.append('_method','PUT');if(form.photo_file)fd.append('profile_picture',form.photo_file);if(form.photo_removed&&!form.photo_file)fd.append('remove_profile_picture','1');await api.post(`/management/employees/${edit.id}`,fd,{headers:{'Content-Type':'multipart/form-data'}})}else if(edit){await api.put(`/management/employees/${edit.id}`,form)}else{await api.post('/management/employees',form)}n.success(edit?'Employee updated.':'Employee created.');setModal(false);await load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
   const probationAction=async (action,endDate=null)=>{if(!edit)return;setBusy(true);try{const {data}=await api.post(`/management/employees/${edit.id}/probation`,{action,end_date:action==='extend'?(endDate||form.probation_end_date||null):null});n.success(data?.message||'Probation updated.');const fresh=(await api.get(`/management/employees/${edit.id}`)).data;setEdit(fresh);setForm(employeeForm(fresh));await load();return true}catch(e){n.error(messageFrom(e));throw e}finally{setBusy(false)}};
   const remove=async row=>{try{await api.delete(`/management/employees/${row.id}`);n.success('Employee deleted.');load()}catch(e){n.error(messageFrom(e))}};
   const resendInvite=async row=>{try{const {data}=await api.post(`/management/employees/${row.id}/resend-invite`);const activationUrl=data?.activation_url||'';setInviteLink(activationUrl?{url:activationUrl,label:`${row.first_name||''} ${row.last_name||''}`.trim()||row.email}:null);if(data?.invitation_sent){n.success(data?.message||'Activation invitation sent again.')}else{n.error(data?.message||'Email delivery failed. Use the activation link below.')}}catch(e){n.error(messageFrom(e))}};
   const toggleEmployeeActive=row=>setOffboarding({kind:'employee',action:row.user?.is_active===false?'reactivate':'deactivate',target:row});
   const submitEmployeeOffboarding=async payload=>{if(!offboarding?.target)return;setBusy(true);try{const action=offboarding.action;const {data}=await api.post(`/management/employees/${offboarding.target.id}/${action}`,payload);n.success(data.message);setOffboarding(null);await load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
   const copyEmployeeInvite=async()=>{if(!inviteLink?.url)return;try{await navigator.clipboard.writeText(inviteLink.url);n.success('Activation link copied.')}catch{n.error('Could not copy the activation link. Please copy it manually.')}};
-  const columns=[{key:'employee_code',label:'Emp #',sortKey:'employee_code'},{key:'name',label:'Employee',sortKey:'first_name',render:r=><Link className="person-cell employee-profile-link" to={`${roleBase(user.role)}/employees/${r.id}`}><div className="avatar">{r.first_name?.[0]}{r.last_name?.[0]}</div><div><strong>{r.first_name} {r.last_name}</strong><span>{r.email}</span></div></Link>},{key:'department',label:'Department',render:r=>r.department?.name||'—'},{key:'designation',label:'Designation',render:r=>r.designation?.name||'—'},{key:'status',label:'Status',render:r=>{const active=r.user?.is_active!==false;return <Badge tone={active?'success':'danger'}>{active?'Active':'Inactive'}</Badge>}},{key:'timezone',label:'Timezone',sortKey:'timezone'},{key:'salary',label:'Salary',sortKey:'salary_usd',render:r=>r.salary_usd?money(r.salary_usd):'—'},{key:'actions',label:'Actions',render:r=><div className="row-actions"><button title="View profile" onClick={()=>navigate(`${roleBase(user.role)}/employees/${r.id}`)}><Eye size={16}/></button><button title="Resend activation invite" onClick={()=>resendInvite(r)}><Send size={16}/></button><button title="Edit employee" onClick={()=>openEdit(r)}><Pencil size={16}/></button><button title={r.user?.is_active===false?'Reactivate employee':'Deactivate employee'} className={r.user?.is_active===false?'':'danger'} onClick={()=>toggleEmployeeActive(r)}>{r.user?.is_active===false?<UserCheck size={16}/>:<UserX size={16}/>}</button><button title="Delete employee" className="danger" onClick={()=>remove(r)}><Trash2 size={16}/></button></div>}];
-  return <><PageHeader eyebrow="Workforce" title="Employees" description="Manage VA identities, work details, hierarchy, timezone and compensation." actions={<Button icon={Plus} onClick={openNew}>Add employee</Button>}/>{inviteLink&&<Card title="Activation link"><div className="invite-link-box"><div><strong>{inviteLink.label}</strong><a href={inviteLink.url} target="_blank" rel="noreferrer">{inviteLink.url}</a></div><Button variant="secondary" icon={ClipboardCopy} onClick={copyEmployeeInvite}>Copy link</Button></div></Card>}<Card><div className="toolbar"><SearchBox value={search} onChange={v=>{setSearch(v);setPage(1)}} placeholder="Search name, email or employee #"/><span className="record-count">{meta?.total??rows.length} employees</span></div><div className="filter-grid employee-filters"><Select label="Department" value={filters.department_id} onChange={e=>setFilter('department_id',e.target.value)}><option value="">All departments</option>{(options.departments||[]).map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</Select><Select label="Designation" value={filters.designation_id} onChange={e=>setFilter('designation_id',e.target.value)}><option value="">All designations</option>{(options.designations||[]).map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</Select><Select label="Status" value={filters.employee_status_id} onChange={e=>setFilter('employee_status_id',e.target.value)}><option value="">All statuses</option>{(options.employee_statuses||[]).map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</Select><Select label="Timezone" value={filters.timezone} onChange={e=>setFilter('timezone',e.target.value)}><option value="">All timezones</option>{timezones.map(tz=><option key={tz} value={tz}>{tz}</option>)}</Select><div className="filter-actions"><Button variant="ghost" onClick={()=>{setFilters(emptyFilters);setPage(1)}} disabled={!Object.values(filters).some(Boolean)}>Reset</Button></div></div>{busy&&!rows.length?<Loading inline/>:<Table columns={columns} rows={rows} emptyTitle="No employees found" emptyDescription="Change your search or add the first employee." meta={meta} onPage={setPage} perPage={perPage} onPerPage={v=>{setPerPage(v);setPage(1)}} sort={sort} onSort={s=>{setSort(s);setPage(1)}}/>}</Card>
+  const columns=[{key:'employee_code',label:'Emp #',sortKey:'employee_code'},{key:'name',label:'Employee',sortKey:'first_name',render:r=><Link className="person-cell employee-profile-link" to={`${roleBase(user.role)}/employees/${r.id}`}><div className="avatar"><AvatarMedia src={r.profile_picture} alt={`${r.first_name||''} ${r.last_name||''}`} fallback={`${r.first_name?.[0]||''}${r.last_name?.[0]||''}`}/></div><div><strong>{r.first_name} {r.last_name}</strong><span>{r.email}</span></div></Link>},{key:'department',label:'Department',render:r=>r.department?.name||'—'},{key:'designation',label:'Designation',render:r=>r.designation?.name||'—'},{key:'status',label:'Status',render:r=>{const active=r.user?.is_active!==false;return <Badge tone={active?'success':'danger'}>{active?'Active':'Inactive'}</Badge>}},{key:'timezone',label:'Timezone',sortKey:'timezone'},{key:'salary',label:'Salary',sortKey:'salary_usd',render:r=>r.salary_usd?money(r.salary_usd):'—'},{key:'actions',label:'Actions',render:r=><div className="row-actions"><button title="View profile" onClick={()=>navigate(`${roleBase(user.role)}/employees/${r.id}`)}><Eye size={16}/></button>{allowed('edit')&&<button title="Resend activation invite" onClick={()=>resendInvite(r)}><Send size={16}/></button>}{allowed('edit')&&<button title="Edit employee" onClick={()=>openEdit(r)}><Pencil size={16}/></button>}{allowed('edit')&&<button title={r.user?.is_active===false?'Reactivate employee':'Deactivate employee'} className={r.user?.is_active===false?'':'danger'} onClick={()=>toggleEmployeeActive(r)}>{r.user?.is_active===false?<UserCheck size={16}/>:<UserX size={16}/>}</button>}{allowed('delete')&&<button title="Delete employee" className="danger" onClick={()=>remove(r)}><Trash2 size={16}/></button>}</div>}];
+  return <><PageHeader eyebrow="Workforce" title="Employees" description="Manage VA identities, work details, hierarchy, timezone and compensation." actions={allowed('create')&&<Button icon={Plus} onClick={openNew}>Add employee</Button>}/>{inviteLink&&<Card title="Activation link"><div className="invite-link-box"><div><strong>{inviteLink.label}</strong><a href={inviteLink.url} target="_blank" rel="noreferrer">{inviteLink.url}</a></div><Button variant="secondary" icon={ClipboardCopy} onClick={copyEmployeeInvite}>Copy link</Button></div></Card>}<Card><div className="toolbar"><SearchBox value={search} onChange={v=>{setSearch(v);setPage(1)}} placeholder="Search name, email or employee #"/><span className="record-count">{meta?.total??rows.length} employees</span></div><div className="filter-grid employee-filters"><Select label="Department" value={filters.department_id} onChange={e=>setFilter('department_id',e.target.value)}><option value="">All departments</option>{(options.departments||[]).map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</Select><Select label="Designation" value={filters.designation_id} onChange={e=>setFilter('designation_id',e.target.value)}><option value="">All designations</option>{(options.designations||[]).map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</Select><Select label="Timezone" value={filters.timezone} onChange={e=>setFilter('timezone',e.target.value)}><option value="">All timezones</option>{timezones.map(tz=><option key={tz} value={tz}>{tz}</option>)}</Select><div className="filter-actions"><Button variant="ghost" onClick={()=>{setFilters(emptyFilters);setPage(1)}} disabled={!Object.values(filters).some(Boolean)}>Reset</Button></div></div>{busy&&!rows.length?<Loading inline/>:<Table columns={columns} rows={rows} emptyTitle="No employees found" emptyDescription="Change your search or add the first employee." meta={meta} onPage={setPage} perPage={perPage} onPerPage={v=>{setPerPage(v);setPage(1)}} sort={sort} onSort={s=>{setSort(s);setPage(1)}}/>}</Card>
   <EmployeeFormModal open={modal} onClose={()=>setModal(false)} form={form} setForm={setForm} options={options} busy={busy} onSave={save} onProbationAction={probationAction}/><OffboardingModal state={offboarding} onClose={()=>setOffboarding(null)} onSubmit={submitEmployeeOffboarding} busy={busy}/></>;
 }
 
 const emptyClient={name:'',email:'',password:'',business_name:'',phone_number:'',country:'United States',timezone:'America/New_York',per_hour_charges:'',contract_type_id:'',service_id:'',ring_center:false};
 export function ClientsPage(){
  const navigate=useNavigate();
- const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[search,setSearch]=useState(queryParam('search')),[page,setPage]=useState(1),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[form,setForm]=useState(emptyClient),[options,setOptions]=useState({}),[busy,setBusy]=useState(false),[inviteLink,setInviteLink]=useState(null),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'id',dir:'desc'}),[offboarding,setOffboarding]=useState(null);const n=useNotice();
- const load=async()=>{setBusy(true);try{const [r,o]=await Promise.all([api.get('/admin/clients',{params:{search,page,per_page:perPage,sort:sort.key,direction:sort.dir}}),api.get('/management/options')]);setRows(r.data.data);setMeta(r.data);setOptions(o.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};useEffect(()=>{const t=setTimeout(load,200);return()=>clearTimeout(t)},[search,page,perPage,sort]);
+ const allowed=useCan('clients');
+ const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[search,setSearch]=useState(queryParam('search')),[page,setPage]=useState(1),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[form,setForm]=useState(emptyClient),[options,setOptions]=useState({}),[busy,setBusy]=useState(false),[inviteLink,setInviteLink]=useState(null),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'id',dir:'desc'}),[offboarding,setOffboarding]=useState(null),[filters,setFilters]=useState({business_name:'',timezone:''});const n=useNotice();
+ const setClientFilter=(key,value)=>{setFilters(current=>({...current,[key]:value}));setPage(1)};
+ const load=async()=>{setBusy(true);try{const [r,o]=await Promise.all([api.get('/admin/clients',{params:{search,...filters,page,per_page:perPage,sort:sort.key,direction:sort.dir}}),api.get('/management/options')]);setRows(r.data.data);setMeta(r.data);setOptions(o.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};useEffect(()=>{const t=setTimeout(load,200);return()=>clearTimeout(t)},[search,filters,page,perPage,sort]);
+ const clientBusinesses=options.client_businesses||[];
+ const clientTimezones=options.client_timezones||[];
  const open=(r=null)=>{setEdit(r);setForm(r?{...emptyClient,...r,password:'',ring_center:!!r.ring_center}:emptyClient);setModal(true)};const set=(k,v)=>setForm(f=>({...f,[k]:v}));
- const save=async()=>{setBusy(true);try{const {data}=edit?await api.put(`/admin/clients/${edit.id}`,form):await api.post('/admin/clients',form);if(!edit&&data?.activation_url)setInviteLink({url:data.activation_url,label:form.name||form.email});data?.invitation_sent===false?n.error(data?.message||'Client created, but email delivery failed.'):n.success(data?.message||(edit?'Client updated.':'Client created.'));window.dispatchEvent(new CustomEvent('carevma:timezone-updated',{detail:{clientId:data?.client?.id||edit?.id||null,timezone:form.timezone,source:'admin-clients'}}));setModal(false);load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};const remove=async r=>{try{await api.delete(`/admin/clients/${r.id}`);n.success('Client deleted.');load()}catch(e){n.error(messageFrom(e))}};const resendInvite=async r=>{setBusy(true);try{const {data}=await api.post(`/admin/clients/${r.id}/resend-invite`);setInviteLink(data?.activation_url?{url:data.activation_url,label:r.name||r.email}:null);data?.invitation_sent?n.success(data.message):n.error(data.message)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};const copyClientInvite=async()=>{if(!inviteLink?.url)return;try{await navigator.clipboard.writeText(inviteLink.url);n.success('Activation link copied.')}catch{n.error('Could not copy the activation link. Please copy it manually.')}};
+ const save=async()=>{setBusy(true);try{let result;if(edit&&(form.photo_file||form.photo_removed)){const fd=new FormData();Object.entries(form).forEach(([k,v])=>{if(['photo_file','photo_removed','profile_picture','user'].includes(k)||v===null||typeof v==='object')return;fd.append(k,typeof v==='boolean'?(v?'1':'0'):String(v))});fd.append('_method','PUT');if(form.photo_file)fd.append('profile_picture',form.photo_file);if(form.photo_removed&&!form.photo_file)fd.append('remove_profile_picture','1');result=await api.post(`/admin/clients/${edit.id}`,fd,{headers:{'Content-Type':'multipart/form-data'}})}else{result=edit?await api.put(`/admin/clients/${edit.id}`,form):await api.post('/admin/clients',form)}const {data}=result;if(!edit&&data?.activation_url)setInviteLink({url:data.activation_url,label:form.name||form.email});data?.invitation_sent===false?n.error(data?.message||'Client created, but email delivery failed.'):n.success(data?.message||(edit?'Client updated.':'Client created.'));window.dispatchEvent(new CustomEvent('carevma:timezone-updated',{detail:{clientId:data?.client?.id||edit?.id||null,timezone:form.timezone,source:'admin-clients'}}));setModal(false);load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};const remove=async r=>{try{await api.delete(`/admin/clients/${r.id}`);n.success('Client deleted.');load()}catch(e){n.error(messageFrom(e))}};const resendInvite=async r=>{setBusy(true);try{const {data}=await api.post(`/admin/clients/${r.id}/resend-invite`);setInviteLink(data?.activation_url?{url:data.activation_url,label:r.name||r.email}:null);data?.invitation_sent?n.success(data.message):n.error(data.message)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};const copyClientInvite=async()=>{if(!inviteLink?.url)return;try{await navigator.clipboard.writeText(inviteLink.url);n.success('Activation link copied.')}catch{n.error('Could not copy the activation link. Please copy it manually.')}};
  const toggleClientActive=r=>setOffboarding({kind:'client',action:r.user?.is_active===false?'reactivate':'deactivate',target:r});
  const submitClientOffboarding=async payload=>{if(!offboarding?.target)return;setBusy(true);try{const action=offboarding.action;const {data}=await api.post(`/admin/clients/${offboarding.target.id}/${action}`,payload);n.success(data.message);setOffboarding(null);await load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
- const columns=[{key:'name',label:'Client',sortKey:'name',render:r=><div className="person-cell"><div className="avatar client-avatar">{r.name?.[0]}</div><div><strong><ClientLink client={r}>{r.name}</ClientLink></strong><span>{r.email}</span></div></div>},{key:'business_name',label:'Business',sortKey:'business_name'},{key:'country',label:'Country',sortKey:'country'},{key:'rate',label:'Rate / hr',sortKey:'per_hour_charges',render:r=>r.per_hour_charges?money(r.per_hour_charges):'—'},{key:'timezone',label:'Timezone',sortKey:'timezone'},{key:'service',label:'Service',render:r=>r.service?.name||'—'},{key:'status',label:'Status',render:r=>{const active=r.user?.is_active!==false;return <Badge tone={active?'success':'danger'}>{active?'Active':'Inactive'}</Badge>}},{key:'actions',label:'Actions',render:r=><div className="row-actions"><button className="client-profile-open-btn" title="Open client profile" onClick={()=>navigate(`/admin/client/${r.id}/profile`)}><Stethoscope size={16}/></button><button title="Resend password setup email" onClick={()=>resendInvite(r)}><Send size={16}/></button><button title="Edit client" onClick={()=>open(r)}><Pencil size={16}/></button><button title={r.user?.is_active===false?'Reactivate Doctor / Client':'Deactivate Doctor / Client'} className={r.user?.is_active===false?'':'danger'} onClick={()=>toggleClientActive(r)}>{r.user?.is_active===false?<UserCheck size={16}/>:<UserX size={16}/>}</button><button title="Delete client" className="danger" onClick={()=>remove(r)}><Trash2 size={16}/></button></div>}];
- return <><PageHeader eyebrow="Client operations" title="Clients" description="Manage doctor/client accounts, rates, contract classification and timezone." actions={<Button icon={Plus} onClick={()=>open()}>Add client</Button>}/>{inviteLink&&<Card title="Activation link"><div className="invite-link-box"><div><strong>{inviteLink.label}</strong><a href={inviteLink.url} target="_blank" rel="noreferrer">{inviteLink.url}</a></div><Button variant="secondary" icon={ClipboardCopy} onClick={copyClientInvite}>Copy link</Button></div></Card>}<Card><div className="toolbar"><SearchBox value={search} onChange={v=>{setSearch(v);setPage(1)}} placeholder="Search client or business"/><span className="record-count">{meta?.total??rows.length} clients</span></div><Table columns={columns} rows={rows} emptyTitle="No clients found" meta={meta} onPage={setPage} perPage={perPage} onPerPage={v=>{setPerPage(v);setPage(1)}} sort={sort} onSort={s=>{setSort(s);setPage(1)}}/></Card><Modal open={modal} onClose={()=>setModal(false)} title={edit?'Edit client':'Add client'} wide footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={save} icon={Save}>Save client</Button></>}><div className="form-grid"><Input label="Name *" value={form.name||''} onChange={e=>set('name',e.target.value)}/><Input label="Email *" type="email" value={form.email||''} onChange={e=>set('email',e.target.value)}/>{!edit&&<div className="client-invite-note"><strong>Password setup by email</strong><span>The Client / Doctor will receive a secure CareVMA link and choose their own password.</span></div>}<Input label="Business name" value={form.business_name||''} onChange={e=>set('business_name',e.target.value)}/><Input label="Phone" value={form.phone_number||''} onChange={e=>set('phone_number',e.target.value)}/><Input label="Country" value={form.country||''} onChange={e=>set('country',e.target.value)}/><TimezonePicker label="Timezone *" value={form.timezone||''} onChange={value=>set('timezone',value)} onCitySelect={place=>setForm(current=>({...current,timezone:place.timezone,country:place.country||current.country}))}/><Input label="Per hour charge" type="number" step="0.01" value={form.per_hour_charges||''} onChange={e=>set('per_hour_charges',e.target.value)}/><Select label="Service" value={form.service_id||''} onChange={e=>set('service_id',e.target.value)}><option value="">Select</option>{(options.services||[]).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</Select><Select label="Contract type" value={form.contract_type_id||''} onChange={e=>set('contract_type_id',e.target.value)}><option value="">Select</option>{(options.contracts||[]).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</Select><label className="check field-check"><input type="checkbox" checked={!!form.ring_center} onChange={e=>set('ring_center',e.target.checked)}/><span>Ring Center enabled</span></label></div></Modal><OffboardingModal state={offboarding} onClose={()=>setOffboarding(null)} onSubmit={submitClientOffboarding} busy={busy}/></>;
+ const columns=[{key:'name',label:'Client',sortKey:'name',render:r=><div className="person-cell"><div className="avatar client-avatar"><AvatarMedia src={r.profile_picture} alt={r.name||'Client'} fallback={r.name?.[0]||'C'}/></div><div><strong><ClientLink client={r}>{r.name}</ClientLink></strong><span>{r.email}</span></div></div>},{key:'business_name',label:'Business',sortKey:'business_name'},{key:'rate',label:'Rate / hr',sortKey:'per_hour_charges',render:r=>r.per_hour_charges?money(r.per_hour_charges):'—'},{key:'timezone',label:'Timezone',sortKey:'timezone'},{key:'service',label:'Service',render:r=>r.service?.name||'—'},{key:'status',label:'Status',render:r=>{const active=r.user?.is_active!==false;return <Badge tone={active?'success':'danger'}>{active?'Active':'Inactive'}</Badge>}},{key:'actions',label:'Actions',render:r=><div className="row-actions"><button className="client-profile-open-btn" title="Open client profile" onClick={()=>navigate(`/admin/client/${r.id}/profile`)}><Stethoscope size={16}/></button>{allowed('edit')&&<button title="Resend password setup email" onClick={()=>resendInvite(r)}><Send size={16}/></button>}{allowed('edit')&&<button title="Edit client" onClick={()=>open(r)}><Pencil size={16}/></button>}{allowed('edit')&&<button title={r.user?.is_active===false?'Reactivate Doctor / Client':'Deactivate Doctor / Client'} className={r.user?.is_active===false?'':'danger'} onClick={()=>toggleClientActive(r)}>{r.user?.is_active===false?<UserCheck size={16}/>:<UserX size={16}/>}</button>}{allowed('delete')&&<button title="Delete client" className="danger" onClick={()=>remove(r)}><Trash2 size={16}/></button>}</div>}];
+ return <><PageHeader eyebrow="Client operations" title="Clients" description="Manage doctor/client accounts, rates, contract classification and timezone." actions={allowed('create')&&<Button icon={Plus} onClick={()=>open()}>Add client</Button>}/>{inviteLink&&<Card title="Activation link"><div className="invite-link-box"><div><strong>{inviteLink.label}</strong><a href={inviteLink.url} target="_blank" rel="noreferrer">{inviteLink.url}</a></div><Button variant="secondary" icon={ClipboardCopy} onClick={copyClientInvite}>Copy link</Button></div></Card>}<Card><div className="toolbar"><SearchBox value={search} onChange={v=>{setSearch(v);setPage(1)}} placeholder="Search client or business"/><span className="record-count">{meta?.total??rows.length} clients</span></div><div className="filter-grid client-filters"><Select label="Business" value={filters.business_name} onChange={e=>setClientFilter('business_name',e.target.value)}><option value="">All businesses</option>{clientBusinesses.map(business=><option key={business} value={business}>{business}</option>)}</Select><Select label="Timezone" value={filters.timezone} onChange={e=>setClientFilter('timezone',e.target.value)}><option value="">All timezones</option>{clientTimezones.map(timezone=><option key={timezone} value={timezone}>{timezone}</option>)}</Select><div className="filter-actions"><Button variant="ghost" onClick={()=>{setFilters({business_name:'',timezone:''});setPage(1)}} disabled={!filters.business_name&&!filters.timezone}>Reset</Button></div></div><Table columns={columns} rows={rows} emptyTitle="No clients found" meta={meta} onPage={setPage} perPage={perPage} onPerPage={v=>{setPerPage(v);setPage(1)}} sort={sort} onSort={s=>{setSort(s);setPage(1)}}/></Card><Modal open={modal} onClose={()=>setModal(false)} title={edit?'Edit client':'Add client'} wide footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={save} icon={Save}>Save client</Button></>}>{edit&&<ProfilePhotoPicker current={form.profile_picture} file={form.photo_file||null} removed={!!form.photo_removed} label="Client photo" fallback={(form.name?.[0]||'C').toUpperCase()} accept="image/jpeg,image/png,image/webp" maxMB={5} onFile={file=>setForm(f=>({...f,photo_file:file,photo_removed:false}))} onRemove={()=>setForm(f=>({...f,photo_file:null,photo_removed:true}))}/>}<div className="form-grid"><Input label="Name *" value={form.name||''} onChange={e=>set('name',e.target.value)}/><Input label="Email *" type="email" value={form.email||''} onChange={e=>set('email',e.target.value)}/>{!edit&&<div className="client-invite-note"><strong>Password setup by email</strong><span>The Client / Doctor will receive a secure CareVMA link and choose their own password.</span></div>}<Input label="Business name" value={form.business_name||''} onChange={e=>set('business_name',e.target.value)}/><Input label="Phone" value={form.phone_number||''} onChange={e=>set('phone_number',e.target.value)}/><Input label="Country" value={form.country||''} onChange={e=>set('country',e.target.value)}/><TimezonePicker label="Timezone *" value={form.timezone||''} onChange={value=>set('timezone',value)} onCitySelect={place=>setForm(current=>({...current,timezone:place.timezone,country:place.country||current.country}))}/><Input label="Per hour charge" type="number" step="0.01" value={form.per_hour_charges||''} onChange={e=>set('per_hour_charges',e.target.value)}/><Select label="Service" value={form.service_id||''} onChange={e=>set('service_id',e.target.value)}><option value="">Select</option>{(options.services||[]).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</Select><Select label="Contract type" value={form.contract_type_id||''} onChange={e=>set('contract_type_id',e.target.value)}><option value="">Select</option>{(options.contracts||[]).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</Select><label className="check field-check"><input type="checkbox" checked={!!form.ring_center} onChange={e=>set('ring_center',e.target.checked)}/><span>Ring Center enabled</span></label></div></Modal><OffboardingModal state={offboarding} onClose={()=>setOffboarding(null)} onSubmit={submitClientOffboarding} busy={busy}/></>;
 }
 
 function parseTime12(value='00:00'){
@@ -548,13 +642,12 @@ function Time12Field({label,value,onChange}){
 }
 
 export function SchedulesPage(){
+ const allowed=useCan('schedules');
  const {user}=useAuth();
  const emptySchedule={employee_id:'',client_id:'',schedule_date:'',weekday:'Monday',start_time:'09:00',end_time:'17:00',break_allowed_hours:'0.30',timezone:'',enabled:true,repeat:true,per_hour_rate:''};
- const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[page,setPage]=useState(1),[search,setSearch]=useState(queryParam('search')),[perPage,setPerPage]=useState(50),[sort,setSort]=useState({key:'weekday',dir:'asc'}),[summary,setSummary]=useState(null),[options,setOptions]=useState({}),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[busy,setBusy]=useState(false),[form,setForm]=useState(emptySchedule);const n=useNotice();
+ const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[page,setPage]=useState(1),[search,setSearch]=useState(queryParam('search')),[perPage,setPerPage]=useState(50),[sort,setSort]=useState({key:'weekday',dir:'asc'}),[summary,setSummary]=useState(null),[options,setOptions]=useState({}),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[busy,setBusy]=useState(false),[form,setForm]=useState(emptySchedule),[selectedEmployeeOption,setSelectedEmployeeOption]=useState(null),[selectedClientOption,setSelectedClientOption]=useState(null);const n=useNotice();
 
  const dayFromDate=value=>weekdayFromDateOnly(value);
- const selectedClient=id=>(options.clients||[]).find(client=>String(client.id)===String(id));
- const selectedEmployee=id=>(options.employees||[]).find(employee=>String(employee.id)===String(id));
  const formatMoment=(value,timeZone)=>formatDateTime(value,timeZone||'UTC',{weekday:'short',year:undefined});
  const formatTime=(value,timeZone)=>formatTimeInZone(value,timeZone||'UTC');
  const doctorRange=row=>{const tz=row.client_timezone||row.client?.timezone;if(!row.client_shift_starts_at||!row.client_shift_ends_at||!tz)return 'Saved after timezone sync';return `${formatMoment(row.client_shift_starts_at,tz)} – ${formatTime(row.client_shift_ends_at,tz)}`};
@@ -569,22 +662,23 @@ export function SchedulesPage(){
  const open=r=>{
    setEdit(r||null);
    if(r){
-     const employee=(options.employees||[]).find(x=>String(x.id)===String(r.employee_id));
+     setSelectedEmployeeOption(r.employee?{value:String(r.employee.id),id:r.employee.id,label:`${r.employee.employee_code||'VA'} · ${r.employee.first_name||''} ${r.employee.last_name||''}`.trim(),meta:r.employee.timezone||'Timezone not set',timezone:r.employee.timezone,first_name:r.employee.first_name,last_name:r.employee.last_name,email:r.employee.email,employee_code:r.employee.employee_code}:null);
+     setSelectedClientOption(r.client?{value:String(r.client.id),id:r.client.id,label:r.client.name||r.client.business_name||'Doctor',meta:r.client.timezone||'Timezone not set',timezone:r.client.timezone,name:r.client.name,business_name:r.client.business_name}:null);
      setForm({...emptySchedule,...r,schedule_date:r.schedule_date?String(r.schedule_date).slice(0,10):'',start_time:r.start_time?.slice(0,5),end_time:r.end_time?.slice(0,5),timezone:r.client_timezone||r.client?.timezone||r.timezone||'',enabled:!!r.enabled,repeat:!!r.repeat,per_hour_rate:''});
    }else{
-     setForm(emptySchedule);
+     setSelectedEmployeeOption(null);setSelectedClientOption(null);setForm(emptySchedule);
    }
    setModal(true);
  };
  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
  const chooseEmployee=value=>setForm(current=>({...current,employee_id:value}));
- const chooseClient=value=>{const client=selectedClient(value);setForm(current=>({...current,client_id:value,timezone:client?.timezone||''}))};
+ const chooseClient=value=>setForm(current=>({...current,client_id:value}));
  const chooseDate=value=>{const weekday=dayFromDate(value);setForm(current=>({...current,schedule_date:value,weekday:weekday||current.weekday,repeat:value?false:current.repeat}))};
  const save=async()=>{
    setBusy(true);
    try{
-     const employee=selectedEmployee(form.employee_id);
-     const client=selectedClient(form.client_id);
+     const employee=selectedEmployeeOption;
+     const client=selectedClientOption;
      if(!employee?.timezone){n.error('Selected VA / Employee must have a timezone before saving the schedule.');return}
      if(!client?.timezone){n.error('Selected Client / Doctor must have a timezone before saving the schedule.');return}
      const payload={...form,schedule_date:form.repeat?null:(form.schedule_date||null)};
@@ -596,8 +690,8 @@ export function SchedulesPage(){
  };
  const remove=async r=>{try{await api.delete(`/management/schedules/${r.id}`);n.success('Schedule deleted.');load()}catch(e){n.error(messageFrom(e))}};
 
- const currentEmployee=selectedEmployee(form.employee_id);
- const currentClient=selectedClient(form.client_id);
+ const currentEmployee=selectedEmployeeOption;
+ const currentClient=selectedClientOption;
  const columns=[
    {key:'employee',label:'Employee',render:r=><div className="person-cell"><div className="avatar small"><AvatarMedia src={r.employee?.profile_picture} alt={fullName(r.employee)} fallback={`${r.employee?.first_name?.[0]||''}${r.employee?.last_name?.[0]||''}`||'?'}/></div><div><strong><EmployeeLink employee={r.employee}>{fullName(r.employee)}</EmployeeLink></strong><span>{r.employee?.employee_code||''}</span></div></div>},
    {key:'client',label:'Client / Doctor',render:r=><ClientLink client={r.client}/>},
@@ -609,11 +703,11 @@ export function SchedulesPage(){
    {key:'doctor_break',label:'Doctor break',render:r=><Badge tone="info">{breakCodeText(r.break_allowed_hours)}</Badge>},
    {key:'hours',label:'Duration (H.MM)',sortKey:'no_of_hours',render:r=><strong>{formatDurationHM(r.no_of_hours)}</strong>},
    {key:'status',label:'Status',sortKey:'enabled',render:r=><Badge tone={r.enabled?'success':'danger'}>{r.enabled?'Enabled':'Disabled'}</Badge>},
-   {key:'actions',label:'Actions',render:r=><div className="row-actions"><button onClick={()=>open(r)}><Pencil size={16}/></button><button className="danger" onClick={()=>remove(r)}><Trash2 size={16}/></button></div>}
+   {key:'actions',label:'Actions',render:r=><div className="row-actions">{allowed('edit')&&<button onClick={()=>open(r)}><Pencil size={16}/></button>}{allowed('delete')&&<button className="danger" onClick={()=>remove(r)}><Trash2 size={16}/></button>}</div>}
  ];
 
  return <>
-   <PageHeader eyebrow="Assignment planning" title="Schedules" description="Doctor time remains the calculation source. VA local shift is shown only as a converted reference for Admin / HR and the assigned VA." actions={<><Link className="btn btn-secondary btn-link" to={`${roleBase(user?.role)}/change-requests`}>Change Requests</Link><Button icon={Plus} onClick={()=>open()}>Add schedule</Button></>}/>
+   <PageHeader eyebrow="Assignment planning" title="Schedules" description="Doctor time remains the calculation source. VA local shift is shown only as a converted reference for Admin / HR and the assigned VA." actions={<>{can(user,'change-requests')&&<Link className="btn btn-secondary btn-link" to={`${roleBase(user?.role)}/change-requests`}>Change Requests</Link>}{allowed('create')&&<Button icon={Plus} onClick={()=>open()}>Add schedule</Button>}</>}/>
     {summary&&<div className="ep-metrics">
       <StatTile label="Total schedules" value={summary.total} unit={summary.enabled===summary.total?'all active':`${summary.enabled} active`} icon={CalendarDays}><span>{summary.employees} VA{summary.employees===1?'':'s'} scheduled</span></StatTile>
       <StatTile label="Scheduled billable" value={formatDurationHM(summary.weekly_hours)} unit="hours / week" icon={Clock3} tone="success"><span>Weekly shifts in doctor-local time</span></StatTile>
@@ -623,9 +717,9 @@ export function SchedulesPage(){
    <Card><div className="toolbar"><SearchBox value={search} onChange={setSearch} placeholder="Search all schedules: VA, Doctor, date, day, time or timezone"/><span className="record-count">{meta?.total??rows.length} schedules</span></div>{busy&&!rows.length?<Loading inline/>:<><Table columns={columns} rows={rows} emptyTitle="No schedules configured" meta={meta} onPage={setPage} perPage={perPage} onPerPage={v=>{setPerPage(v);setPage(1)}} sort={sort} onSort={s=>{setSort(s);setPage(1)}}/></>}</Card>
    <Modal open={modal} onClose={()=>setModal(false)} title={edit?'Edit schedule':'New schedule'} footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={save}>Save schedule</Button></>}>
      <div className="form-grid">
-       <SearchableSelect label="Employee / VA *" value={form.employee_id} onChange={chooseEmployee} placeholder="Search and select VA" searchPlaceholder="Search VA name, code or timezone…" options={(options.employees||[]).map(x=>({value:String(x.id),label:`${x.employee_code||'VA'} · ${x.first_name||''} ${x.last_name||''}`.trim(),meta:x.timezone||'Timezone not set',searchText:`${x.email||''} ${x.employee_code||''}`}))}/>
+       <SearchableSelect label="Employee / VA *" value={form.employee_id} onChange={chooseEmployee} onOptionChange={setSelectedEmployeeOption} placeholder="Search and select VA" searchPlaceholder="Search VA name, code or timezone…" remoteType="employee"/>
        <Input label="VA assigned timezone" value={currentEmployee?.timezone||'Select a VA first'} disabled/>
-       <SearchableSelect label="Client / Doctor *" value={form.client_id} onChange={chooseClient} placeholder="Search and select Doctor" searchPlaceholder="Search Doctor name, business or timezone…" options={(options.clients||[]).map(x=>({value:String(x.id),label:x.name||x.business_name||x.email,meta:x.timezone||'Timezone not set',searchText:`${x.business_name||''} ${x.email||''}`}))}/>
+       <SearchableSelect label="Client / Doctor *" value={form.client_id} onChange={chooseClient} onOptionChange={option=>{setSelectedClientOption(option);setForm(current=>({...current,timezone:option?.timezone||current.timezone}))}} placeholder="Search and select Doctor" searchPlaceholder="Search Doctor name, business or timezone…" remoteType="client"/>
        <Input label={form.repeat?'Date (optional while weekly)':'Date *'} type="date" value={form.schedule_date||''} disabled={!!form.repeat} onChange={e=>chooseDate(e.target.value)}/>
        <Select label="Doctor day *" value={form.weekday} disabled={!!form.schedule_date} onChange={e=>set('weekday',e.target.value)}>{['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(x=><option key={x}>{x}</option>)}</Select>
        <Time12Field label="Doctor start time *" value={form.start_time} onChange={value=>set('start_time',value)}/>
@@ -673,19 +767,22 @@ const tzOffset=tz=>{try{return new Intl.DateTimeFormat('en-US',{timeZone:tz,time
 
 export function EmployeeProfilePage(){
   const {user}=useAuth(); const {employeeId}=useParams(); const navigate=useNavigate(); const n=useNotice();
+  const allowed=useCan('employees');
+  const canViewSchedules=can(user,'schedules');
+  const canViewAttendance=can(user,'attendance');
   const base=`${roleBase(user.role)}/employees`;
   const [employee,setEmployee]=useState(null),[schedules,setSchedules]=useState(null),[options,setOptions]=useState({}),[tab,setTab]=useState('overview'),[modal,setModal]=useState(false),[form,setForm]=useState(emptyEmployee),[busy,setBusy]=useState(false);
   const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[page,setPage]=useState(1),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'date',dir:'desc'}),[attendanceBusy,setAttendanceBusy]=useState(false),[openDoctor,setOpenDoctor]=useState(null);
-  const load=async()=>{try{const [e,s,o]=await Promise.all([api.get(`/management/employees/${employeeId}`),api.get('/management/schedules',{params:{employee_id:employeeId}}),api.get('/management/options')]);setEmployee(e.data);setSchedules(Array.isArray(s.data)?s.data:getList(s.data));setOptions(o.data||{})}catch(e){n.error(messageFrom(e));navigate(base,{replace:true})}};
-  useEffect(()=>{setEmployee(null);setTab('overview');setPage(1);load()},[employeeId]);
+  const load=async()=>{try{const [e,s,o]=await Promise.all([api.get(`/management/employees/${employeeId}`),canViewSchedules?api.get('/management/schedules',{params:{employee_id:employeeId}}):Promise.resolve({data:[]}),api.get('/management/options')]);setEmployee(e.data);setSchedules(Array.isArray(s.data)?s.data:getList(s.data));setOptions(o.data||{})}catch(e){n.error(messageFrom(e));navigate(base,{replace:true})}};
+  useEffect(()=>{setEmployee(null);setTab('overview');setPage(1);load()},[employeeId,canViewSchedules]);
   const loadAttendance=async()=>{setAttendanceBusy(true);try{const r=await api.get('/management/attendance',{params:{employee_id:employeeId,page,per_page:perPage,sort:sort.key,direction:sort.dir}});setRows(r.data.data);setMeta(r.data)}catch(e){n.error(messageFrom(e))}finally{setAttendanceBusy(false)}};
-  useEffect(()=>{if(tab==='attendance')loadAttendance()},[tab,employeeId,page,perPage,sort]);
+  useEffect(()=>{if(tab==='attendance'&&canViewAttendance)loadAttendance()},[tab,employeeId,page,perPage,sort,canViewAttendance]);
   if(!employee)return <Loading/>;
 
   const save=async()=>{setBusy(true);try{await api.put(`/management/employees/${employee.id}`,form);n.success('Employee updated.');setModal(false);await load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
   const resendInvite=async()=>{setBusy(true);try{const {data}=await api.post(`/management/employees/${employee.id}/resend-invite`);if(data.activation_url&&navigator.clipboard){await navigator.clipboard.writeText(data.activation_url);n.success(`${data.message} Activation link copied.`)}else n.success(data.message)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
   const summary=employee.month_summary||{};
-  const docs=Array.isArray(employee.upload_documents)?employee.upload_documents:[];
+  const docs=allowed('export')&&Array.isArray(employee.upload_documents)?employee.upload_documents:[];
   const status=employee.employee_status?.name;
   const live=!!employee.is_live;
   const name=fullName(employee);
@@ -695,7 +792,7 @@ export function EmployeeProfilePage(){
   const punctuality=summary.sessions?Math.round((summary.sessions-(summary.late_sessions||0))/summary.sessions*100):null;
   const lastSeen=employee.user?.last_seen_at?dateTime(employee.user.last_seen_at,user?.assigned_timezone):'Never';
   const clients=Object.values((schedules||[]).reduce((acc,s)=>{if(s.client){const c=acc[s.client.id]||(acc[s.client.id]={...s.client,hours:0,days:new Set()});c.hours+=Number(s.no_of_hours)||0;c.days.add(s.weekday)}return acc},{}));
-  const fileName=url=>String(url).split('/').pop().split('?')[0];
+  const fileName=url=>{try{const parsed=new URL(String(url),window.location.origin);return parsed.searchParams.get('name')||parsed.pathname.split('/').pop()||'Document'}catch{return String(url).split('/').pop().split('?')[0]}};
   // Schedule tab: one accordion card per Doctor, the first open unless the admin picked another.
   const doctorGroups=Object.values((schedules||[]).reduce((acc,s)=>{const id=String(s.client?.id||s.client_id||'none');const g=acc[id]||(acc[id]={key:id,client:s.client||null,rows:[],hours:0});g.rows.push(s);g.hours+=Number(s.no_of_hours)||0;return acc},{}));
   const openDoctorKey=openDoctor??doctorGroups[0]?.key;
@@ -713,8 +810,8 @@ export function EmployeeProfilePage(){
         </div>
         <div className="page-actions">
           <Button variant="secondary" icon={ArrowLeft} onClick={()=>navigate(base)}>Back to Employees</Button>
-          <Button variant="secondary" icon={Send} loading={busy} onClick={resendInvite}>Resend Invite</Button>
-          <Button icon={Pencil} onClick={()=>{setForm(employeeForm(employee));setModal(true)}}>Edit Profile</Button>
+          {allowed('edit')&&<Button variant="secondary" icon={Send} loading={busy} onClick={resendInvite}>Resend Invite</Button>}
+          {allowed('edit')&&<Button icon={Pencil} onClick={()=>{setForm(employeeForm(employee));setModal(true)}}>Edit Profile</Button>}
         </div>
       </div>
       <div className="ep-header-bottom">
@@ -723,7 +820,7 @@ export function EmployeeProfilePage(){
           <div><div className="ep-identity-name"><strong>{employee.email||'No email on file'}</strong></div><span>{[employee.phone,employee.timezone].filter(Boolean).join('  •  ')||'No contact details yet'}</span></div>
         </div>
         <div className="ep-tabs" role="tablist" aria-label="Employee profile sections">
-          {EMPLOYEE_TABS.map(t=>{const Icon=t.icon;return <button key={t.key} type="button" role="tab" aria-selected={tab===t.key} className={tab===t.key?'active':''} onClick={()=>setTab(t.key)}><Icon size={15}/><span>{t.label}</span></button>})}
+          {EMPLOYEE_TABS.filter(t=>t.key==='schedule'?canViewSchedules:t.key==='attendance'?canViewAttendance:true).map(t=>{const Icon=t.icon;return <button key={t.key} type="button" role="tab" aria-selected={tab===t.key} className={tab===t.key?'active':''} onClick={()=>setTab(t.key)}><Icon size={15}/><span>{t.label}</span></button>})}
         </div>
       </div>
     </section>
@@ -787,7 +884,7 @@ export function EmployeeProfilePage(){
           </Card>
           <Card title="Assigned clients" subtitle="Derived from this Virtual Assistant's active schedule.">
             {clients.length?<div className="ep-clients">{clients.map(c=><div key={c.id} className="ep-client">
-              <span className="avatar client-avatar">{initialsOf(c.name)}</span>
+              <span className="avatar client-avatar"><AvatarMedia src={c.profile_picture} alt={c.name||'Doctor'} fallback={initialsOf(c.name)}/></span>
               <div>{can(user,'clients')?<Link to={`/admin/client/${c.id}/profile`}><strong>{c.name}</strong></Link>:<strong>{c.name}</strong>}<small>{c.business_name||c.timezone||''}</small></div>
               <em className="ep-mono">{c.days.size} day(s) · {formatDurationHM(c.hours)} h/week</em>
             </div>)}</div>:<EmptyState title="No clients assigned" description="Add a schedule to assign this VA to a client."/>}
@@ -807,7 +904,7 @@ export function EmployeeProfilePage(){
           <div className="client-va-header">
             <button type="button" className="client-va-toggle" aria-expanded={isOpen} aria-controls={panelId} onClick={()=>setOpenDoctor(isOpen?'':g.key)}>
               <span className="client-va-chevron" aria-hidden="true"><ChevronDown size={16}/></span>
-              <div className="client-va-identity"><div className="client-va-avatar"><Stethoscope size={18}/></div><div><div className="client-va-title-line"><strong>{g.client?.name||'Unassigned Doctor'}</strong><Badge tone={enabled?'success':'neutral'}>{enabled?`${enabled} active`:'Inactive'}</Badge></div><span>{g.rows.length} shift{g.rows.length===1?'':'s'}{g.client?.business_name?` · ${g.client.business_name}`:''}</span></div></div>
+              <div className="client-va-identity"><div className="client-va-avatar"><AvatarMedia src={g.client?.profile_picture} alt={g.client?.name||'Doctor'} fallback={initialsOf(g.client?.name)}/></div><div><div className="client-va-title-line"><strong>{g.client?.name||'Unassigned Doctor'}</strong><Badge tone={enabled?'success':'neutral'}>{enabled?`${enabled} active`:'Inactive'}</Badge></div><span>{g.rows.length} shift{g.rows.length===1?'':'s'}{g.client?.business_name?` · ${g.client.business_name}`:''}</span></div></div>
             </button>
             <div className="client-va-header-right">
               {tz&&<div className="client-va-timezone"><Clock3 size={15}/><span>{tz}</span></div>}
@@ -828,10 +925,11 @@ export function AttendancePage(){
  const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[options,setOptions]=useState({}),[filters,setFilters]=useState({employee_id:queryParam('employee_id'),from:'',to:'',search:queryParam('search')}),[page,setPage]=useState(1),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'date',dir:'desc'}),[busy,setBusy]=useState(false);const n=useNotice();
  const load=async(nextFilters=filters,nextPage=page)=>{setBusy(true);try{const [r,o]=await Promise.all([api.get('/management/attendance',{params:{...nextFilters,page:nextPage,per_page:perPage,sort:sort.key,direction:sort.dir}}),api.get('/management/options')]);setRows(r.data.data);setMeta(r.data);setOptions(o.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};useEffect(()=>{load(filters,page)},[page,perPage,sort]);const apply=()=>{setPage(1);load(filters,1)};const reset=()=>{const clean={employee_id:'',from:'',to:'',search:''};setFilters(clean);setPage(1);load(clean,1)};
  const columns=[vaColumn,...attendanceColumns];
- return <><PageHeader eyebrow="Time operations" title="Attendance" description="Attendance dates and times are displayed in the Doctor / Client timezone used for calculation."/><Card><div className="filter-grid"><SearchableSelect label="Employee / VA" value={filters.employee_id} onChange={value=>setFilters({...filters,employee_id:value})} placeholder="All employees" searchPlaceholder="Search VA…" options={[{value:'',label:'All employees'},...(options.employees||[]).map(x=>({value:String(x.id),label:`${x.first_name||''} ${x.last_name||''}`.trim(),meta:x.employee_code||x.timezone||'',searchText:`${x.email||''} ${x.employee_code||''}`}))]}/><Input label="From date" type="date" value={filters.from} onChange={e=>setFilters({...filters,from:e.target.value})}/><Input label="To date" type="date" value={filters.to} onChange={e=>setFilters({...filters,to:e.target.value})}/><Input label="Search" value={filters.search} onChange={e=>setFilters({...filters,search:e.target.value})} placeholder="Date, time or employee"/><div className="filter-actions"><Button onClick={apply}>Filter</Button><Button variant="ghost" onClick={reset}>Reset</Button></div></div><Table columns={columns} rows={rows} emptyTitle="No attendance records" emptyDescription="No attendance matches these filters." meta={meta} onPage={setPage} perPage={perPage} onPerPage={v=>{setPerPage(v);setPage(1)}} sort={sort} onSort={s=>{setSort(s);setPage(1)}}/></Card></>;
+ return <><PageHeader eyebrow="Time operations" title="Attendance" description="Attendance dates and times are displayed in the Doctor / Client timezone used for calculation."/><Card><div className="filter-grid"><SearchableSelect label="Employee / VA" value={filters.employee_id} onChange={value=>setFilters({...filters,employee_id:value})} placeholder="All employees" searchPlaceholder="Search VA…" remoteType="employee"/><Input label="From date" type="date" value={filters.from} onChange={e=>setFilters({...filters,from:e.target.value})}/><Input label="To date" type="date" value={filters.to} onChange={e=>setFilters({...filters,to:e.target.value})}/><Input label="Search" value={filters.search} onChange={e=>setFilters({...filters,search:e.target.value})} placeholder="Date, time or employee"/><div className="filter-actions"><Button onClick={apply}>Filter</Button><Button variant="ghost" onClick={reset}>Reset</Button></div></div><Table columns={columns} rows={rows} emptyTitle="No attendance records" emptyDescription="No attendance matches these filters." meta={meta} onPage={setPage} perPage={perPage} onPerPage={v=>{setPerPage(v);setPage(1)}} sort={sort} onSort={s=>{setSort(s);setPage(1)}}/></Card></>;
 }
 
 export function ChangeRequestsPage(){
+ const allowed=useCan('change-requests');
   const [rows,setRows]=useState([]),[scheduleRows,setScheduleRows]=useState([]),[meta,setMeta]=useState(null),[scheduleMeta,setScheduleMeta]=useState(null),[page,setPage]=useState(1),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'id',dir:'desc'}),[schedulePage,setSchedulePage]=useState(1),[attendanceSearch,setAttendanceSearch]=useState(queryParam('search')),[scheduleSearch,setScheduleSearch]=useState(''),[busy,setBusy]=useState(false);
   const [reviewOpen,setReviewOpen]=useState(false),[selected,setSelected]=useState(null),[reviewType,setReviewType]=useState('attendance');
   const [reviewForm,setReviewForm]=useState({decision:'approved',approved_clock_in:'',approved_clock_out:'',approved_date:'',approved_start_time:'',approved_end_time:'',note:''});
@@ -843,19 +941,20 @@ export function ChangeRequestsPage(){
   const openAttendance=r=>{setSelected(r);setReviewType('attendance');setReviewForm({decision:'approved',approved_clock_in:String(r.requested_clock_in||'').slice(0,5),approved_clock_out:String(r.requested_clock_out||'').slice(0,5),approved_date:'',approved_start_time:'',approved_end_time:'',note:''});setReviewOpen(true)};
   const openSchedule=r=>{setSelected(r);setReviewType('schedule');setReviewForm({decision:'approved',approved_clock_in:'',approved_clock_out:'',approved_date:r.requested_date?String(r.requested_date).slice(0,10):'',approved_start_time:String(r.requested_start_time||'').slice(0,5),approved_end_time:String(r.requested_end_time||'').slice(0,5),note:''});setReviewOpen(true)};
   const submitReview=async()=>{if(!selected)return;setBusy(true);try{if(reviewType==='attendance'){await api.post(`/management/change-requests/${selected.id}/review`,{decision:reviewForm.decision,note:reviewForm.note,approved_clock_in:reviewForm.decision==='approved'?reviewForm.approved_clock_in:null,approved_clock_out:reviewForm.decision==='approved'?reviewForm.approved_clock_out:null})}else{await api.post(`/management/schedule-change-requests/${selected.id}/review`,{decision:reviewForm.decision,note:reviewForm.note,approved_date:reviewForm.decision==='approved'?(reviewForm.approved_date||null):null,approved_start_time:reviewForm.decision==='approved'?reviewForm.approved_start_time:null,approved_end_time:reviewForm.decision==='approved'?reviewForm.approved_end_time:null})}n.success(`Request ${reviewForm.decision}.`);setReviewOpen(false);await load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
-  const correctionColumns=[{key:'employee',label:'Employee',render:r=><EmployeeLink employee={r.employee}/>},{key:'date',label:'Date',sortKey:'date',render:r=>String(r.date||'').slice(0,10)},{key:'old',label:'Recorded',render:r=>`${clock12(r.old_clock_in)} → ${clock12(r.old_clock_out)}`},{key:'requested',label:'Requested',sortKey:'requested_clock_in',render:r=>`${clock12(r.requested_clock_in)} → ${clock12(r.requested_clock_out)}`},{key:'approved',label:'Approved override',render:r=>r.status==='approved'?`${clock12(r.approved_clock_in||r.requested_clock_in)} → ${clock12(r.approved_clock_out||r.requested_clock_out)}`:'—'},{key:'reason',label:'Reason'},{key:'status',label:'Status',sortKey:'status',render:r=><Badge tone={statusTone(r.status)}>{r.status}</Badge>},{key:'actions',label:'Review',render:r=>r.status==='pending'?<Button variant="secondary" onClick={()=>openAttendance(r)}>Review / Override</Button>:<span className="muted">Reviewed</span>}];
-  const scheduleColumns=[{key:'employee',label:'Employee',render:r=><EmployeeLink employee={r.employee}/>},{key:'doctor',label:'Doctor',render:r=><ClientLink client={r.schedule?.client}/>},{key:'requested_date',label:'Requested date',render:r=>r.requested_date?String(r.requested_date).slice(0,10):r.schedule?.weekday||'Weekly'},{key:'requested_time',label:'Requested time',render:r=>`${clock12(r.requested_start_time)} → ${clock12(r.requested_end_time)}`},{key:'reason',label:'Reason'},{key:'status',label:'Status',render:r=><Badge tone={statusTone(r.status)}>{r.status}</Badge>},{key:'actions',label:'Review',render:r=>r.status==='pending'?<Button variant="secondary" onClick={()=>openSchedule(r)}>Review / Override</Button>:<span className="muted">Reviewed</span>}];
+  const correctionColumns=[{key:'employee',label:'Employee',render:r=><EmployeeLink employee={r.employee}/>},{key:'date',label:'Date',sortKey:'date',render:r=>String(r.date||'').slice(0,10)},{key:'old',label:'Recorded',render:r=>`${clock12(r.old_clock_in)} → ${clock12(r.old_clock_out)}`},{key:'requested',label:'Requested',sortKey:'requested_clock_in',render:r=>`${clock12(r.requested_clock_in)} → ${clock12(r.requested_clock_out)}`},{key:'approved',label:'Approved override',render:r=>r.status==='approved'?`${clock12(r.approved_clock_in||r.requested_clock_in)} → ${clock12(r.approved_clock_out||r.requested_clock_out)}`:'—'},{key:'reason',label:'Reason'},{key:'status',label:'Status',sortKey:'status',render:r=><Badge tone={statusTone(r.status)}>{r.status}</Badge>},{key:'actions',label:'Review',render:r=>r.status==='pending'?(allowed('review')?<Button variant="secondary" onClick={()=>openAttendance(r)}>Review / Override</Button>:null):<span className="muted">Reviewed</span>}];
+  const scheduleColumns=[{key:'employee',label:'Employee',render:r=><EmployeeLink employee={r.employee}/>},{key:'doctor',label:'Doctor',render:r=><ClientLink client={r.schedule?.client}/>},{key:'requested_date',label:'Requested date',render:r=>r.requested_date?String(r.requested_date).slice(0,10):r.schedule?.weekday||'Weekly'},{key:'requested_time',label:'Requested time',render:r=>`${clock12(r.requested_start_time)} → ${clock12(r.requested_end_time)}`},{key:'reason',label:'Reason'},{key:'status',label:'Status',render:r=><Badge tone={statusTone(r.status)}>{r.status}</Badge>},{key:'actions',label:'Review',render:r=>r.status==='pending'?(allowed('review')?<Button variant="secondary" onClick={()=>openSchedule(r)}>Review / Override</Button>:null):<span className="muted">Reviewed</span>}];
   return <><PageHeader eyebrow="Attendance governance" title="Change requests" description="Review attendance corrections and schedule/shift requests. Admin/HR may override requested times before approval."/><Card title="Attendance correction requests" actions={<SearchBox value={attendanceSearch} onChange={setAttendanceSearch} placeholder="Search all attendance requests"/>}><Table record="change-request" columns={correctionColumns} rows={rows} emptyTitle="No attendance change requests" meta={meta} onPage={setPage} perPage={perPage} onPerPage={v=>{setPerPage(v);setPage(1)}} sort={sort} onSort={s=>{setSort(s);setPage(1)}}/></Card><Card title="Schedule / shift change requests" actions={<SearchBox value={scheduleSearch} onChange={setScheduleSearch} placeholder="Search all schedule requests"/>}><Table record="schedule-change-request" columns={scheduleColumns} rows={scheduleRows} emptyTitle="No schedule change requests"/><Pagination meta={scheduleMeta} onPage={setSchedulePage}/></Card><Modal open={reviewOpen} onClose={()=>setReviewOpen(false)} title={reviewType==='attendance'?'Review attendance request':'Review schedule / shift request'} footer={<><Button variant="ghost" onClick={()=>setReviewOpen(false)}>Cancel</Button><Button loading={busy} onClick={submitReview}>Save decision</Button></>}><div className="form-grid one-col"><Select label="Decision" value={reviewForm.decision} onChange={e=>setReviewForm({...reviewForm,decision:e.target.value})}><option value="approved">Approve</option><option value="rejected">Reject</option></Select>{reviewType==='attendance'&&reviewForm.decision==='approved'&&<><Input label="Approved clock in" type="time" value={reviewForm.approved_clock_in} onChange={e=>setReviewForm({...reviewForm,approved_clock_in:e.target.value})}/><Input label="Approved clock out" type="time" value={reviewForm.approved_clock_out} onChange={e=>setReviewForm({...reviewForm,approved_clock_out:e.target.value})}/><div className="notice notice-info">These override times are saved and used by the attendance recalculation, including payable time and overtime.</div></>}{reviewType==='schedule'&&reviewForm.decision==='approved'&&<><Input label="Approved date (optional for weekly schedules)" type="date" value={reviewForm.approved_date} onChange={e=>setReviewForm({...reviewForm,approved_date:e.target.value})}/><Input label="Approved start time" type="time" value={reviewForm.approved_start_time} onChange={e=>setReviewForm({...reviewForm,approved_start_time:e.target.value})}/><Input label="Approved end time" type="time" value={reviewForm.approved_end_time} onChange={e=>setReviewForm({...reviewForm,approved_end_time:e.target.value})}/></>}<Textarea label="Review note" value={reviewForm.note} onChange={e=>setReviewForm({...reviewForm,note:e.target.value})}/></div></Modal></>;
 }
 
 export function OvertimePage(){
+ const allowed=useCan('overtime');
  const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[page,setPage]=useState(1),[search,setSearch]=useState(queryParam('search')),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'date',dir:'desc'}),[busy,setBusy]=useState(false),[modal,setModal]=useState(false),[selected,setSelected]=useState(null),[form,setForm]=useState({decision:'approved',approved_minutes:'',overtime_amount:''});const n=useNotice();
  const load=async(nextPage=page,nextSearch=search)=>{setBusy(true);try{const r=await api.get('/management/overtime',{params:{page:nextPage,per_page:perPage,sort:sort.key,direction:sort.dir,search:nextSearch}});setRows(r.data.data||[]);setMeta(r.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
  useEffect(()=>{load(page,search)},[page,perPage,sort]);
  useEffect(()=>{const timer=setTimeout(()=>{setPage(1);load(1,search)},220);return()=>clearTimeout(timer)},[search]);
  const open=r=>{setSelected(r);setForm({decision:'approved',approved_minutes:r.approved_overtime_minutes||r.overtime,overtime_amount:r.overtime_amount||''});setModal(true)};
  const save=async()=>{setBusy(true);try{await api.post(`/management/overtime/${selected.id}/review`,form);n.success('Overtime review saved.');setModal(false);load(page)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
- const columns=[{key:'employee',label:'Employee',render:r=><EmployeeLink employee={r.employee}/>},{key:'date',label:'Date',sortKey:'date',render:r=>String(r.date||'').slice(0,10)},{key:'overtime',label:'Calculated',sortKey:'overtime',render:r=>`${r.overtime} min`},{key:'approved',label:'Approved',sortKey:'approved_overtime_minutes',render:r=>`${r.approved_overtime_minutes||0} min`},{key:'status',label:'Status',sortKey:'overtime_status',render:r=><Badge tone={statusTone(r.overtime_status||'pending')}>{r.overtime_status||'Pending'}</Badge>},{key:'amount',label:'Custom payment',sortKey:'overtime_amount',render:r=>r.overtime_amount?money(r.overtime_amount):'—'},{key:'actions',label:'Action',render:r=><Button variant="secondary" onClick={()=>open(r)}>Review</Button>}];
+ const columns=[{key:'employee',label:'Employee',render:r=><EmployeeLink employee={r.employee}/>},{key:'client',label:'Work With',render:r=><div><strong>{r.client?.name||'—'}</strong>{r.client?.business_name&&<div className="muted">{r.client.business_name}</div>}</div>},{key:'date',label:'Date',sortKey:'date',render:r=>String(r.date||'').slice(0,10)},{key:'overtime',label:'Calculated',sortKey:'overtime',render:r=>`${r.overtime} min`},{key:'approved',label:'Approved',sortKey:'approved_overtime_minutes',render:r=>`${r.approved_overtime_minutes||0} min`},{key:'status',label:'Status',sortKey:'overtime_status',render:r=><Badge tone={statusTone(r.overtime_status||'pending')}>{r.overtime_status||'Pending'}</Badge>},{key:'amount',label:'Custom payment',sortKey:'overtime_amount',render:r=>r.overtime_amount?money(r.overtime_amount):'—'},{key:'actions',label:'Action',render:r=>allowed('review')?<Button variant="secondary" onClick={()=>open(r)}>Review</Button>:null}];
  return <><PageHeader eyebrow="Compensation review" title="Overtime" description="Approve full or partial overtime, reject it, or set a custom approved payment."/><Card><div className="toolbar"><SearchBox value={search} onChange={setSearch} placeholder="Search all overtime records"/><span className="record-count">{meta?.total??rows.length} records</span></div><Table columns={columns} rows={rows} emptyTitle="No overtime records" meta={meta} onPage={setPage} perPage={perPage} onPerPage={v=>{setPerPage(v);setPage(1)}} sort={sort} onSort={s=>{setSort(s);setPage(1)}}/></Card><Modal open={modal} onClose={()=>setModal(false)} title="Review overtime" footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={save}>Save decision</Button></>}><div className="form-grid one-col"><Select label="Decision" value={form.decision} onChange={e=>setForm({...form,decision:e.target.value})}><option value="approved">Approve</option><option value="rejected">Reject</option></Select>{form.decision==='approved'&&<><Input label="Approved minutes" type="number" min="0" max={selected?.overtime} value={form.approved_minutes} onChange={e=>setForm({...form,approved_minutes:e.target.value})}/><Input label="Custom overtime payment (optional)" type="number" step="0.01" value={form.overtime_amount} onChange={e=>setForm({...form,overtime_amount:e.target.value})}/></>}</div></Modal></>;
 }
 
@@ -887,17 +986,25 @@ function billingCycleWindows(startDay=26,timeZone=DEFAULT_TIMEZONE){
 function latestCompletedBillingCycle(timeZone=DEFAULT_TIMEZONE,startDay=26){return billingCycleWindows(startDay,timeZone).completed}
 
 export function InvoicesPage(){
+  const allowed=useCan('invoices');
   const [rows,setRows]=useState([]);
   const [options,setOptions]=useState({});
   const [meta,setMeta]=useState(null);
   const [invoiceOverview,setInvoiceOverview]=useState(null);
   const [page,setPage]=useState(1);
   const [createOpen,setCreateOpen]=useState(false);
+  const [bulkOpen,setBulkOpen]=useState(false);
+  const [filterOpen,setFilterOpen]=useState(false);
+  const [invoiceMonitoringOpen,setInvoiceMonitoringOpen]=useState(false);
+  const [bulkDeleteOpen,setBulkDeleteOpen]=useState(false);
+  const [bulkDeleteIds,setBulkDeleteIds]=useState([]);
   const [editOpen,setEditOpen]=useState(false);
   const [busy,setBusy]=useState(false);
   const [cycleSettings,setCycleSettings]=useState(DEFAULT_INVOICE_SETTINGS);const emptyInvoiceForm=()=>({client_id:'',scope:'all',employee_ids:[],...latestCompletedBillingCycle(DEFAULT_TIMEZONE,cycleSettings.cycle_start_day)});const [createForm,setCreateForm]=useState(emptyInvoiceForm);const [assignedVas,setAssignedVas]=useState([]);
   const [editForm,setEditForm]=useState(null);
-  const [filters,setFilters]=useState({month:'',year:'',date_from:'',date_to:'',client_id:'',invoice_number:queryParam('search'),status:''});
+  const initialInvoiceFilters=()=>({month:'',year:'',date_from:'',date_to:'',client_id:'',invoice_number:queryParam('search'),status:''});
+  const [filters,setFilters]=useState(initialInvoiceFilters);
+  const [filterDraft,setFilterDraft]=useState(initialInvoiceFilters);
   const [bulkMonth,setBulkMonth]=useState(''); const [bulkClients,setBulkClients]=useState([]);
   const [perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'id',dir:'desc'});
   const n=useNotice();
@@ -916,13 +1023,54 @@ export function InvoicesPage(){
   };
   useEffect(()=>{load(page)},[page,perPage,sort]);
   useEffect(()=>{const timer=setTimeout(()=>{if(page!==1)setPage(1);else load(1)},250);return()=>clearTimeout(timer)},[filters.month,filters.year,filters.date_from,filters.date_to,filters.client_id,filters.invoice_number,filters.status]);
-  const clearFilters=()=>setFilters({month:'',year:'',date_from:'',date_to:'',client_id:'',invoice_number:'',status:''});
+  const cleanInvoiceFilters=()=>({month:'',year:'',date_from:'',date_to:'',client_id:'',invoice_number:'',status:''});
+  const openInvoiceFilters=()=>{setFilterDraft({...filters});setFilterOpen(true)};
+  const applyInvoiceFilters=()=>{setPage(1);setFilters({...filterDraft});setFilterOpen(false);n.success('Filter applied.')};
+  const clearFilters=()=>{const clean=cleanInvoiceFilters();setFilterDraft(clean);setPage(1);setFilters(clean);setFilterOpen(false)};
+  const activeFilterCount=Object.values(filters).filter(value=>value!==''&&value!=null).length;
   useEffect(()=>{api.get('/management/invoice-settings').then(r=>setCycleSettings({...DEFAULT_INVOICE_SETTINGS,...r.data})).catch(()=>{})},[]);
   // Bulk generation sends the invoice month only. The server resolves the exact
   // configured cycle, keeping manual bulk and automatic generation on one source of truth.
   const bulkCycle=month=>{if(!month)return null;const s=Math.min(30,Math.max(1,Number(cycleSettings.cycle_start_day)||26));const [y,m]=month.split('-').map(Number);const start=monthBoundaryUTC(y,m-1-(s>1?1:0),s);return cycleFrom(start,s)};
-  const bulkGenerate=async()=>{if(!bulkMonth||!bulkClients.length){n.error('Select invoice month and at least one Doctor / Client.');return}setBusy(true);let created=0,skipped=0;for(const client_id of bulkClients){try{await api.post('/admin/invoices/generate',{client_id,invoice_month:bulkMonth});created++}catch(e){skipped++}}n.success(`Bulk generation complete: ${created} created, ${skipped} skipped / unavailable.`);setBusy(false);await load(1)};
-  const bulkEmail=async()=>{if(!bulkMonth||!bulkClients.length){n.error('Select invoice month and at least one Doctor / Client.');return}setBusy(true);try{const {data}=await api.get('/admin/invoices',{params:{month:bulkMonth,per_page:100}});const selected=new Set(bulkClients.map(String));const invoices=(data.data||[]).filter(x=>selected.has(String(x.client_id)));let sent=0,failed=0;for(const invoice of invoices){try{await api.post(`/admin/invoices/${invoice.id}/send`);sent++}catch(e){failed++}}n.success(`Bulk email complete: ${sent} sent, ${failed} failed.`)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+  const bulkGenerate=async()=>{
+    if(!bulkMonth||!bulkClients.length){n.error('Select invoice month and at least one Doctor / Client.');return}
+    setBusy(true);
+    let created=0,skipped=0;
+    for(const client_id of bulkClients){
+      try{
+        const {data}=await api.post('/admin/invoices/generate',{client_id,invoice_month:bulkMonth});
+        const count=Array.isArray(data?.invoices)&&data.invoices.length?data.invoices.length:(data?.invoice?1:0);
+        created+=count;
+      }catch(e){skipped++}
+    }
+    n.success(`Bulk generation complete: ${created} created, ${skipped} skipped / unavailable.`);
+    setBusy(false);
+    setBulkOpen(false);
+    await load(1)
+  };
+  const bulkEmail=async()=>{
+    if(!bulkMonth||!bulkClients.length){n.error('Select invoice month and at least one Doctor / Client.');return}
+    setBusy(true);
+    try{
+      // Fetch every matching page for the selected Doctors. The old flow read only
+      // the first 100 invoices, which could silently omit valid PDFs in busy months.
+      const invoiceMap=new Map();
+      for(const client_id of bulkClients){
+        let nextPage=1,lastPage=1;
+        do{
+          const {data}=await api.get('/admin/invoices',{params:{month:bulkMonth,client_id,per_page:100,page:nextPage},carevmaPageLoader:false});
+          for(const invoice of (data?.data||[])) invoiceMap.set(String(invoice.id),invoice);
+          lastPage=Math.max(1,Number(data?.last_page)||1);
+          nextPage+=1;
+        }while(nextPage<=lastPage);
+      }
+      let sent=0,failed=0;
+      for(const invoice of invoiceMap.values()){
+        try{await api.post(`/admin/invoices/${invoice.id}/send`);sent++}catch(e){failed++}
+      }
+      n.success(`Bulk email complete: ${sent} sent, ${failed} failed.`)
+    }catch(e){n.error(messageFrom(e))}finally{setBusy(false)}
+  };
 
   const filterYears=Array.from({length:9},(_,i)=>String(new Date().getFullYear()+2-i));
 
@@ -1017,12 +1165,28 @@ export function InvoicesPage(){
     try{const {data}=await api.post(`/admin/invoices/${invoice.id}/send`);n.success(data?.message||'Invoice PDF sent to Doctor.')}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}
   };
 
+  const canHardDeleteInvoice=invoice=>String(invoice?.status||'draft').toLowerCase()==='draft'&&!invoice?.sent_at;
   const removeInvoice=async invoice=>{
+    if(!canHardDeleteInvoice(invoice)){n.error('Only unsent draft invoices can be permanently deleted. Use Void for finalized invoices.');return}
     setBusy(true);
     try{
-      await api.delete(`/admin/invoices/${invoice.id}`,{carevmaConfirm:{message:`Delete invoice ${invoice.invoice_number}? Its salary lines and adjustments are removed too. This action cannot be undone.`}});
-      n.success('Invoice deleted.');
+      await api.delete(`/admin/invoices/${invoice.id}`,{carevmaConfirm:{message:`Delete draft invoice ${invoice.invoice_number}? Its salary lines and adjustments are removed too. This action cannot be undone.`}});
+      n.success('Draft invoice deleted.');
       const targetPage=rows.length===1&&page>1?page-1:page;
+      if(targetPage!==page)setPage(targetPage);else await load(targetPage);
+    }catch(e){n.error(messageFrom(e))}finally{setBusy(false)}
+  };
+  const openBulkDelete=()=>{setBulkDeleteIds([]);setBulkDeleteOpen(true)};
+  const toggleBulkDeleteId=id=>setBulkDeleteIds(current=>current.includes(id)?current.filter(value=>value!==id):[...current,id]);
+  const pageDeletableInvoices=rows.filter(canHardDeleteInvoice);
+  const bulkDelete=async()=>{
+    if(!bulkDeleteIds.length){n.error('Select at least one unsent draft invoice.');return}
+    setBusy(true);
+    try{
+      const {data}=await api.post('/admin/invoices/bulk-delete',{invoice_ids:bulkDeleteIds},{carevmaConfirm:{message:`Permanently delete ${bulkDeleteIds.length} selected draft invoice(s)? This cannot be undone.`}});
+      n.success(data?.message||'Selected draft invoices deleted.');
+      setBulkDeleteOpen(false);setBulkDeleteIds([]);
+      const targetPage=rows.length<=Number(data?.deleted_count||0)&&page>1?page-1:page;
       if(targetPage!==page)setPage(targetPage);else await load(targetPage);
     }catch(e){n.error(messageFrom(e))}finally{setBusy(false)}
   };
@@ -1034,9 +1198,9 @@ export function InvoicesPage(){
     {key:'billing_month',label:'Invoice month',render:r=>r.billing_cycle_month?String(r.billing_cycle_month).slice(0,7):'—'},
     {key:'source',label:'Source',render:r=><Badge tone={r.auto_generated?'info':'neutral'}>{r.auto_generated?'Auto':'Manual'}</Badge>},
     {key:'status',label:'Status',sortKey:'status',render:r=><Badge tone={r.status==='paid'?'success':r.status==='void'?'danger':r.status==='issued'?'info':'warning'}>{r.status||'draft'}</Badge>},
-    {key:'hours',label:'Hours',sortKey:'total_hours',render:r=>Number(r.total_hours||0).toFixed(2)},
+    {key:'hours',label:'Hours',sortKey:'total_hours',render:r=>invoiceHours(r.total_hours)},
     {key:'amount',label:'Amount',sortKey:'total_amount',render:r=>money(r.total_amount)},
-    {key:'action',label:'Actions',render:r=><div className="row-actions"><button onClick={()=>openEdit(r)} title="Edit invoice"><Pencil size={16}/></button><a className="btn btn-secondary btn-link" href={`/invoices/${r.id}/pdf?v=${encodeURIComponent(r.updated_at||Date.now())}`} target="_blank" rel="noreferrer">View PDF</a><button type="button" className="btn btn-secondary invoice-send-icon" title="Send PDF" aria-label="Send PDF" onClick={()=>sendInvoice(r)} disabled={busy}><Send size={16}/></button><button className="danger" onClick={()=>removeInvoice(r)} title="Delete invoice"><Trash2 size={16}/></button></div>}
+    {key:'action',label:'Actions',render:r=><div className="row-actions">{allowed('edit')&&<button onClick={()=>openEdit(r)} title="Edit invoice"><Pencil size={16}/></button>}{allowed('export')&&<a className="btn btn-secondary btn-link" href={`/invoices/${r.id}/pdf?v=${encodeURIComponent(r.updated_at||Date.now())}`} target="_blank" rel="noreferrer">View PDF</a>}{allowed('send')&&<button type="button" className="btn btn-secondary invoice-send-icon" title="Send PDF" aria-label="Send PDF" onClick={()=>sendInvoice(r)} disabled={busy}><Send size={16}/></button>}{allowed('delete')&&<button className="danger" onClick={()=>removeInvoice(r)} disabled={!canHardDeleteInvoice(r)||busy} title={canHardDeleteInvoice(r)?'Delete draft invoice':'Only unsent draft invoices can be deleted'}><Trash2 size={16}/></button>}</div>}
   ];
 
   return <>
@@ -1044,32 +1208,75 @@ export function InvoicesPage(){
       eyebrow="Client billing"
       title="Invoices"
       description={`Billing periods run ${cycleLabel(cycleSettings.cycle_start_day)}. ${cycleSettings.auto_generate?"Drafts auto-generate Doctor-by-Doctor after each Doctor’s final enabled VA shift on the cycle-end date and any open attendance is closed.":"Automatic generation is currently switched off."} Every invoice is filed under the month its period ends in.`}
-      actions={<Button icon={Plus} onClick={()=>{setCreateForm(emptyInvoiceForm());setAssignedVas([]);setCreateOpen(true)}}>Generate invoice</Button>}
+      actions={<>{allowed('create')&&<Button icon={Plus} onClick={()=>{setCreateForm(emptyInvoiceForm());setAssignedVas([]);setCreateOpen(true)}}>Generate Invoice</Button>}{allowed('create')&&<Button variant="secondary" icon={ReceiptText} onClick={()=>setBulkOpen(true)}>Bulk Invoice</Button>}<Button variant="secondary" icon={ListFilter} onClick={openInvoiceFilters}>Invoice Filter{activeFilterCount?` (${activeFilterCount})`:''}</Button><Button variant="secondary" icon={Activity} onClick={()=>setInvoiceMonitoringOpen(true)}>Invoice Monitoring</Button>{allowed('delete')&&<Button variant="danger" icon={Trash2} onClick={openBulkDelete}>Bulk Delete</Button>}</>}
     />
-{invoiceOverview&&<Card title={`Invoice monitoring · ${invoiceOverview.month}`} subtitle="Current invoice-month status across Doctors / Clients. Failed and pending counts help Admin follow up and generate invoices manually when needed."><div className="metrics-grid"><MetricCard label="Auto generated" value={invoiceOverview.auto_generated_invoices||0} icon={FileText}/><MetricCard label="Pending Doctors" value={invoiceOverview.pending_doctors||0} icon={Clock3}/><MetricCard label="Failed Doctors" value={invoiceOverview.failed_doctors||0} icon={AlertTriangle}/><MetricCard label="Manual invoices" value={invoiceOverview.manual_invoices||0} icon={Pencil}/><MetricCard label="Doctors sent" value={invoiceOverview.sent_doctors||0} icon={Send}/><MetricCard label="Remaining to send" value={invoiceOverview.remaining_to_send||0} icon={Mail}/></div><div className="invoice-cycle-hint">Doctors covered this month: {(invoiceOverview.auto_generated_doctors||0)+(invoiceOverview.manual_doctors||0)} · Total Doctors / Clients: {invoiceOverview.total_doctors||0}. “Failed” means automatic generation threw an error; “Pending” means no invoice has been created for that Doctor in this invoice month yet.</div></Card>}
-    <Card title="Bulk invoice actions" subtitle={`Choose the invoice month (the month the configured cycle ends in). ${bulkMonth&&bulkCycle(bulkMonth)?`${bulkCycle(bulkMonth).period_start} → ${bulkCycle(bulkMonth).period_end}`:'The server uses the same cycle as automatic generation.'} Existing exact-cycle invoices are safely skipped.`}><div className="form-grid invoice-bulk-grid"><Input label="Invoice month" type="month" value={bulkMonth} onChange={e=>setBulkMonth(e.target.value)}/><SearchableMultiSelect label="Doctors / Clients" values={bulkClients} onChange={setBulkClients} placeholder="Select Doctors / Clients" searchPlaceholder="Search Doctors / Clients…" options={(options.clients||[]).map(x=>({value:String(x.id),label:x.name||x.business_name||x.email,meta:x.timezone||'',searchText:`${x.business_name||''} ${x.email||''}`}))}/><div className="bulk-invoice-actions"><Button loading={busy} onClick={bulkGenerate}>Generate selected</Button><Button loading={busy} variant="secondary" icon={Send} onClick={bulkEmail}>Email selected PDFs</Button></div></div></Card>
-    <Card title="Invoice filters" subtitle="Filter invoices by month, year, custom date range, Doctor / Client, invoice number or status. Filters can be combined.">
-      <div className="form-grid invoice-filter-grid">
-        <Input label="Month" type="month" value={filters.month} onChange={e=>setFilters({...filters,month:e.target.value})}/>
-        <Select label="Year" value={filters.year} onChange={e=>setFilters({...filters,year:e.target.value})}><option value="">All years</option>{filterYears.map(year=><option key={year} value={year}>{year}</option>)}</Select>
-        <Input label="From date" type="date" value={filters.date_from} onChange={e=>setFilters({...filters,date_from:e.target.value})}/>
-        <Input label="To date" type="date" min={filters.date_from||undefined} value={filters.date_to} onChange={e=>setFilters({...filters,date_to:e.target.value})}/>
-        <SearchableSelect label="Doctor / Client" value={filters.client_id} onChange={value=>setFilters({...filters,client_id:value})} placeholder="All Doctors / Clients" searchPlaceholder="Search Doctor or Client…" options={(options.clients||[]).map(x=>({value:String(x.id),label:x.name||x.business_name||x.email,meta:x.timezone||'',searchText:`${x.business_name||''} ${x.email||''}`}))}/>
-        <Input label="Invoice #" value={filters.invoice_number} onChange={e=>setFilters({...filters,invoice_number:e.target.value})} placeholder="e.g. 3284724"/>
-        <Select label="Status" value={filters.status} onChange={e=>setFilters({...filters,status:e.target.value})}><option value="">All statuses</option><option value="draft">Draft</option><option value="issued">Issued</option><option value="paid">Paid</option><option value="void">Void</option></Select>
-        <div className="field"><span className="field-label">Reset</span><Button variant="secondary" onClick={clearFilters}>Clear filters</Button></div>
-      </div>
-    </Card>
     <Card><Table columns={columns} rows={rows} emptyTitle="No invoices match these filters" meta={meta} onPage={setPage} perPage={perPage} onPerPage={v=>{setPerPage(v);setPage(1)}} sort={sort} onSort={s=>{setSort(s);setPage(1)}}/></Card>
+
+    <Modal open={bulkDeleteOpen} onClose={()=>!busy&&setBulkDeleteOpen(false)} title="Bulk delete draft invoices" wide footer={<><Button variant="ghost" disabled={busy} onClick={()=>setBulkDeleteOpen(false)}>Cancel</Button><Button variant="danger" icon={Trash2} loading={busy} disabled={!bulkDeleteIds.length} onClick={bulkDelete}>Delete selected ({bulkDeleteIds.length})</Button></>}>
+      <div className="invoice-bulk-modal-content">
+        <div className="invoice-cycle-hint">Only <strong>unsent Draft</strong> invoices can be permanently deleted. Issued, Paid, Void, and already-sent invoices are protected for audit/history.</div>
+        <div className="bulk-invoice-actions" style={{marginBottom:10}}>
+          <Button variant="secondary" disabled={!pageDeletableInvoices.length} onClick={()=>setBulkDeleteIds(pageDeletableInvoices.map(invoice=>invoice.id))}>Select all deletable on this page</Button>
+          <Button variant="ghost" disabled={!bulkDeleteIds.length} onClick={()=>setBulkDeleteIds([])}>Clear selection</Button>
+        </div>
+        <div className="bulk-client-picker">
+          {rows.length?rows.map(invoice=>{const deletable=canHardDeleteInvoice(invoice);const selected=bulkDeleteIds.includes(invoice.id);return <label key={invoice.id} style={{opacity:deletable?1:.55}}>
+            <input type="checkbox" checked={selected} disabled={!deletable||busy} onChange={()=>toggleBulkDeleteId(invoice.id)}/>
+            <span><strong>{invoice.invoice_number}</strong><small style={{display:'block'}}>{invoice.client?.name||invoice.client?.business_name||'Doctor / Client'} · {String(invoice.period_start||'').slice(0,10)} → {String(invoice.period_end||'').slice(0,10)} · {invoice.status||'draft'}{invoice.sent_at?' · sent':''}</small></span>
+          </label>}):<div className="invoice-cycle-hint">No invoices on this page.</div>}
+        </div>
+      </div>
+    </Modal>
+
+    <Modal open={invoiceMonitoringOpen} onClose={()=>setInvoiceMonitoringOpen(false)} title={invoiceOverview?`Invoice monitoring · ${invoiceOverview.month}`:'Invoice monitoring'} wide footer={<Button variant="ghost" onClick={()=>setInvoiceMonitoringOpen(false)}>Close</Button>}>
+      <div className="invoice-monitoring-modal-content">
+        <div className="invoice-cycle-hint">Current invoice-month status across Doctors / Clients.</div>
+        {invoiceOverview?<div className="metrics-grid invoice-monitoring-modal-grid">
+          <MetricCard label="Auto generated" value={invoiceOverview.auto_generated_invoices||0} icon={FileText}/>
+          <MetricCard label="Pending Doctors" value={invoiceOverview.pending_doctors||0} icon={Clock3}/>
+          <MetricCard label="Failed Doctors" value={invoiceOverview.failed_doctors||0} icon={AlertTriangle}/>
+          <MetricCard label="Manual invoices" value={invoiceOverview.manual_invoices||0} icon={Pencil}/>
+          <MetricCard label="Doctors sent" value={invoiceOverview.sent_doctors||0} icon={Send}/>
+          <MetricCard label="Remaining to send" value={invoiceOverview.remaining_to_send||0} icon={Mail}/>
+        </div>:<div className="invoice-cycle-hint">Monitoring data is not available yet.</div>}
+        {invoiceOverview&&<div className="invoice-cycle-hint invoice-monitoring-modal-hint">Doctors covered this month: {(invoiceOverview.auto_generated_doctors||0)+(invoiceOverview.manual_doctors||0)} · Total Doctors / Clients: {invoiceOverview.total_doctors||0}. “Failed” means automatic generation threw an error; “Pending” means no invoice has been created for that Doctor in this invoice month yet.</div>}
+      </div>
+    </Modal>
+
+    <Modal open={filterOpen} onClose={()=>setFilterOpen(false)} title="Invoice Filters" wide footer={<><Button variant="secondary" onClick={clearFilters}>Clear filters</Button><Button variant="ghost" onClick={()=>setFilterOpen(false)}>Cancel</Button><Button icon={ListFilter} onClick={applyInvoiceFilters}>Apply Filter</Button></>}>
+      <div className="invoice-filter-modal-content">
+        <div className="invoice-cycle-hint">Filter invoices by month, year, custom date range, Doctor / Client, invoice number or status. Filters can be combined.</div>
+        <div className="form-grid invoice-filter-modal-grid">
+          <Input label="Month" type="month" value={filterDraft.month} onChange={e=>setFilterDraft({...filterDraft,month:e.target.value})}/>
+          <Select label="Year" value={filterDraft.year} onChange={e=>setFilterDraft({...filterDraft,year:e.target.value})}><option value="">All years</option>{filterYears.map(year=><option key={year} value={year}>{year}</option>)}</Select>
+          <Input label="From date" type="date" value={filterDraft.date_from} onChange={e=>setFilterDraft({...filterDraft,date_from:e.target.value})}/>
+          <Input label="To date" type="date" min={filterDraft.date_from||undefined} value={filterDraft.date_to} onChange={e=>setFilterDraft({...filterDraft,date_to:e.target.value})}/>
+          <SearchableSelect label="Doctor / Client" value={filterDraft.client_id} onChange={value=>setFilterDraft({...filterDraft,client_id:value})} placeholder="All Doctors / Clients" searchPlaceholder="Search Doctor or Client…" remoteType="client"/>
+          <Input label="Invoice #" value={filterDraft.invoice_number} onChange={e=>setFilterDraft({...filterDraft,invoice_number:e.target.value})} onKeyDown={e=>e.key==='Enter'&&applyInvoiceFilters()} placeholder="e.g. 3284724"/>
+          <Select label="Status" value={filterDraft.status} onChange={e=>setFilterDraft({...filterDraft,status:e.target.value})}><option value="">All statuses</option><option value="draft">Draft</option><option value="issued">Issued</option><option value="paid">Paid</option><option value="void">Void</option></Select>
+        </div>
+      </div>
+    </Modal>
 
     <Modal open={createOpen} onClose={()=>setCreateOpen(false)} title="Generate invoice" footer={<><Button variant="ghost" onClick={()=>setCreateOpen(false)}>Cancel</Button><Button loading={busy} onClick={generate}>Generate draft</Button></>}>
       <div className="form-grid one-col">
-        <SearchableSelect label="Client / Doctor *" value={createForm.client_id} onChange={chooseInvoiceClient} placeholder="Search and select Doctor" searchPlaceholder="Search Doctor name, business or timezone…" options={(options.clients||[]).map(x=>({value:String(x.id),label:x.name||x.business_name||x.email,meta:x.timezone||'',searchText:`${x.business_name||''} ${x.email||''}`}))}/>
+        <SearchableSelect label="Client / Doctor *" value={createForm.client_id} onChange={chooseInvoiceClient} placeholder="Search and select Doctor" searchPlaceholder="Search Doctor name, business or timezone…" remoteType="client"/>
         {createForm.client_id&&<div className="field"><span>Invoice for</span><div className="invoice-scope"><label className="check"><input type="radio" name="invoice-scope" checked={createForm.scope==='all'} onChange={()=>setCreateForm({...createForm,scope:'all'})}/><span>All assigned VAs ({assignedVas.length})</span></label><label className="check"><input type="radio" name="invoice-scope" checked={createForm.scope==='selected'} onChange={()=>setCreateForm({...createForm,scope:'selected'})}/><span>Selected VAs only</span></label></div></div>}
         {createForm.client_id&&createForm.scope==='selected'&&<SearchableMultiSelect label="VAs *" values={createForm.employee_ids} onChange={employee_ids=>setCreateForm({...createForm,employee_ids})} placeholder={assignedVas.length?'Select one or more VAs':'No VAs are assigned to this Doctor'} searchPlaceholder="Search VA name or code…" options={assignedVas.map(e=>({value:String(e.id),label:`${e.first_name||''} ${e.last_name||''}`.trim()||e.email,meta:e.employee_code||'',searchText:e.email||''}))}/>}
         <Input label="Start date *" type="date" value={createForm.period_start} onChange={e=>setCreateForm({...createForm,period_start:e.target.value})}/>
         <Input label="End date *" type="date" min={createForm.period_start||undefined} value={createForm.period_end} onChange={e=>setCreateForm({...createForm,period_end:e.target.value})}/>
         <div className="invoice-cycle-hint">Manual invoices can use any custom date range. Automatic billing runs on the {cycleLabel(cycleSettings.cycle_start_day)} cycle{cycleSettings.auto_generate?'':' (automatic generation is currently off)'}. Each invoice is filed under the month its period ends in.</div>
+      </div>
+    </Modal>
+
+    <Modal open={bulkOpen} onClose={()=>setBulkOpen(false)} title="Bulk Invoice" wide footer={<Button variant="ghost" onClick={()=>setBulkOpen(false)}>Close</Button>}>
+      <div className="invoice-bulk-modal-content">
+        <div className="invoice-cycle-hint">Choose the invoice month (the month the configured cycle ends in). {bulkMonth&&bulkCycle(bulkMonth)?`${bulkCycle(bulkMonth).period_start} → ${bulkCycle(bulkMonth).period_end}`:'The server uses the same cycle as automatic generation.'} Existing exact-cycle invoices are safely skipped.</div>
+        <div className="form-grid invoice-bulk-grid">
+          <Input label="Invoice month" type="month" value={bulkMonth} onChange={e=>setBulkMonth(e.target.value)}/>
+          <SearchableMultiSelect label="Doctors / Clients" values={bulkClients} onChange={setBulkClients} placeholder="Select Doctors / Clients" searchPlaceholder="Search Doctors / Clients…" remoteType="client" remoteLimit={50}/>
+          <div className="bulk-invoice-actions"><Button loading={busy} onClick={bulkGenerate}>Generate selected</Button><Button loading={busy} variant="secondary" icon={Send} onClick={bulkEmail}>Email selected PDFs</Button></div>
+        </div>
       </div>
     </Modal>
 
@@ -1130,19 +1337,65 @@ export function InvoicesPage(){
 
 export function CompanyFinancePage(){
   const today=todayInZone(DEFAULT_TIMEZONE);
-  const [view,setView]=useState('month');
-  const [date,setDate]=useState(today);
+  const defaults={view:'month',month:today.slice(0,7),year:today.slice(0,4),date:today,start_date:today,end_date:today};
+  const [filters,setFilters]=useState(defaults);
+  const [request,setRequest]=useState({params:{view:'month',date:`${defaults.month}-01`},page:1});
   const [data,setData]=useState(null);
+  const [loading,setLoading]=useState(true);
+  const [filterError,setFilterError]=useState('');
   const [modal,setModal]=useState(false);
   const [busy,setBusy]=useState(false);
-  const [form,setForm]=useState({entry_date:today,type:'expense',category:'General',amount:'',description:''});
+  const emptyEntry={entry_date:today,type:'expense',category:'General',amount:'',description:''};
+  const [form,setForm]=useState(emptyEntry);
   const n=useNotice();
+  const {user}=useAuth();
+  const canCreate=can(user,'company-finance','create');
+  const canDelete=can(user,'company-finance','delete');
 
-  const load=async()=>{
-    setBusy(true);
-    try{setData((await api.get('/admin/company-finance',{params:{view,date}})).data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}
+  const fetchReport=(params=request.params,page=request.page)=>{
+    setLoading(true);
+    setRequest({params,page});
   };
-  useEffect(()=>{load()},[view,date]);
+  useEffect(()=>{
+    const controller=new AbortController();
+    api.get('/admin/company-finance',{
+      params:{...request.params,page:request.page,per_page:25},
+      signal:controller.signal,
+      headers:{'Cache-Control':'no-cache'},
+      carevmaSilent:true,
+    }).then(({data})=>{if(!controller.signal.aborted)setData(data)})
+      .catch(e=>{if(!controller.signal.aborted&&!isCancelled(e))n.error(messageFrom(e))})
+      .finally(()=>{if(!controller.signal.aborted)setLoading(false)});
+    return ()=>controller.abort();
+  },[request]);
+
+  const changeFilter=(key,value)=>{
+    setFilters(current=>({...current,[key]:value}));
+    setFilterError('');
+  };
+  const apply=event=>{
+    event.preventDefault();
+    const {view,month,year,start_date,end_date}=filters;
+    const date=view==='year'?`${year}-01-01`:view==='month'?`${month}-01`:filters.date;
+    if(view==='range'){
+      if(!start_date||!end_date||end_date<start_date){
+        setFilterError('Select both dates. End Date must be on or after Start Date.');
+        return;
+      }
+      fetchReport({view,start_date,end_date},1);
+      return;
+    }
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||Number(date.slice(0,4))<1000){
+      setFilterError('Select a valid report period.');
+      return;
+    }
+    fetchReport({view,date},1);
+  };
+  const reset=()=>{
+    setFilters(defaults);
+    setFilterError('');
+    fetchReport({view:'month',date:`${defaults.month}-01`},1);
+  };
 
   const summary=data?.summary||{};
   const trend=Array.isArray(data?.trend)?data.trend:[];
@@ -1153,12 +1406,18 @@ export function CompanyFinancePage(){
       await api.post('/admin/company-finance/entries',form);
       n.success(`${form.type==='income'?'Income':'Expense'} entry saved.`);
       setModal(false);
-      setForm({entry_date:date||today,type:'expense',category:'General',amount:'',description:''});
-      await load();
+      setForm(emptyEntry);
+      fetchReport();
     }catch(e){n.error(messageFrom(e))}finally{setBusy(false)}
   };
   const remove=async entry=>{
-    try{await api.delete(`/admin/company-finance/entries/${entry.id}`);n.success('Finance entry deleted.');await load()}catch(e){n.error(messageFrom(e))}
+    setBusy(true);
+    try{
+      await api.delete(`/admin/company-finance/entries/${entry.id}`);
+      n.success('Finance entry deleted.');
+      const page=data?.entries?.length===1 ? Math.max(1,request.page-1) : request.page;
+      fetchReport(request.params,page);
+    }catch(e){n.error(messageFrom(e))}finally{setBusy(false)}
   };
   const columns=[
     {key:'entry_date',label:'Date',render:r=>String(r.entry_date||'').slice(0,10)},
@@ -1167,19 +1426,34 @@ export function CompanyFinancePage(){
     {key:'description',label:'Description',render:r=>r.description||'—'},
     {key:'amount',label:'Amount',render:r=><strong className={r.type==='expense'?'finance-expense-text':'finance-income-text'}>{r.type==='expense'?'-':'+'}{money(r.amount)}</strong>},
     {key:'creator',label:'Added by',render:r=>r.creator?.name||'System'},
-    {key:'actions',label:'',render:r=><button className="finance-delete-btn" title="Delete entry" onClick={()=>remove(r)}><Trash2 size={16}/></button>},
+    ...(canDelete?[{key:'actions',label:'',render:r=><button className="finance-delete-btn" title="Delete entry" disabled={loading||busy} onClick={()=>remove(r)}><Trash2 size={16}/></button>}]:[]),
   ];
 
   return <>
-    <PageHeader eyebrow="Company reporting" title="Company Finance" description="Track billed revenue, received income, expenses and net cash day-wise, month-wise and year-wise." actions={<Button icon={Plus} onClick={()=>{setForm({entry_date:date||today,type:'expense',category:'General',amount:'',description:''});setModal(true)}}>Add money in / out</Button>}/>
+    <PageHeader eyebrow="Company reporting" title="Company Finance" description="Track billed revenue, received income, expenses and net cash by reporting period." actions={canCreate&&<Button icon={Plus} disabled={loading||busy} onClick={()=>{setForm(emptyEntry);setModal(true)}}>Add money in / out</Button>}/>
 
     <Card className="finance-filter-card">
-      <div className="finance-filter-row">
-        <Select label="Report view" value={view} onChange={e=>setView(e.target.value)}><option value="day">Day wise</option><option value="month">Monthly</option><option value="year">Yearly</option></Select>
-        <Input label="Report date" type="date" value={date} onChange={e=>setDate(e.target.value)}/>
-        <div className="finance-period-label"><span>Reporting period</span><strong>{data?.from||'—'} → {data?.to||'—'}</strong></div>
-        <Button variant="secondary" icon={RefreshCw} onClick={load}>Refresh</Button>
-      </div>
+      <form onSubmit={apply} noValidate>
+        <div className="finance-filter-row">
+          <Select label="Report view" value={filters.view} onChange={e=>changeFilter('view',e.target.value)}>
+            <option value="month">Monthly</option><option value="year">Yearly</option><option value="range">Date Wise</option><option value="day">Single day</option>
+          </Select>
+          {filters.view==='range'?<>
+            <Input label="Start Date" type="date" value={filters.start_date} onChange={e=>changeFilter('start_date',e.target.value)}/>
+            <Input label="End Date" type="date" min={filters.start_date} value={filters.end_date} onChange={e=>changeFilter('end_date',e.target.value)} error={filterError}/>
+          </>:filters.view==='year'?
+            <Input label="Year" type="number" min="1000" max="9999" value={filters.year} onChange={e=>changeFilter('year',e.target.value)} error={filterError}/>
+            :filters.view==='month'?
+              <Input label="Month" type="month" value={filters.month} onChange={e=>changeFilter('month',e.target.value)} error={filterError}/>
+              :<Input label="Report date" type="date" value={filters.date} onChange={e=>changeFilter('date',e.target.value)} error={filterError}/>}
+          <div className="finance-period-label"><span>Reporting period</span><strong>{data?.from||'—'} → {data?.to||'—'}</strong></div>
+        </div>
+        <div className="filter-actions finance-filter-actions">
+          <Button type="submit" disabled={loading||busy}>Apply</Button>
+          <Button type="button" variant="ghost" disabled={loading||busy} onClick={reset}>Reset</Button>
+          <Button type="button" variant="secondary" icon={RefreshCw} loading={loading} disabled={loading||busy} onClick={()=>fetchReport()}>{loading?'Refreshing…':'Refresh'}</Button>
+        </div>
+      </form>
     </Card>
 
     <div className="metrics-grid finance-metrics-grid">
@@ -1190,19 +1464,19 @@ export function CompanyFinancePage(){
       <MetricCard label="Outstanding" value={money(summary.outstanding||0)} icon={Clock3} hint="Billed but not paid"/>
     </div>
 
-    <Card title="Income vs outgoing" subtitle={`${view==='year'?'Month-wise':view==='month'?'Day-wise':'Last 7 days'} financial movement`}>
+    <Card title="Income vs outgoing" subtitle={`${data?.trend_unit==='year'?'Year-wise':data?.trend_unit==='month'?'Month-wise':'Day-wise'} financial movement`}>
       <div className="finance-mini-legend"><span><i className="income"/>Money in</span><span><i className="expense"/>Money out</span></div>
-      <div className={`finance-main-chart ${view==='month'?'is-dense':''}`}>{trend.map((point,index)=><div className="finance-main-column" key={`${point.label}-${index}`}>
+      <div className={`finance-main-chart ${trend.length>16?'is-dense':''} ${data?.view==='range'&&data.trend_unit==='day'?'has-date-labels':''}`}>{trend.map((point,index)=><div className="finance-main-column" key={`${point.label}-${index}`}>
         <div className="finance-main-bars"><span className="income" style={{height:`${Math.max(2,(Number(point.income)||0)/max*100)}%`}} title={`Money in ${money(point.income||0)}`}/><span className="expense" style={{height:`${Math.max(2,(Number(point.outgoing)||0)/max*100)}%`}} title={`Money out ${money(point.outgoing||0)}`}/></div>
         <small>{point.label}</small>
       </div>)}</div>
     </Card>
 
-    <Card title="Manual finance entries" subtitle="Record company expenses or non-invoice income. Paid invoice income is counted automatically.">
-      {busy&&!data?<Loading inline/>:<Table columns={columns} rows={data?.entries||[]} emptyTitle="No manual finance entries" emptyDescription="Add an income or expense entry for this reporting period."/>}
+    <Card title="Manual finance entries" subtitle="Paid invoice income is counted automatically.">
+      {loading&&!data?<Loading inline/>:<><Table columns={columns} rows={data?.entries||[]} localPagination={false} searchable={false} emptyTitle="No manual finance entries"/><Pagination meta={data?.entries_pagination} onPage={page=>{if(!loading&&!busy)fetchReport(request.params,page)}}/></>}
     </Card>
 
-    <Modal open={modal} onClose={()=>setModal(false)} title="Add finance entry" footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={save}>Save entry</Button></>}>
+    <Modal open={modal} onClose={()=>setModal(false)} title="Add finance entry" footer={<><Button variant="ghost" disabled={busy} onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={save}>Save entry</Button></>}>
       <div className="form-grid one-col">
         <Input label="Date *" type="date" value={form.entry_date} onChange={e=>setForm({...form,entry_date:e.target.value})}/>
         <Select label="Money direction *" value={form.type} onChange={e=>setForm({...form,type:e.target.value})}><option value="income">Money in / Income</option><option value="expense">Money out / Expense</option></Select>
@@ -1216,21 +1490,25 @@ export function CompanyFinancePage(){
 
 const refTitles={'departments':'Departments','roles':'Employee Roles','employment-types':'Employment Types','shift-types':'Shift Types','designations':'Designations','employee-statuses':'Employee Status','expertises':'Expertise','reporting-managers':'Reporting Managers','services':'Client Services','contracts':'Contract Types'};
 export function ReferencePage(){
- const {type}=useParams(); const [rows,setRows]=useState([]),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[form,setForm]=useState({name:'',description:''}),[busy,setBusy]=useState(false);const n=useNotice();const title=refTitles[type]||'Configuration';const load=async()=>{setBusy(true);try{setRows((await api.get(`/management/references/${type}`)).data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};useEffect(()=>{load()},[type]);const open=r=>{setEdit(r||null);setForm(r?{name:r.name,description:r.description||''}:{name:'',description:''});setModal(true)};const save=async()=>{setBusy(true);try{edit?await api.put(`/management/references/${type}/${edit.id}`,form):await api.post(`/management/references/${type}`,form);n.success('Configuration saved.');setModal(false);load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};const remove=async r=>{try{await api.delete(`/management/references/${type}/${r.id}`);n.success('Item deleted.');load()}catch(e){n.error(messageFrom(e))}};
- return <><PageHeader eyebrow="Configuration" title={title} description="Reference values used across CareVMA forms and employee/client records." actions={<Button icon={Plus} onClick={()=>open()}>Add item</Button>}/><Card><Table columns={[{key:'name',label:'Name'},{key:'description',label:'Description',render:r=>r.description||'—'},{key:'actions',label:'Actions',render:r=><div className="row-actions"><button onClick={()=>open(r)}><Pencil size={16}/></button><button className="danger" onClick={()=>remove(r)}><Trash2 size={16}/></button></div>}]} rows={rows} emptyTitle={`No ${title.toLowerCase()} configured`}/></Card><Modal open={modal} onClose={()=>setModal(false)} title={edit?'Edit item':'Add item'} footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={save}>Save</Button></>}><div className="form-grid one-col"><Input label="Name *" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/>{type==='departments'&&<Textarea label="Description" value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/>}</div></Modal></>;
+ const {type}=useParams(); const allowed=useCan(referenceModule(type)); const [rows,setRows]=useState([]),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[form,setForm]=useState({name:'',description:''}),[busy,setBusy]=useState(false);const n=useNotice();const title=refTitles[type]||'Configuration';const load=async()=>{setBusy(true);try{setRows((await api.get(`/management/references/${type}`)).data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};useEffect(()=>{load()},[type]);const open=r=>{setEdit(r||null);setForm(r?{name:r.name,description:r.description||''}:{name:'',description:''});setModal(true)};const save=async()=>{setBusy(true);try{edit?await api.put(`/management/references/${type}/${edit.id}`,form):await api.post(`/management/references/${type}`,form);n.success('Configuration saved.');setModal(false);load()}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};const remove=async r=>{try{await api.delete(`/management/references/${type}/${r.id}`);n.success('Item deleted.');load()}catch(e){n.error(messageFrom(e))}};
+ return <><PageHeader eyebrow="Configuration" title={title} description="Reference values used across CareVMA forms and employee/client records." actions={allowed('create')&&<Button icon={Plus} onClick={()=>open()}>Add item</Button>}/><Card><Table columns={[{key:'name',label:'Name'},{key:'description',label:'Description',render:r=>r.description||'—'},{key:'actions',label:'Actions',render:r=><div className="row-actions">{allowed('edit')&&<button onClick={()=>open(r)}><Pencil size={16}/></button>}{allowed('delete')&&<button className="danger" onClick={()=>remove(r)}><Trash2 size={16}/></button>}</div>}]} rows={rows} emptyTitle={`No ${title.toLowerCase()} configured`}/></Card><Modal open={modal} onClose={()=>setModal(false)} title={edit?'Edit item':'Add item'} footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={save}>Save</Button></>}><div className="form-grid one-col"><Input label="Name *" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/>{type==='departments'&&<Textarea label="Description" value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/>}</div></Modal></>;
 }
 
 export function NotificationsPage(){
- const [rows,setRows]=useState([]),[busy,setBusy]=useState(false);const n=useNotice();const load=async()=>{setBusy(true);try{setRows((await api.get('/notifications')).data.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};useEffect(()=>{load()},[]);const read=async()=>{try{await api.post('/notifications/read-all');n.success('All notifications marked as read.');load()}catch(e){n.error(messageFrom(e))}};
- return <><PageHeader eyebrow="Activity center" title="Notifications" description="System events and operational updates." actions={<Button variant="secondary" icon={Check} onClick={read}>Mark all read</Button>}/><Card>{rows.length?<div className="notification-list">{rows.map(r=><div className={`notification-item ${r.is_read?'':'unread'}`} key={r.id}><div className="notification-icon"><NotificationIcon row={r} size={17}/></div><div><strong>{r.title||r.type||'Notification'}</strong><p>{r.message||(typeof r.data==='object'?(r.data.message||r.data.text||JSON.stringify(r.data)):String(r.data||''))}</p><span>{dateTime(r.created_at)}</span>{r.action_url&&<Link className="notification-action" to={r.action_url}>Open</Link>}</div>{!r.is_read&&<i/>}</div>)}</div>:<EmptyState title="No notifications"/>}</Card></>;
+ const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[page,setPage]=useState(1),[busy,setBusy]=useState(false);const n=useNotice();
+ const load=async(nextPage=page)=>{setBusy(true);try{const {data}=await api.get('/notifications',{params:{page:nextPage,per_page:25}});setRows(data.data||[]);setMeta(data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+ useEffect(()=>{load(page)},[page]);
+ const read=async()=>{try{await api.post('/notifications/read-all');n.success('All notifications marked as read.');await load(page)}catch(e){n.error(messageFrom(e))}};
+ return <><PageHeader eyebrow="Activity center" title="Notifications" description="System events and operational updates." actions={<Button variant="secondary" icon={Check} onClick={read}>Mark all read</Button>}/><Card>{rows.length?<div className="notification-list">{rows.map(r=><div className={`notification-item ${r.is_read?'':'unread'}`} key={r.id}><div className="notification-icon"><NotificationIcon row={r} size={17}/></div><div><strong>{r.title||r.type||'Notification'}</strong><p>{r.message||(typeof r.data==='object'?(r.data.message||r.data.text||JSON.stringify(r.data)):String(r.data||''))}</p><span>{dateTime(r.created_at)}</span>{r.action_url&&<Link className="notification-action" to={r.action_url}>Open</Link>}</div>{!r.is_read&&<i/>}</div>)}</div>:<EmptyState title="No notifications"/>}{meta && Number(meta.last_page || 1) <= 1 && <div className="notification-page-summary" role="status">Showing {meta.total || 0} notification{Number(meta.total || 0) === 1 ? '' : 's'} · Page 1 of 1 · 25 per page</div>}<Pagination meta={meta} onPage={setPage}/></Card></>;
 }
 
 export function AccountPage(){
- const {user,refresh}=useAuth(); const [profile,setProfile]=useState({name:user?.name||'',email:user?.email||''}),[photo,setPhoto]=useState(null),[pw,setPw]=useState({current_password:'',password:'',password_confirmation:''}),[busy,setBusy]=useState(false);const n=useNotice();const saveProfile=async()=>{setBusy(true);try{const fd=new FormData();fd.append('name',profile.name||'');fd.append('email',profile.email||'');if(photo)fd.append('profile_picture',photo);await api.post('/management/account',fd,{headers:{'Content-Type':'multipart/form-data'}});setPhoto(null);await refresh();n.success('Account details and profile photo updated.')}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};const savePw=async()=>{setBusy(true);try{await api.put('/management/account/password',pw);setPw({current_password:'',password:'',password_confirmation:''});n.success('Password changed.')}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
- return <><PageHeader eyebrow="Account security" title="My account" description="Update your administrator/HR identity, profile photo and password."/><div className="two-col"><Card title="Profile" subtitle="These details identify your signed-in account."><div className="profile-photo-row"><div className="profile-photo"><AvatarMedia src={user?.profile_picture} alt={user?.name||'Profile'} fallback={user?.name?.[0]?.toUpperCase()||'U'}/></div><label className="upload-button">Choose photo<input type="file" accept="image/jpeg,image/png,image/webp" onChange={e=>setPhoto(e.target.files?.[0]||null)}/></label></div><div className="form-grid one-col"><Input label="Name" value={profile.name} onChange={e=>setProfile({...profile,name:e.target.value})}/><Input label="Email" type="email" value={profile.email} onChange={e=>setProfile({...profile,email:e.target.value})}/><Button loading={busy} icon={Save} onClick={saveProfile}>Save profile</Button></div></Card><Card title="Change password" subtitle="Current password verification is required."><div className="form-grid one-col"><Input label="Current password" type="password" value={pw.current_password} onChange={e=>setPw({...pw,current_password:e.target.value})}/><Input label="New password" type="password" value={pw.password} onChange={e=>setPw({...pw,password:e.target.value})}/><Input label="Confirm new password" type="password" value={pw.password_confirmation} onChange={e=>setPw({...pw,password_confirmation:e.target.value})}/><Button loading={busy} icon={KeyRound} onClick={savePw}>Change password</Button></div></Card></div></>;
+ const {user,refresh}=useAuth(); const [profile,setProfile]=useState({name:user?.name||'',email:user?.email||''}),[photo,setPhoto]=useState(null),[photoRemoved,setPhotoRemoved]=useState(false),[pw,setPw]=useState({current_password:'',password:'',password_confirmation:''}),[busy,setBusy]=useState(false);const n=useNotice();const saveProfile=async()=>{setBusy(true);try{const fd=new FormData();fd.append('name',profile.name||'');fd.append('email',profile.email||'');if(photo)fd.append('profile_picture',photo);if(photoRemoved&&!photo)fd.append('remove_profile_picture','1');await api.post('/management/account',fd,{headers:{'Content-Type':'multipart/form-data'}});setPhoto(null);setPhotoRemoved(false);await refresh();n.success('Account details and profile photo updated.')}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};const savePw=async()=>{setBusy(true);try{await api.put('/management/account/password',pw);setPw({current_password:'',password:'',password_confirmation:''});n.success('Password changed.')}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+ return <><PageHeader eyebrow="Account security" title="My account" description="Update your administrator/HR identity, profile photo and password."/><div className="two-col"><Card title="Profile" subtitle="These details identify your signed-in account."><ProfilePhotoPicker current={user?.profile_picture} file={photo} removed={photoRemoved} label="Account profile photo" fallback={user?.name?.[0]?.toUpperCase()||'U'} accept="image/jpeg,image/png,image/webp" maxMB={5} onFile={file=>{setPhoto(file);setPhotoRemoved(false)}} onRemove={()=>{setPhoto(null);setPhotoRemoved(true)}}/><div className="form-grid one-col"><Input label="Name" value={profile.name} onChange={e=>setProfile({...profile,name:e.target.value})}/><Input label="Email" type="email" value={profile.email} onChange={e=>setProfile({...profile,email:e.target.value})}/><Button loading={busy} icon={Save} onClick={saveProfile}>Save profile</Button></div></Card><Card title="Change password" subtitle="Current password verification is required."><div className="form-grid one-col"><Input label="Current password" type="password" value={pw.current_password} onChange={e=>setPw({...pw,current_password:e.target.value})}/><Input label="New password" type="password" value={pw.password} onChange={e=>setPw({...pw,password:e.target.value})}/><Input label="Confirm new password" type="password" value={pw.password_confirmation} onChange={e=>setPw({...pw,password_confirmation:e.target.value})}/><Button loading={busy} icon={KeyRound} onClick={savePw}>Change password</Button></div></Card></div></>;
 }
 
 export function HrTeamPage(){
+ const allowed=useCan('hr-team');
  const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[page,setPage]=useState(1),[search,setSearch]=useState(queryParam('search')),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'id',dir:'desc'}),[modal,setModal]=useState(false),[edit,setEdit]=useState(null),[form,setForm]=useState({name:'',email:'',password:''}),[busy,setBusy]=useState(false),[inviteLink,setInviteLink]=useState(null);const n=useNotice();
  const load=async(nextPage=page)=>{setBusy(true);try{const r=await api.get('/admin/hr-users',{params:{search,page:nextPage,per_page:perPage,sort:sort.key,direction:sort.dir}});setRows(r.data.data||[]);setMeta(r.data)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
  useEffect(()=>{const t=setTimeout(()=>load(page),180);return()=>clearTimeout(t)},[search,page,perPage,sort]);
@@ -1238,16 +1516,16 @@ export function HrTeamPage(){
  const save=async()=>{setBusy(true);try{if(edit){await api.put(`/admin/hr-users/${edit.id}`,form);n.success('HR account updated.')}else{const {data}=await api.post('/admin/hr-users',{name:form.name,email:form.email});setInviteLink(data?.setup_url?{url:data.setup_url,label:form.name||form.email}:null);data?.invitation_sent===false?n.error(data?.message||'HR account created, but invitation email could not be sent.'):n.success(data?.message||'HR account created and password setup email sent.')}setModal(false);setPage(1);load(1)}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
  const copyHrInvite=async()=>{if(!inviteLink?.url)return;try{await navigator.clipboard.writeText(inviteLink.url);n.success('Activation link copied.')}catch{n.error('Could not copy the activation link. Please copy it manually.')}};
  const remove=async r=>{try{await api.delete(`/admin/hr-users/${r.id}`);n.success('HR account deleted.');const target=rows.length===1&&page>1?page-1:page;if(target!==page)setPage(target);else load(target)}catch(e){n.error(messageFrom(e))}};
- return <><PageHeader eyebrow="Access management" title="HR team" description="Create dedicated HR logins. New HR users receive a secure email link to set their own password before signing in." actions={<Button icon={Plus} onClick={()=>open()}>Add HR user</Button>}/>{inviteLink&&<Card title="Activation link"><div className="invite-link-box"><div><strong>{inviteLink.label}</strong><a href={inviteLink.url} target="_blank" rel="noreferrer">{inviteLink.url}</a></div><Button variant="secondary" icon={ClipboardCopy} onClick={copyHrInvite}>Copy link</Button></div></Card>}<Card><div className="toolbar"><SearchBox value={search} onChange={v=>{setSearch(v);setPage(1)}} placeholder="Search HR team"/><span className="record-count">{meta?.total??rows.length} HR users</span></div><Table columns={[{key:'name',label:'Name',sortKey:'name'},{key:'email',label:'Email',sortKey:'email'},{key:'last_seen_at',label:'Last active',sortKey:'last_seen_at',render:r=>dateTime(r.last_seen_at)},{key:'actions',label:'Actions',render:r=><div className="row-actions"><button onClick={()=>open(r)}><Pencil size={16}/></button><button className="danger" onClick={()=>remove(r)}><Trash2 size={16}/></button></div>}]} rows={rows} emptyTitle="No HR accounts" emptyDescription="Add an HR user to send their password setup invitation." meta={meta} onPage={setPage} perPage={perPage} onPerPage={v=>{setPerPage(v);setPage(1)}} sort={sort} onSort={s=>{setSort(s);setPage(1)}}/></Card><Modal open={modal} onClose={()=>setModal(false)} title={edit?'Edit HR account':'Add HR account'} footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={save}>Save HR account</Button></>}><div className="form-grid one-col"><Input label="Name *" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/><Input label="Email *" type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/>{edit&&<Input label="New password (optional)" type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})}/>} {!edit&&<div className="notice notice-info">A secure set-password email will be sent automatically after this HR account is created.</div>}</div></Modal></>;
+ return <><PageHeader eyebrow="Access management" title="HR team" description="Create dedicated HR logins. New HR users receive a secure email link to set their own password before signing in." actions={allowed('create')&&<Button icon={Plus} onClick={()=>open()}>Add HR user</Button>}/>{inviteLink&&<Card title="Activation link"><div className="invite-link-box"><div><strong>{inviteLink.label}</strong><a href={inviteLink.url} target="_blank" rel="noreferrer">{inviteLink.url}</a></div><Button variant="secondary" icon={ClipboardCopy} onClick={copyHrInvite}>Copy link</Button></div></Card>}<Card><div className="toolbar"><SearchBox value={search} onChange={v=>{setSearch(v);setPage(1)}} placeholder="Search HR team"/><span className="record-count">{meta?.total??rows.length} HR users</span></div><Table columns={[{key:'name',label:'Name',sortKey:'name',render:r=><div className="person-cell"><div className="avatar small"><AvatarMedia src={r.profile_picture} alt={r.name||'HR'} fallback={r.name?.[0]?.toUpperCase()||'H'}/></div><strong>{r.name}</strong></div>},{key:'email',label:'Email',sortKey:'email'},{key:'last_seen_at',label:'Last active',sortKey:'last_seen_at',render:r=>dateTime(r.last_seen_at)},{key:'actions',label:'Actions',render:r=><div className="row-actions">{allowed('edit')&&<button onClick={()=>open(r)}><Pencil size={16}/></button>}{allowed('delete')&&<button className="danger" onClick={()=>remove(r)}><Trash2 size={16}/></button>}</div>}]} rows={rows} emptyTitle="No HR accounts" emptyDescription="Add an HR user to send their password setup invitation." meta={meta} onPage={setPage} perPage={perPage} onPerPage={v=>{setPerPage(v);setPage(1)}} sort={sort} onSort={s=>{setSort(s);setPage(1)}}/></Card><Modal open={modal} onClose={()=>setModal(false)} title={edit?'Edit HR account':'Add HR account'} footer={<><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button loading={busy} onClick={save}>Save HR account</Button></>}><div className="form-grid one-col"><Input label="Name *" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/><Input label="Email *" type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/>{edit&&<Input label="New password (optional)" type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})}/>} {!edit&&<div className="notice notice-info">A secure set-password email will be sent automatically after this HR account is created.</div>}</div></Modal></>;
 }
 
 export function ActivityLogsPage(){
   const {user}=useAuth();const n=useNotice();
-  const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[actors,setActors]=useState([]),[modules,setModules]=useState([]),[busy,setBusy]=useState(false);
+  const [rows,setRows]=useState([]),[meta,setMeta]=useState(null),[modules,setModules]=useState([]),[busy,setBusy]=useState(false);
   const [filters,setFilters]=useState({user_id:'',module:'',role:'',from:'',to:'',search:''});
   const [page,setPage]=useState(1),[perPage,setPerPage]=useState(25),[sort,setSort]=useState({key:'created_at',dir:'desc'});
   const tz=user?.assigned_timezone||'UTC';
-  const load=async()=>{setBusy(true);try{const {data}=await api.get('/admin/activity-logs',{params:{...filters,page,per_page:perPage,sort:sort.key,direction:sort.dir}});setRows(data.data||[]);setMeta(data);setActors(data.actors||[]);setModules(data.modules||[])}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
+  const load=async()=>{setBusy(true);try{const {data}=await api.get('/admin/activity-logs',{params:{...filters,page,per_page:perPage,sort:sort.key,direction:sort.dir}});setRows(data.data||[]);setMeta(data);setModules(data.modules||[])}catch(e){n.error(messageFrom(e));setRows([]);setMeta(null)}finally{setBusy(false)}};
   useEffect(()=>{load()},[page,perPage,sort,filters.user_id,filters.module,filters.role,filters.from,filters.to]);
   const set=(key,value)=>{setPage(1);setFilters(f=>({...f,[key]:value}))};
   const apply=()=>{setPage(1);load()};
@@ -1256,7 +1534,7 @@ export function ActivityLogsPage(){
   const methodTone={POST:'success',PUT:'info',PATCH:'info',DELETE:'danger'};
   const columns=[
     {key:'created_at',label:'When',sortKey:'created_at',render:r=><AttCell sub={attCity(tz)}>{dateTime(r.created_at,tz)}</AttCell>},
-    {key:'actor',label:'User',sortKey:'actor',render:r=><div className="person-cell"><div className="avatar small">{(r.actor_name||r.actor_email||'?').slice(0,1).toUpperCase()}</div><div><strong>{r.actor_name||'Unknown'}</strong><span>{r.actor_email||'—'}</span></div></div>},
+    {key:'actor',label:'User',sortKey:'actor',render:r=><div className="person-cell"><div className="avatar small"><AvatarMedia src={r.actor_profile_picture} alt={r.actor_name||r.actor_email||'User'} fallback={(r.actor_name||r.actor_email||'?').slice(0,1).toUpperCase()}/></div><div><strong>{r.actor_name||'Unknown'}</strong><span>{r.actor_email||'—'}</span></div></div>},
     {key:'actor_role',label:'Role',render:r=><Badge tone={roleTone[r.actor_role]||'neutral'}>{r.actor_role||'—'}</Badge>},
     {key:'action',label:'Action',sortKey:'action',render:r=><AttCell sub={r.description||''}>{r.action}</AttCell>},
     {key:'module',label:'Module',sortKey:'module',render:r=><Badge tone="neutral">{r.module}</Badge>},
@@ -1264,9 +1542,9 @@ export function ActivityLogsPage(){
     {key:'request',label:'Request',render:r=><AttCell sub={r.path}><Badge tone={methodTone[r.method]||'neutral'}>{r.method}</Badge> <span className="muted">{r.status_code}</span></AttCell>},
     {key:'ip_address',label:'IP',render:r=>r.ip_address||'—'},
   ];
-  return <><PageHeader eyebrow="Governance" title="Activity logs" description="Every sign-in and change made by any user, newest first. Times are shown in your timezone." actions={<Button variant="secondary" icon={RefreshCw} loading={busy} onClick={load}>Refresh</Button>}/>
+  return <section className="activity-logs-page"><PageHeader eyebrow="Governance" title="Activity logs" description="Every sign-in and change made by any user, newest first. Times are shown in your timezone." actions={<Button variant="secondary" icon={RefreshCw} loading={busy} onClick={load}>Refresh</Button>}/>
     <Card><div className="filter-grid">
-      <SearchableSelect label="User" value={filters.user_id} onChange={v=>set('user_id',v)} placeholder="All users" searchPlaceholder="Search by name or email…" options={actors.map(a=>({value:String(a.user_id),label:`${a.actor_name||a.actor_email} · ${a.actor_role}`}))}/>
+      <SearchableSelect label="User" value={filters.user_id} onChange={v=>set('user_id',v)} placeholder="All users" searchPlaceholder="Search by name or email…" remoteType="user" remoteValueField="id" remoteLimit={30}/>
       <Select label="Module" value={filters.module} onChange={e=>set('module',e.target.value)}><option value="">All modules</option>{modules.map(m=><option key={m} value={m}>{m}</option>)}</Select>
       <Select label="Role" value={filters.role} onChange={e=>set('role',e.target.value)}><option value="">All roles</option>{['admin','hr','employee','client','guest'].map(r=><option key={r} value={r}>{r}</option>)}</Select>
       <Input label="From" type="date" value={filters.from} onChange={e=>set('from',e.target.value)}/>
@@ -1275,12 +1553,13 @@ export function ActivityLogsPage(){
       <div className="filter-actions"><Button onClick={apply}>Filter</Button><Button variant="secondary" onClick={reset}>Reset</Button></div>
     </div></Card>
     <Card title="Log entries" subtitle={meta?`${meta.total||0} entries`:'Loading…'}><Table columns={columns} rows={rows} meta={meta} onPage={setPage} perPage={perPage} onPerPage={v=>{setPerPage(v);setPage(1)}} sort={sort} onSort={setSort} emptyTitle="No activity yet" emptyDescription="Sign-ins and changes will appear here as users work."/></Card>
-  </>;
+  </section>;
 }
 
 export function InvoiceSettingsPage(){
+  const allowed=useCan('invoice-settings');
   const [form,setForm]=useState(null),[busy,setBusy]=useState(false);const n=useNotice();
-  useEffect(()=>{api.get('/management/invoice-settings').then(r=>setForm({...DEFAULT_INVOICE_SETTINGS,...r.data})).catch(e=>n.error(messageFrom(e)))},[]);
+  useEffect(()=>{api.get('/admin/invoice-settings').then(r=>setForm({...DEFAULT_INVOICE_SETTINGS,...r.data})).catch(e=>n.error(messageFrom(e)))},[]);
   const save=async()=>{setBusy(true);try{const {data}=await api.put('/admin/invoice-settings',form);setForm({...form,...(data.settings||{})});n.success(data.message||'Invoice settings saved.')}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
   if(!form)return <Loading/>;
   const s=Math.max(1,Math.min(30,Number(form.cycle_start_day)||26)),w=billingCycleWindows(s);
@@ -1288,9 +1567,9 @@ export function InvoiceSettingsPage(){
     <div className="two-col">
       <Card title="Billing cycle" subtitle="A cycle starts on the chosen day and ends the day before that day in the following month.">
         <div className="form-grid one-col">
-          <Input label="Cycle start day" type="number" min="1" max="30" value={form.cycle_start_day} onChange={e=>setForm({...form,cycle_start_day:Math.max(1,Math.min(30,Number(e.target.value)||1))})} hint={`Automatic cycle: ${cycleLabel(s)}. The final cycle-end VA shift controls generation.`}/>
-          <label className="check field-check"><input type="checkbox" checked={!!form.auto_generate} onChange={e=>setForm({...form,auto_generate:e.target.checked})}/><span>Generate draft invoices automatically</span></label>
-          <div><Button loading={busy} icon={Save} onClick={save}>Save settings</Button></div>
+          <Input label="Cycle start day" type="number" disabled={!allowed('edit')} min="1" max="30" value={form.cycle_start_day} onChange={e=>setForm({...form,cycle_start_day:Math.max(1,Math.min(30,Number(e.target.value)||1))})} hint={`Automatic cycle: ${cycleLabel(s)}. The final cycle-end VA shift controls generation.`}/>
+          <label className="check field-check"><input type="checkbox" disabled={!allowed('edit')} checked={!!form.auto_generate} onChange={e=>setForm({...form,auto_generate:e.target.checked})}/><span>Generate draft invoices automatically</span></label>
+          <div>{allowed('edit')&&<Button loading={busy} icon={Save} onClick={save}>Save settings</Button>}</div>
         </div>
       </Card>
       <Card title="What this means" subtitle="Computed from the values on the left, before you save.">
@@ -1305,20 +1584,98 @@ export function InvoiceSettingsPage(){
     </div></>;
 }
 
+const actionLabels={view:'View',create:'Create',edit:'Edit',delete:'Delete',export:'Export / Download',review:'Review',send:'Send'};
+
 export function RolesPermissionsPage(){
-  const [data,setData]=useState(null),[grants,setGrants]=useState({}),[busy,setBusy]=useState(false);const n=useNotice();
-  const load=async()=>{try{const {data}=await api.get('/admin/roles');setData(data);setGrants(data.grants||{})}catch(e){n.error(messageFrom(e))}};
+  const [data,setData]=useState(null);
+  const [drafts,setDrafts]=useState({});
+  const [busy,setBusy]=useState(false);
+  const [failed,setFailed]=useState(false);
+  const n=useNotice();
+
+  const load=async()=>{
+    setFailed(false);
+    try{setData((await api.get('/admin/roles')).data)}
+    catch(e){setFailed(true);n.error(messageFrom(e))}
+  };
   useEffect(()=>{load()},[]);
-  if(!data)return <Loading/>;
-  const has=(role,key)=>(grants[role]||[]).includes(key);
-  const toggle=(role,key)=>setGrants(g=>({...g,[role]:has(role,key)?(g[role]||[]).filter(k=>k!==key):[...(g[role]||[]),key]}));
-  const changed=role=>JSON.stringify([...(grants[role]||[])].sort())!==JSON.stringify([...(data.grants?.[role]||[])].sort());
-  const save=async role=>{setBusy(true);try{const {data:res}=await api.put(`/admin/roles/${role}`,{modules:grants[role]||[]});setData(res);setGrants(res.grants||{});n.success(res.message||'Access updated.')}catch(e){n.error(messageFrom(e))}finally{setBusy(false)}};
-  const groups=[...new Set(data.modules.map(m=>m.group))];
-  return <><PageHeader eyebrow="Access control" title="Roles & Permissions" description="Choose which modules each staff role can open. Administrators always have every module; employees and doctors use their own portals."/>
-    <Card title="Module access" subtitle="Tick a module to add it to a role's navigation and API access, then save that role's column.">
-      <div className="table-wrap"><table className="permissions-matrix"><thead><tr><th>Module</th><th>Administrator</th>{data.roles.map(r=><th key={r.key}>{r.label}</th>)}</tr></thead>
-        <tbody>{groups.map(group=><Fragment key={group}><tr className="permissions-group"><td colSpan={2+data.roles.length}>{group}</td></tr>{data.modules.filter(m=>m.group===group).map(m=><tr key={m.key}><td>{m.label}</td><td><span className="permissions-locked"><Check size={15}/> Always</span></td>{data.roles.map(r=><td key={r.key}><label className="check"><input type="checkbox" checked={has(r.key,m.key)} onChange={()=>toggle(r.key,m.key)}/><span>{has(r.key,m.key)?'Allowed':'No access'}</span></label></td>)}</tr>)}</Fragment>)}</tbody>
-        <tfoot><tr><td/><td/>{data.roles.map(r=><td key={r.key}><Button loading={busy} icon={Save} disabled={!changed(r.key)} onClick={()=>save(r.key)}>Save {r.label}</Button></td>)}</tr></tfoot></table></div>
-    </Card></>;
+
+  if(!data)return failed?<Button variant="secondary" icon={RefreshCw} onClick={load}>Retry</Button>:<Loading/>;
+
+  const saved=role=>({modules:data.grants[role]||[],actions:data.action_grants[role]||[]});
+  const toggle=(role,key,action)=>{
+    setDrafts(current=>{
+      const {modules,actions}=current[role]||saved(role);
+      if(action==='view'){
+        return {...current,[role]:modules.includes(key)
+          ? {modules:modules.filter(module=>module!==key),actions:actions.filter(permission=>!permission.startsWith(`${key}.`))}
+          : {modules:[...modules,key],actions}};
+      }
+      const permission=`${key}.${action}`;
+      return {...current,[role]:{modules,actions:actions.includes(permission)
+        ? actions.filter(value=>value!==permission)
+        : [...actions,permission]}};
+    });
+  };
+
+  const changed=role=>{
+    const draft=drafts[role];
+    if(!draft)return false;
+    const original=saved(role);
+    return ['modules','actions'].some(key=>draft[key].length!==original[key].length||draft[key].some(value=>!original[key].includes(value)));
+  };
+
+  const save=async role=>{
+    setBusy(true);
+    try{
+      await primeCsrf();
+      const {data:response}=await api.put(`/admin/roles/${role}`,drafts[role],{carevmaAutoToast:false,carevmaSilent:true});
+      setData(response);
+      setDrafts(current=>{const next={...current};delete next[role];return next});
+      n.success(response.message||'Access updated.');
+    }catch(e){n.error(messageFrom(e))}
+    finally{setBusy(false)}
+  };
+
+  const groups=[...new Set(data.modules.map(module=>module.group))];
+  return <>
+    <PageHeader eyebrow="Access control" title="Roles & Permissions" description="Manage module access and actions for staff roles. Administrators have full access. Employees and doctors use their own portals."/>
+    <Card title="Module access" subtitle="Enable View first, select the allowed actions, then save the role.">
+      <div className="table-wrap">
+        <table className="permissions-matrix">
+          <thead><tr><th scope="col">Module</th><th scope="col">Administrator</th>{data.roles.map(role=><th scope="col" key={role.key}>{role.label}</th>)}</tr></thead>
+          <tbody>{groups.map(group=><Fragment key={group}>
+            <tr className="permissions-group"><td colSpan={2+data.roles.length}>{group}</td></tr>
+            {data.modules.filter(module=>module.group===group).map(module=>{
+              const locked=data.locked_modules[module.key];
+              const actions=['view',...(data.module_actions[module.key]||[])];
+              return <tr key={module.key}>
+                <th scope="row">{module.label}</th>
+                <td><span className="permissions-locked"><Check size={15}/> Always</span></td>
+                {data.roles.map(role=>{
+                  const grant=drafts[role.key]||saved(role.key);
+                  const view=grant.modules.includes(module.key);
+                  return <td key={role.key}>{locked
+                    ? locked==='staff'?<span className="permissions-locked"><Check size={15}/> Always</span>:<span className="muted">Administrator only</span>
+                    : <div className="permission-actions">{actions.map(action=>
+                      <label className="check" key={action}>
+                        <input type="checkbox" aria-label={`${role.label}: ${module.label} — ${actionLabels[action]}`}
+                          checked={action==='view'?view:grant.actions.includes(`${module.key}.${action}`)}
+                          disabled={busy||(action!=='view'&&!view)}
+                          onChange={()=>toggle(role.key,module.key,action)}/>
+                        <span>{actionLabels[action]}</span>
+                      </label>
+                    )}</div>}
+                  </td>;
+                })}
+              </tr>;
+            })}
+          </Fragment>)}</tbody>
+          <tfoot><tr><td/><td/>{data.roles.map(role=><td key={role.key}>
+            <Button loading={busy} icon={Save} disabled={busy||!changed(role.key)} onClick={()=>save(role.key)}>Save {role.label}</Button>
+          </td>)}</tr></tfoot>
+        </table>
+      </div>
+    </Card>
+  </>;
 }

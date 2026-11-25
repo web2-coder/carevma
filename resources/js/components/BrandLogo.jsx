@@ -1,18 +1,10 @@
+import { useEffect, useState } from 'react';
 export const CAREVMA_LOGO_URL = '/Care_VMA.webp';
 export const CAREVMA_FAVICON_URL = '/Care_VMA-favicon.png';
-export const CAREVMA_REMOTE_LOGO_URL = 'https://carevmahealth.com/wp-content/uploads/2025/11/7a9706c5-1404-40b4-a67e-cfd4ce46af8a-2048x382-1.webp';
-
 export default function BrandLogo({ compact = false, className = '' }) {
-  return (
-    <span className={`carevma-brand-logo ${compact ? 'is-compact' : ''} ${className}`.trim()}>
-      <img
-        src={compact ? CAREVMA_FAVICON_URL : CAREVMA_LOGO_URL}
-        alt="CareVMA"
-        onError={event => {
-          event.currentTarget.onerror = null;
-          event.currentTarget.src = compact ? CAREVMA_FAVICON_URL : CAREVMA_REMOTE_LOGO_URL;
-        }}
-      />
-    </span>
-  );
+  const [branding,setBranding]=useState(()=>window.__carevmaBrand||{});
+  const [mode,setMode]=useState(()=>document.documentElement.dataset.themeMode||'light');
+  useEffect(()=>{const update=()=>{setBranding(window.__carevmaBrand||{});setMode(document.documentElement.dataset.themeMode||'light')};window.addEventListener('carevma:brand-changed',update);window.addEventListener('carevma:theme-changed',update);return()=>{window.removeEventListener('carevma:brand-changed',update);window.removeEventListener('carevma:theme-changed',update)}},[]);
+  const src=branding.logo_light||CAREVMA_LOGO_URL;
+  return <span className={`carevma-brand-logo ${compact?'is-compact':''} ${className}`.trim()}><img className="brand-logo" src={src} alt={branding.company_name||'CareVMA'} onError={e=>{if(e.currentTarget.src!==new URL(CAREVMA_LOGO_URL,location.href).href)e.currentTarget.src=CAREVMA_LOGO_URL}}/></span>;
 }

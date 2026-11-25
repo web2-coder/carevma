@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\Facades\Log;
 use App\Models\Employee;
 use App\Models\Attendance;
+use App\Models\ActivityLog;
 use App\Models\Notification;
 use App\Models\User;
 use App\Services\OperationalNotifier;
@@ -14,6 +15,8 @@ use App\Services\AttendanceBillingService;
 use App\Services\ClientTimezoneService;
 use App\Services\WorkSessionService;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 
 Artisan::command('inspire', function () {
@@ -42,6 +45,23 @@ Artisan::command('carevma:pusher-test {email?}', function (?string $email = null
     return 0;
 })->purpose('Send a CareVMA database/email/Pusher test notification');
 
+// Retention is opt-in. Default: preserve every audit row until an explicit policy is approved.
+Artisan::command('activity-logs:prune {--apply : Delete only when explicitly enabled in config}', function () {
+    $days = (int) config('carevma.audit_log_retention_days', 0);
+    if ($days < 1) {
+        $this->info('Audit log retention disabled; no records deleted.');
+        return 0;
+    }
+    $cutoff = now()->subDays($days);
+    $count = ActivityLog::query()->where('created_at', '<', $cutoff)->count();
+    if (!$this->option('apply')) {
+        $this->warn("DRY RUN: {$count} logs older than {$days} days would be deleted. No changes made.");
+        return 0;
+    }
+    $this->error('Automated deletion is intentionally blocked in this patch. Export/backup and obtain an approved retention policy before enabling destructive pruning.');
+    return 1;
+})->purpose('Preview activity log retention without deleting historical logs');
+
 /*
 |--------------------------------------------------------------------------
 | Monthly invoice generation
@@ -54,6 +74,8 @@ Schedule::command('invoices:generate-monthly')
     ->everyMinute()
     ->name('carevma-monthly-invoice-generation')
     ->withoutOverlapping(120);
+
+// Automatic activity-log deletion disabled. Preserve historical records by default.
 
 /* Reconcile one VA work session into Doctor-specific segments every minute. */
 Schedule::call(function () {
@@ -109,52 +131,63 @@ Schedule::call(function () {
         });
 })->everyMinute()->name('carevma-auto-checkout')->withoutOverlapping(60);
 
-/* One-day-before birthday reminder for Admins. */
+/* One-day-before birthday reminder for Admins. High-volume safe: pre-filter
+| candidates by month/day in SQL and run hourly instead of loading every employee
+| every minute. Duplicate protection remains in place. */
 Schedule::call(function () {
     $clock = app(TrustedTimeService::class);
     $notifier = app(OperationalNotifier::class);
+    $businessZone = config('carevma.business_timezone', 'Asia/Karachi');
+    $businessNow = $clock->now($businessZone);
     $admins = User::query()->whereIn('role', ['admin', 'superadmin'])->get();
 
-    if ($admins->isEmpty()) {
-        return;
-    }
+    if ($admins->isEmpty()) return;
 
+    // World timezones can differ from business time by roughly one calendar day.
+    // Three candidate dates keep the query tiny while the per-employee timezone
+    // check below preserves exact behavior.
+    $candidates = collect([-1, 0, 1])
+        ->map(fn (int $offset) => $businessNow->copy()->addDay()->addDays($offset)->format('m-d'))
+        ->unique()->values();
+    $driver = DB::getDriverName();
     $employees = Employee::query()
         ->whereNotNull('date_of_birth')
+        ->where(function ($query) use ($candidates, $driver) {
+            foreach ($candidates as $candidate) {
+                if (in_array($driver, ['mysql', 'mariadb'], true)) {
+                    $query->orWhereRaw("DATE_FORMAT(date_of_birth, '%m-%d') = ?", [$candidate]);
+                } elseif ($driver === 'sqlite') {
+                    $query->orWhereRaw("strftime('%m-%d', date_of_birth) = ?", [$candidate]);
+                } elseif ($driver === 'pgsql') {
+                    $query->orWhereRaw("TO_CHAR(date_of_birth, 'MM-DD') = ?", [$candidate]);
+                } else {
+                    $query->orWhereNotNull('date_of_birth');
+                }
+            }
+        })
         ->get(['id', 'first_name', 'last_name', 'date_of_birth', 'timezone']);
 
     foreach ($employees as $employee) {
-        $timezone = trim((string) ($employee->timezone ?: config('carevma.business_timezone', 'Asia/Karachi')));
-        try {
-            new \DateTimeZone($timezone);
-        } catch (\Throwable) {
-            $timezone = config('carevma.business_timezone', 'Asia/Karachi');
-        }
+        $timezone = trim((string) ($employee->timezone ?: $businessZone));
+        try { new \DateTimeZone($timezone); } catch (\Throwable) { $timezone = $businessZone; }
 
         $tomorrow = $clock->now($timezone)->addDay();
         $birthDate = $employee->date_of_birth;
         if (!$birthDate
             || (int) $birthDate->format('m') !== (int) $tomorrow->format('m')
-            || (int) $birthDate->format('d') !== (int) $tomorrow->format('d')) {
-            continue;
-        }
+            || (int) $birthDate->format('d') !== (int) $tomorrow->format('d')) continue;
 
         $birthdayKey = $employee->id.':'.$tomorrow->toDateString();
         $name = trim($employee->first_name.' '.$employee->last_name);
-
-        $pendingAdmins = $admins->filter(function (User $admin) use ($birthdayKey) {
-            return !Notification::query()
-                ->where('user_id', $admin->id)
-                ->where('type', 'BirthdayTomorrow')
-                ->latest('id')
-                ->limit(50)
-                ->get()
-                ->contains(fn (Notification $notification) => ($notification->data['birthday_key'] ?? null) === $birthdayKey);
-        })->values();
-
-        if ($pendingAdmins->isEmpty()) {
-            continue;
-        }
+        $alreadySentTo = Notification::query()
+            ->whereIn('user_id', $admins->pluck('id'))
+            ->where('type', 'BirthdayTomorrow')
+            ->where('created_at', '>=', now()->subDays(2))
+            ->get(['user_id', 'data'])
+            ->filter(fn (Notification $notification) => ($notification->data['birthday_key'] ?? null) === $birthdayKey)
+            ->pluck('user_id')->map(fn ($id) => (int) $id)->all();
+        $pendingAdmins = $admins->reject(fn (User $admin) => in_array((int) $admin->id, $alreadySentTo, true))->values();
+        if ($pendingAdmins->isEmpty()) continue;
 
         $notifier->send(
             $pendingAdmins,
@@ -162,69 +195,46 @@ Schedule::call(function () {
             $name.' has a birthday tomorrow in '.$timezone.'.',
             'BirthdayTomorrow',
             '/admin/dashboard',
-            [
-                'employee_id' => $employee->id,
-                'birthday_key' => $birthdayKey,
-                'birthday_date' => $tomorrow->toDateString(),
-                'timezone' => $timezone,
-            ]
+            ['employee_id' => $employee->id, 'birthday_key' => $birthdayKey, 'birthday_date' => $tomorrow->toDateString(), 'timezone' => $timezone]
         );
     }
-})->everyMinute()->when(function () {
-    $now = app(TrustedTimeService::class)->now(config('carevma.business_timezone', 'Asia/Karachi'));
-    // Send any time after 09:00 on the day-before window. Duplicate protection
-    // above guarantees one reminder even though this condition is checked every minute.
-    return $now->hour >= 9;
+})->hourly()->when(function () {
+    return app(TrustedTimeService::class)->now(config('carevma.business_timezone', 'Asia/Karachi'))->hour >= 9;
 })->name('carevma-birthday-reminders')->withoutOverlapping(30);
 
-/* Existing probation reminder, also tied to the trusted business date. */
+/* Existing probation reminder, with a bounded indexed query. Hourly execution is
+| sufficient for a seven-day reminder window and avoids 60 identical scans/hour. */
 Schedule::call(function () {
     $clock = app(TrustedTimeService::class);
     $appNow = $clock->now(config('carevma.business_timezone', 'Asia/Karachi'));
-
     Log::info('CareVMA probation scheduler running.', ['at' => $appNow->toIso8601String()]);
 
-    $recipients = User::query()
-        ->whereIn('role', ['superadmin', 'admin', 'hr'])
-        ->get();
+    $recipients = User::query()->whereIn('role', ['superadmin', 'admin', 'hr'])->get();
+    if ($recipients->isEmpty()) return;
 
-    if ($recipients->isEmpty()) {
-        Log::warning('CareVMA probation reminder skipped: no Admin/HR recipients exist.');
-        return;
-    }
-
-    $employees = Employee::query()
+    $windowStart = $appNow->toDateString();
+    $windowEnd = $appNow->copy()->addWeek()->toDateString();
+    Employee::query()
         ->where('employment_type_id', '!=', 1)
         ->where('is_probation_email_sent', false)
-        ->whereNotNull('probation_end_date')
-        ->get();
-
-    foreach ($employees as $employee) {
-        $reminderDate = Carbon::parse($employee->probation_end_date)
-            ->timezone(config('carevma.business_timezone', 'Asia/Karachi'))
-            ->subWeek()
-            ->toDateString();
-
-        if ($appNow->toDateString() !== $reminderDate) {
-            continue;
-        }
-
-        app(OperationalNotifier::class)->send(
-            $recipients,
-            'Probation ending soon',
-            trim($employee->first_name.' '.$employee->last_name).' probation ends on '.Carbon::parse($employee->probation_end_date)->toDateString().'.',
-            'ProbationEndingSoon',
-            null,
-            ['employee_id' => $employee->id]
-        );
-
-        $employee->forceFill(['is_probation_email_sent' => true])->save();
-
-        Log::info('CareVMA probation reminder sent.', ['employee_id' => $employee->id]);
-    }
-})->everyMinute()->when(function () {
-    $now = app(TrustedTimeService::class)->now(config('carevma.business_timezone', 'Asia/Karachi'));
-    return $now->format('H:i') === '09:15';
+        ->whereBetween('probation_end_date', [$windowStart, $windowEnd])
+        ->orderBy('id')
+        ->chunkById(200, function ($employees) use ($recipients) {
+            foreach ($employees as $employee) {
+                app(OperationalNotifier::class)->send(
+                    $recipients,
+                    'Probation ending soon',
+                    trim($employee->first_name.' '.$employee->last_name).' probation ends on '.Carbon::parse($employee->probation_end_date)->toDateString().'.',
+                    'ProbationEndingSoon',
+                    null,
+                    ['employee_id' => $employee->id]
+                );
+                $employee->forceFill(['is_probation_email_sent' => true])->save();
+                Log::info('CareVMA probation reminder sent.', ['employee_id' => $employee->id]);
+            }
+        });
+})->hourly()->when(function () {
+    return app(TrustedTimeService::class)->now(config('carevma.business_timezone', 'Asia/Karachi'))->format('H:i') >= '09:15';
 })->name('carevma-probation-reminders')->withoutOverlapping(30);
 
 

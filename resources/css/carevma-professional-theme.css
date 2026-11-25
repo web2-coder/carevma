@@ -3094,7 +3094,7 @@ html, body, button, input, select, textarea, .app-shell {
 }
 .admin-timezone-clock-grid{
   display:grid;
-  grid-template-columns:repeat(4,minmax(0,1fr));
+  grid-template-columns:repeat(3,minmax(0,1fr));
   gap:12px;
 }
 .admin-timezone-clock-card{
@@ -3123,17 +3123,16 @@ html, body, button, input, select, textarea, .app-shell {
 }
 .admin-timezone-clock-heading span{
   margin-top:2px;
-  font-size:9px;
+  font-size:11px;
   color:var(--cv-slate-600,#61748d);
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
+  overflow-wrap:anywhere;
+  white-space:normal;
 }
 .admin-timezone-clock-heading small{
-  font-size:9px;
+  font-size:10px;
   color:var(--cv-slate-600,#61748d);
   text-align:right;
-  white-space:nowrap;
+  white-space:normal;
 }
 .admin-timezone-clock-card .assigned-timezone-clock{
   width:100%;
@@ -3194,3 +3193,177 @@ html, body, button, input, select, textarea, .app-shell {
 .modal .activity-list .activity-main-copy>strong,.modal .activity-list .activity-main-copy>span,.modal .activity-list .activity-main-copy>small{display:block;line-height:1.45}
 .modal .activity-list .badge{flex:0 0 auto;white-space:nowrap;margin-left:auto}
 @media(max-width:760px){.billing-cycle-card .card-head .row-actions{width:100%;flex-wrap:wrap;justify-content:flex-start}.modal .activity-list .activity-row{flex-wrap:wrap}.modal .activity-list .badge{margin-left:44px}}
+
+/* Bulk Invoice modal: responsive-only UI refinement. */
+.invoice-bulk-modal-content{
+  width:100%;
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  gap:18px;
+}
+.modal-wide .invoice-bulk-grid{
+  grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);
+  width:100%;
+  min-width:0;
+}
+.modal-wide .invoice-bulk-grid>*{
+  min-width:0;
+}
+@media(max-width:760px){
+  .modal-wide .invoice-bulk-grid{
+    grid-template-columns:1fr;
+    gap:16px;
+  }
+  .modal-wide .invoice-bulk-grid .bulk-invoice-actions{
+    grid-column:1;
+    flex-direction:column;
+    align-items:stretch;
+  }
+  .modal-wide .invoice-bulk-grid .bulk-invoice-actions .btn{
+    width:100%;
+  }
+  .invoice-bulk-modal-content .invoice-cycle-hint{
+    overflow-wrap:anywhere;
+  }
+}
+@media(max-width:480px){
+  .invoice-bulk-modal-content{
+    gap:14px;
+  }
+  .modal-wide .invoice-bulk-grid{
+    gap:14px;
+  }
+}
+
+/* Invoice filters modal: button-driven, responsive filtering without changing data logic. */
+.invoice-filter-modal-content{
+  width:100%;
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  gap:18px;
+}
+.modal-wide .invoice-filter-modal-grid{
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  width:100%;
+  min-width:0;
+  align-items:end;
+}
+.modal-wide .invoice-filter-modal-grid>*{
+  min-width:0;
+}
+@media(max-width:760px){
+  .modal-wide .invoice-filter-modal-grid{
+    grid-template-columns:1fr;
+    gap:16px;
+  }
+  .invoice-filter-modal-content .invoice-cycle-hint{
+    overflow-wrap:anywhere;
+  }
+  .modal-wide .modal-foot{
+    flex-wrap:wrap;
+  }
+  .modal-wide .modal-foot .btn{
+    flex:1 1 150px;
+  }
+}
+@media(max-width:480px){
+  .invoice-filter-modal-content{
+    gap:14px;
+  }
+  .modal-wide .invoice-filter-modal-grid{
+    gap:14px;
+  }
+  .modal-wide .modal-foot .btn{
+    width:100%;
+    flex-basis:100%;
+  }
+}
+
+/* Invoice monitoring: button-triggered responsive modal. */
+.invoice-monitoring-modal-content{
+  display:flex;
+  flex-direction:column;
+  gap:16px;
+}
+.invoice-monitoring-modal-grid{
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  margin-bottom:0;
+}
+.invoice-monitoring-modal-hint{
+  margin-top:0;
+  overflow-wrap:anywhere;
+}
+@media(max-width:900px){
+  .invoice-monitoring-modal-grid{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+}
+@media(max-width:620px){
+  .invoice-monitoring-modal-grid{
+    grid-template-columns:1fr;
+  }
+}
+
+/* Admin dashboard: 6/6 (50% + 50%) timezone / birthday widgets. */
+.admin-dashboard-timezone-birthday-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  align-items: stretch;
+  margin-bottom: 18px;
+}
+.admin-dashboard-timezone-half,
+.admin-dashboard-birthday-half { min-width: 0; }
+.admin-dashboard-timezone-birthday-row .admin-timezone-clocks-card,
+.admin-dashboard-timezone-birthday-row .birthday-dashboard-card {
+  margin-bottom: 0;
+  height: 100%;
+}
+/* Two small clock cards per row inside the half-width timezone panel. */
+.admin-dashboard-timezone-birthday-row .admin-timezone-clock-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.admin-dashboard-timezone-birthday-row .admin-timezone-clock-heading {
+  flex-wrap: wrap;
+}
+.admin-dashboard-timezone-birthday-row .admin-timezone-clock-heading small {
+  text-align: left;
+}
+@media (max-width: 1100px) {
+  .admin-dashboard-timezone-birthday-row {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 640px) {
+  .admin-dashboard-timezone-birthday-row .admin-timezone-clock-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Dashboard widgets: explicit desktop 6/6 arrangement, regardless of card defaults. */
+.admin-dashboard-timezone-birthday-row[data-dashboard-widgets="timezones-birthdays"] {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+  align-items: stretch;
+  gap: 18px;
+  width: 100%;
+}
+.admin-dashboard-timezone-birthday-row > .admin-dashboard-timezone-half,
+.admin-dashboard-timezone-birthday-row > .admin-dashboard-birthday-half {
+  min-width: 0;
+  width: 100%;
+}
+.admin-dashboard-timezone-birthday-row .admin-timezone-clocks-card,
+.admin-dashboard-timezone-birthday-row .birthday-dashboard-card { height: 100%; }
+@media(max-width: 1100px) {
+  .admin-dashboard-timezone-birthday-row[data-dashboard-widgets="timezones-birthdays"] {
+    grid-template-columns: minmax(0,1fr) !important;
+  }
+}
+
+/* Dashboard preview: two records per panel; full lists in accessible View All modals. */
+.admin-dashboard-timezone-birthday-row .admin-timezone-clock-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+.admin-timezone-modal-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+@media(max-width:640px) { .admin-timezone-modal-grid, .admin-dashboard-timezone-birthday-row .admin-timezone-clock-grid { grid-template-columns:1fr; } }

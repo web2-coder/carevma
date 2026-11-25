@@ -53,15 +53,15 @@ class EmployeeApiController extends Controller
                 $active = $workSession->attendances->sortByDesc('id')->first();
             }
         } else {
-            $active = Attendance::with(['breaks', 'client:id,name,business_name,timezone', 'schedule:id,client_id,employee_id,break_allowed_hours,start_time,end_time,weekday,timezone'])
+            $active = Attendance::with(['breaks', 'client:id,name,business_name,timezone,profile_picture', 'schedule:id,client_id,employee_id,break_allowed_hours,start_time,end_time,weekday,timezone'])
                 ->where('employee_id', $employee->id)->whereNull('clock_out')->latest('id')->first();
         }
 
-        $allSchedules = EmployeeClientSchedule::with('client:id,name,business_name,timezone')
+        $allSchedules = EmployeeClientSchedule::with('client:id,name,business_name,timezone,profile_picture')
             ->where('employee_id', $employee->id)->orderBy('start_time')->get();
 
         if ($active && $active->clock_in) {
-            $active->loadMissing(['breaks','client:id,name,business_name,timezone','schedule:id,client_id,employee_id,break_allowed_hours,start_time,end_time,weekday,timezone']);
+            $active->loadMissing(['breaks','client:id,name,business_name,timezone,profile_picture','schedule:id,client_id,employee_id,break_allowed_hours,start_time,end_time,weekday,timezone']);
             $clockInUtc = $workSession?->clock_in?->copy()->utc() ?: $active->clock_in->copy()->utc();
             $elapsedSeconds = max(0, $nowUtc->timestamp - $clockInUtc->timestamp);
             $breakCollection = $workSession ? $workSession->breaks : $active->breaks;
@@ -105,6 +105,7 @@ class EmployeeApiController extends Controller
                         'schedule_id' => $segment->schedule_id,
                         'client_id' => $segment->client_id,
                         'client_name' => $segment->client?->name ?: $segment->client?->business_name ?: 'Doctor',
+                        'client_profile_picture' => $segment->client?->profile_picture,
                         'doctor_timezone' => $zone,
                         'shift_starts_at' => $start?->copy()->setTimezone($zone)->toIso8601String(),
                         'shift_ends_at' => $end?->copy()->setTimezone($zone)->toIso8601String(),
@@ -131,6 +132,7 @@ class EmployeeApiController extends Controller
                             $segments->push([
                                 'attendance_id' => null, 'schedule_id' => $schedule->id, 'client_id' => $schedule->client_id,
                                 'client_name' => $schedule->client?->name ?: $schedule->client?->business_name ?: 'Doctor',
+                                'client_profile_picture' => $schedule->client?->profile_picture,
                                 'doctor_timezone' => $schedule->client_timezone ?: $schedule->client?->timezone,
                                 'shift_starts_at' => $decorated->client_shift_starts_at,
                                 'shift_ends_at' => $decorated->client_shift_ends_at,
@@ -151,9 +153,28 @@ class EmployeeApiController extends Controller
             return $alreadyCompleted ? null : $this->decorateScheduleTimes($schedule, $context, $employeeTimezone);
         })->filter()->values();
 
-        $nextSchedules = $active ? collect() : $allSchedules->filter(fn (EmployeeClientSchedule $schedule) => $this->scheduleIsEnabled($schedule->enabled))->map(function (EmployeeClientSchedule $schedule) use ($employeeTimezone) {
+        $nextSchedules = $active ? collect() : $allSchedules->filter(fn (EmployeeClientSchedule $schedule) => $this->scheduleIsEnabled($schedule->enabled))->map(function (EmployeeClientSchedule $schedule) use ($employeeTimezone, $employee) {
             $context = $this->nextScheduleContext($schedule, $employeeTimezone);
-            return (!$context || $context['status'] === 'ended') ? null : $this->decorateScheduleTimes($schedule, $context, $employeeTimezone);
+            if (!$context || $context['status'] === 'ended') return null;
+
+            // Never offer an already clocked-out Doctor-local occurrence again.
+            // For weekly schedules only, show the following week's occurrence;
+            // one-time schedules must not silently recur after completion.
+            $completed = Attendance::query()
+                ->where('employee_id', $employee->id)
+                ->where('schedule_id', $schedule->id)
+                ->whereDate('date', $context['start']->toDateString())
+                ->whereNotNull('clock_out')
+                ->exists();
+            if ($completed) {
+                if (!$schedule->repeat && $schedule->schedule_date) return null;
+                $context['start'] = $context['start']->copy()->addWeek();
+                $context['end'] = $context['end']->copy()->addWeek();
+                $context['opens_at'] = $context['start']->copy()->subMinutes(15);
+                $context['status'] = 'early';
+            }
+
+            return $this->decorateScheduleTimes($schedule, $context, $employeeTimezone);
         })->filter()->sortBy(fn (EmployeeClientSchedule $schedule) => (string) $schedule->client_shift_starts_at)->values();
 
         return response()->json([
@@ -176,7 +197,7 @@ class EmployeeApiController extends Controller
     /** Segments clocked out in the last 24 hours, newest first: the dashboard sums them after clock-out. */
     private function recentCompletedAttendance(int $employeeId)
     {
-        return Attendance::with('client:id,name,business_name,timezone')
+        return Attendance::with('client:id,name,business_name,timezone,profile_picture')
             ->where('employee_id', $employeeId)
             ->whereNotNull('clock_out')
             ->where('clock_out', '>=', $this->clock->now('UTC')->copy()->subDay())
@@ -212,7 +233,7 @@ class EmployeeApiController extends Controller
         $employeeTimezone = $this->validTimezone($employee->timezone ?: 'Asia/Karachi', 'Asia/Karachi');
         $order = "FIELD(weekday,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')";
 
-        $schedules = EmployeeClientSchedule::with('client:id,name,business_name,timezone')
+        $schedules = EmployeeClientSchedule::with('client:id,name,business_name,timezone,profile_picture')
             ->where('employee_id', $employee->id)
             ->orderByRaw($order)
             ->orderBy('start_time')
@@ -234,7 +255,7 @@ class EmployeeApiController extends Controller
     public function attendance(Request $request)
     {
         $employee = $this->employee($request);
-        $query = Attendance::with(['breaks', 'client:id,name,business_name,timezone', 'schedule:id,client_id,employee_id,timezone,start_time,end_time,weekday'])->where('employee_id', $employee->id);
+        $query = Attendance::with(['breaks', 'client:id,name,business_name,timezone,profile_picture', 'schedule:id,client_id,employee_id,timezone,start_time,end_time,weekday'])->where('employee_id', $employee->id);
         $this->applyEmployeeAttendanceLocalDateFilter(
             $query,
             $employee->id,
@@ -293,7 +314,7 @@ class EmployeeApiController extends Controller
     public function scheduleChangeRequests(Request $request)
     {
         $employee = $this->employee($request);
-        return response()->json(ScheduleChangeRequest::with('schedule.client:id,name,business_name,timezone')->where('employee_id',$employee->id)->latest('id')->get());
+        return response()->json(ScheduleChangeRequest::with('schedule.client:id,name,business_name,timezone,profile_picture')->where('employee_id',$employee->id)->latest('id')->paginate(min(max((int) $request->query('per_page', 10), 1), 50)));
     }
 
     public function requestScheduleChange(Request $request)
@@ -315,7 +336,7 @@ class EmployeeApiController extends Controller
     public function changeRequests(Request $request)
     {
         $employee = $this->employee($request);
-        return response()->json(AttendanceChangeRequest::where('employee_id', $employee->id)->latest('id')->get());
+        return response()->json(AttendanceChangeRequest::where('employee_id', $employee->id)->latest('id')->paginate(min(max((int) $request->query('per_page', 10), 1), 50)));
     }
 
     public function requestChange(Request $request)
@@ -351,7 +372,7 @@ class EmployeeApiController extends Controller
                 return response()->json(['message' => 'You already have an active work session.'], 422);
             }
 
-            $schedule = EmployeeClientSchedule::with('client:id,name,business_name,timezone')->where('id', $data['schedule_id'])->where('employee_id', $employee->id)->firstOrFail();
+            $schedule = EmployeeClientSchedule::with('client:id,name,business_name,timezone,profile_picture')->where('id', $data['schedule_id'])->where('employee_id', $employee->id)->firstOrFail();
             if (!$this->scheduleIsEnabled($schedule->enabled)) {
                 return response()->json(['message' => 'This schedule is disabled.'], 422);
             }
@@ -512,13 +533,21 @@ class EmployeeApiController extends Controller
             'phone' => ['required', 'string', 'max:60'], 'date_of_birth' => ['required', 'date', 'before_or_equal:today'], 'gender' => ['required', Rule::in(['male','female','other'])],
             'marital_status' => ['required', Rule::in(['single','married','divorced','widowed'])], 'about_me_notes' => ['nullable', 'string', 'max:3000'],
             'profile_picture' => ['nullable', 'image', 'mimes:jpg,jpeg,png', 'max:800'],
+            'remove_profile_picture' => ['sometimes', 'boolean'],
         ]);
+        $previousPicture = $employee->profile_picture;
+        $removePicture = $request->boolean('remove_profile_picture') && !$request->hasFile('profile_picture');
+        unset($data['remove_profile_picture']);
         if ($request->hasFile('profile_picture')) {
-            if ($employee->profile_picture) Storage::disk('public')->delete(ltrim(str_replace('/storage/', '', $employee->profile_picture), '/'));
             $path = $request->file('profile_picture')->store('employees/profile_pictures', 'public');
             $data['profile_picture'] = '/storage/'.$path;
+        } elseif ($removePicture) {
+            $data['profile_picture'] = null;
         }
         $employee->update($data);
+        if (array_key_exists('profile_picture', $data) && $previousPicture) {
+            \App\Support\ProfilePhotoStorage::deleteOld($previousPicture, 'employees/profile_pictures');
+        }
         $employee->refresh();
         $employee->profile_completed = $employee->hasCompleteSelfServiceProfile();
         $employee->save();

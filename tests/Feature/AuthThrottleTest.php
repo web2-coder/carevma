@@ -124,11 +124,27 @@ class AuthThrottleTest extends TestCase
         // or one source could relay reset mail to any number of addresses.
         foreach (range(1, 6) as $attempt) {
             $this->postJson('/api/forgot-password', ['email' => "probe{$attempt}@carevma.test"])
-                ->assertStatus(422);
+                ->assertOk()
+                ->assertJsonPath('message', 'If an account exists for that email, a password reset link has been sent.');
         }
 
         $this->postJson('/api/forgot-password', ['email' => 'probe7@carevma.test'])
             ->assertStatus(429);
+    }
+
+
+    public function test_forgot_password_does_not_reveal_whether_the_account_exists(): void
+    {
+        $this->user('known@carevma.test');
+
+        $known = $this->postJson('/api/forgot-password', ['email' => 'known@carevma.test'])
+            ->assertOk()
+            ->json();
+        $missing = $this->postJson('/api/forgot-password', ['email' => 'missing@carevma.test'])
+            ->assertOk()
+            ->json();
+
+        $this->assertSame($known['message'], $missing['message']);
     }
 
     public function test_reset_password_is_throttled_per_ip(): void

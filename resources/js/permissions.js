@@ -1,10 +1,22 @@
 import { useAuth } from './context/AuthContext';
 
-// Module access as granted on the admin Roles & Permissions page. Admins hold every module;
-// other staff roles carry the keys the server put in `user.permissions`.
 export const ADMIN_ROLES = ['admin', 'superadmin'];
-export const can = (user, module) => !!user && (ADMIN_ROLES.includes(user.role) || (user.permissions || []).includes(module));
-export function useCan() {
+
+export function can(user, module, action = 'view') {
+  if (!user) return false;
+  if (ADMIN_ROLES.includes(user.role)) return true;
+  return action === 'view'
+    ? (user.permissions || []).includes(module)
+    : (user.action_permissions || []).includes(`${module}.${action}`);
+}
+
+export function useCan(module) {
   const { user } = useAuth();
-  return module => can(user, module);
+  return action => can(user, module, action);
+}
+
+export function referenceModule(type) {
+  if (type === 'services') return 'client-services';
+  if (type === 'contracts') return 'contract-types';
+  return 'configuration';
 }

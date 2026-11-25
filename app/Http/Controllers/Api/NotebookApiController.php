@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\NotebookDocument;
 use App\Models\User;
 use App\Services\OperationalNotifier;
+use App\Services\Modules;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -116,9 +117,9 @@ class NotebookApiController extends Controller
         $user = $request->user();
         abort_unless($user, 401);
 
-        $allowed = in_array($user->role, ['admin', 'superadmin', 'hr'], true)
-            || (int) $document->recipient_user_id === (int) $user->id
-            || (int) $document->user_id === (int) $user->id;
+        $allowed = Modules::allows($user, 'notebook', 'export')
+            || (in_array($user->role, Modules::PORTAL_ROLES, true)
+                && (int) $document->recipient_user_id === (int) $user->id);
         abort_unless($allowed, 403, 'This document was not shared with your account.');
 
         $disk = $document->storage_disk ?: 'public';
@@ -147,9 +148,9 @@ class NotebookApiController extends Controller
     private function assertNotebookManager(Request $request): void
     {
         abort_unless(
-            $request->user() && in_array($request->user()->role, ['admin', 'superadmin', 'hr'], true),
+            Modules::allows($request->user(), 'notebook'),
             403,
-            'Notebook is available only to Admin and HR.'
+            'You do not have access to the Notebook module.'
         );
     }
 }

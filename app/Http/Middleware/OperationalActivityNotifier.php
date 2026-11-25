@@ -271,6 +271,9 @@ class OperationalActivityNotifier
             'api/notifications/*/read',
             'api/management/notifications/read-all',
             'api/management/schedules/batch',
+            // Personal light/dark appearance is not an operational update.
+            // Keep the activity-log trail, but never notify Admin/HR about this toggle.
+            'api/profile/theme-mode',
             'api/birthday-popup/seen',
             'api/admin/invoices/*/send',
             'api/employee/birthday-wishes/*'

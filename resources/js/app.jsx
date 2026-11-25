@@ -1,6 +1,7 @@
-import React from 'react';
-import { can } from './permissions';
+import React, { useLayoutEffect } from 'react';
+import { can, referenceModule } from './permissions';
 import DocsPage from './pages/Docs';
+import RoleHelp from './pages/RoleHelp';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -21,6 +22,11 @@ import '../css/app.css';
 import '../css/carevma-professional-theme.css';
 import '../css/design-system.css';
 import GlobalFeedbackHost from './components/GlobalFeedbackHost';
+import BrandingPage from './pages/Branding';
+import { applyTheme, getCachedTheme, loadBranding } from './branding';
+import '../css/white-label.css';
+if(getCachedTheme())applyTheme(getCachedTheme());
+loadBranding();
 
 function dashboardFor(user) {
   if (!user) return '/login';
@@ -35,17 +41,22 @@ function dashboardFor(user) {
   return '/login';
 }
 
-function Protected({ roles, module, children }) {
+function Protected({ roles, module, action = 'view', children }) {
   const { user, loading } = useAuth();
   const location = useLocation();
   if (loading) return <div className="content"><Loading/></div>;
   if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }}/>;
   if (roles && !roles.includes(user.role) && !(roles.includes('admin') && user.role === 'superadmin')) return <Navigate to={dashboardFor(user)} replace/>;
   // A module route also needs the grant from Roles & Permissions (admins always have it).
-  if (module && !can(user, module)) return <Navigate to={dashboardFor(user)} replace/>;
+  if (module && !can(user, module, action)) return <Navigate to={dashboardFor(user)} replace/>;
   const incompleteEmployee = user.role === 'employee' && (user?.employee?.profile_completed === false || user?.employee?.profile_completed === 0 || user?.employee?.profile_completed === '0');
   if (incompleteEmployee && location.pathname !== '/employee/profile') return <Navigate to="/employee/profile" replace/>;
   return children;
+}
+
+function ReferenceRoute() {
+  const { type } = useParams();
+  return <Protected module={referenceModule(type)}><ReferencePage/></Protected>;
 }
 
 function GuestOnly({ children }) {
@@ -70,6 +81,24 @@ function NotFound() {
   return <div className="not-found"><div className="not-found-code">404</div><h1>That page doesn’t exist.</h1><p>The link may be outdated. CareVMA kept your session safe.</p><Link className="btn btn-primary btn-link" to={dashboardFor(user)}>Return to dashboard</Link></div>;
 }
 
+function ResetPageScroll() {
+  const { key, hash } = useLocation();
+
+  useLayoutEffect(() => {
+    const previous = window.history.scrollRestoration;
+    window.history.scrollRestoration = 'manual';
+    return () => { window.history.scrollRestoration = previous; };
+  }, []);
+
+  useLayoutEffect(() => {
+    if (hash) return;
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    document.querySelector('.app-shell > .app-main')?.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [key, hash]);
+
+  return null;
+}
+
 function AppRoutes() {
   return <Routes>
     <Route path="/" element={<HomeRedirect/>}/>
@@ -88,11 +117,11 @@ function AppRoutes() {
       <Route path="/hr/dashboard" element={<Protected roles={['hr']}><ManagementDashboard/></Protected>}/>
       <Route path="/hr/live-users" element={<Protected roles={['hr']} module="live-users"><LiveUsersPage/></Protected>}/>
       <Route path="/admin/employees" element={<Protected roles={['admin']} module="employees"><EmployeesPage/></Protected>}/>
-      <Route path="/admin/employees/new" element={<Protected roles={['admin']} module="employees"><EmployeeWizardPage/></Protected>}/>
+      <Route path="/admin/employees/new" element={<Protected roles={['admin']} module="employees" action="create"><EmployeeWizardPage/></Protected>}/>
       <Route path="/admin/employees/:employeeId" element={<Protected roles={['admin']} module="employees"><EmployeeProfilePage/></Protected>}/>
       <Route path="/admin/hr-team" element={<Protected roles={['admin','hr']} module="hr-team"><HrTeamPage/></Protected>}/>
       <Route path="/hr/employees" element={<Protected roles={['hr']} module="employees"><EmployeesPage/></Protected>}/>
-      <Route path="/hr/employees/new" element={<Protected roles={['hr']} module="employees"><EmployeeWizardPage/></Protected>}/>
+      <Route path="/hr/employees/new" element={<Protected roles={['hr']} module="employees" action="create"><EmployeeWizardPage/></Protected>}/>
       <Route path="/hr/employees/:employeeId" element={<Protected roles={['hr']} module="employees"><EmployeeProfilePage/></Protected>}/>
       <Route path="/admin/schedules" element={<Protected roles={['admin']} module="schedules"><SchedulesPage/></Protected>}/>
       <Route path="/hr/schedules" element={<Protected roles={['hr']} module="schedules"><SchedulesPage/></Protected>}/>
@@ -102,11 +131,13 @@ function AppRoutes() {
       <Route path="/hr/change-requests" element={<Protected roles={['hr']} module="change-requests"><ChangeRequestsPage/></Protected>}/>
       <Route path="/admin/overtime" element={<Protected roles={['admin']} module="overtime"><OvertimePage/></Protected>}/>
       <Route path="/hr/overtime" element={<Protected roles={['hr']} module="overtime"><OvertimePage/></Protected>}/>
-      <Route path="/admin/options/:type" element={<Protected roles={['admin']} module="configuration"><ReferencePage/></Protected>}/>
-      <Route path="/hr/options/:type" element={<Protected roles={['hr']} module="configuration"><ReferencePage/></Protected>}/>
+      <Route path="/admin/options/:type" element={<Protected roles={['admin']}><ReferenceRoute/></Protected>}/>
+      <Route path="/hr/options/:type" element={<Protected roles={['hr']}><ReferenceRoute/></Protected>}/>
       <Route path="/admin/notifications" element={<Protected roles={['admin']}><NotificationsPage/></Protected>}/>
       <Route path="/hr/notifications" element={<Protected roles={['hr']}><NotificationsPage/></Protected>}/>
+      <Route path="/admin/branding" element={<Protected roles={['admin','hr']} module="branding"><BrandingPage/></Protected>}/>
       <Route path="/admin/account" element={<Protected roles={['admin']}><AccountPage/></Protected>}/>
+      <Route path="/hr/branding" element={<Protected roles={['hr']} module="branding"><BrandingPage/></Protected>}/>
       <Route path="/hr/account" element={<Protected roles={['hr']}><AccountPage/></Protected>}/>
       <Route path="/admin/clients" element={<Protected roles={['admin','hr']} module="clients"><ClientsPage/></Protected>}/>
       <Route path="/admin/client/:clientId/profile" element={<Protected roles={['admin','hr']} module="clients"><ClientProfilePage/></Protected>}/>
@@ -131,6 +162,7 @@ function AppRoutes() {
       <Route path="/employee/dashboard/profile/edit" element={<Navigate to="/employee/profile" replace/>}/>
       <Route path="/employee/settings" element={<EmployeeSettings/>}/>
       <Route path="/employee/documents" element={<SharedDocumentsPage/>}/>
+      <Route path="/employee/docs" element={<RoleHelp/>}/>
       <Route path="/employee/notebook" element={<Navigate to="/employee/documents" replace/>}/>
     </Route>
 
@@ -140,6 +172,7 @@ function AppRoutes() {
       <Route path="/doctor/notifications" element={<NotificationsPage/>}/>
       <Route path="/doctor/profile" element={<DoctorProfile/>}/>
       <Route path="/doctor/documents" element={<SharedDocumentsPage/>}/>
+      <Route path="/doctor/docs" element={<RoleHelp/>}/>
       <Route path="/doctor/notebook" element={<Navigate to="/doctor/documents" replace/>}/>
     </Route>
 
@@ -177,7 +210,7 @@ createRoot(document.getElementById('app')).render(
   <React.StrictMode>
     <BrowserRouter>
       <GlobalFeedbackHost/>
-      <AuthProvider><AppRoutes/></AuthProvider>
+      <AuthProvider><AppRoutes/><ResetPageScroll/></AuthProvider>
     </BrowserRouter>
   </React.StrictMode>
 );

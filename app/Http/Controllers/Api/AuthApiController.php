@@ -97,11 +97,15 @@ class AuthApiController extends Controller
     public function forgot(Request $request)
     {
         $request->validate(['email' => ['required', 'email']]);
-        $status = Password::sendResetLink($request->only('email'));
 
-        return $status === Password::RESET_LINK_SENT
-            ? response()->json(['message' => __($status)])
-            : response()->json(['message' => __($status)], 422);
+        // Do not reveal whether an email address belongs to a CareVMA account.
+        // The broker still sends the real reset notification for known users, while
+        // unknown addresses receive the same HTTP response and message.
+        Password::sendResetLink($request->only('email'));
+
+        return response()->json([
+            'message' => 'If an account exists for that email, a password reset link has been sent.',
+        ]);
     }
 
     public function reset(Request $request)
@@ -170,7 +174,8 @@ class AuthApiController extends Controller
             'email' => $user->email,
             'role' => $user->role,
             'permissions' => Modules::for($user),
-            'profile_picture' => $user->profile_picture,
+            'action_permissions' => Modules::actionsFor($user),
+            'profile_picture' => $user->role === 'employee' ? ($user->employee?->profile_picture ?: $user->profile_picture) : ($user->role === 'client' ? ($user->client?->profile_picture ?: $user->profile_picture) : $user->profile_picture),
             'last_seen_at' => optional($user->last_seen_at)->toIso8601String(),
             'employee' => $user->employee,
             'client' => $user->client,

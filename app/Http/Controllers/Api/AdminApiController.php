@@ -1,6 +1,7 @@
 <?php
 
 namespace App\Http\Controllers\Api;
+use App\Services\Modules;
 use App\Services\BillingCycle;
 use Illuminate\Support\Facades\Log;
 use App\Http\Controllers\Controller;
@@ -34,6 +35,8 @@ use App\Services\ClientTimezoneService;
 use App\Services\AttendanceBillingService;
 use App\Services\WorkSessionService;
 use App\Services\InvoicePdfService;
+use App\Services\InvoiceDraftSyncService;
+use App\Services\InvoiceSnapshotService;
 use App\Services\OperationalNotifier;
 use DateTimeZone;
 use App\Mail\EmployeeInvitationMail;
@@ -62,6 +65,8 @@ class AdminApiController extends Controller
         private AttendanceBillingService $attendanceBilling,
         private WorkSessionService $workSessions,
         private InvoiceAutoGenerationSchedule $invoiceAutoSchedule,
+        private InvoiceDraftSyncService $invoiceDraftSync,
+        private InvoiceSnapshotService $invoiceSnapshots,
     ) {
     }
 
@@ -86,24 +91,28 @@ class AdminApiController extends Controller
 
         $minDate = $dates->first();
         $maxDate = $dates->last();
-
-
-        $clients = Client::query()->get(['id', 'timezone'])->keyBy('id');
-        // All IANA zones are within this small UTC envelope around the requested local dates.
         $scanStart = Carbon::parse($minDate, 'UTC')->subDays(2)->startOfDay();
         $scanEnd = Carbon::parse($maxDate, 'UTC')->addDays(2)->endOfDay();
+        $businessZone = $this->timezones->businessTimezone();
 
-        Attendance::query()
-            ->select(['id', 'client_id', 'date', 'clock_in', 'total_minutes'])
-            ->whereNotNull('client_id')
-            ->whereBetween('clock_in', [$scanStart, $scanEnd])
-            ->orderBy('id')
+        // Join only the clients referenced by attendance rows instead of hydrating
+        // the entire Doctor table (50k+ rows on load-test databases).
+        DB::table('attendances')
+            ->join('clients', 'clients.id', '=', 'attendances.client_id')
+            ->select(['attendances.id', 'attendances.clock_in', 'attendances.total_minutes', 'clients.timezone as client_timezone'])
+            ->whereNotNull('attendances.client_id')
+            ->whereBetween('attendances.clock_in', [$scanStart, $scanEnd])
+            ->orderBy('attendances.id')
             ->cursor()
-            ->each(function (Attendance $row) use (&$result, $clients) {
-                $client = $clients->get($row->client_id);
-                if (!$client || !$row->clock_in) return;
-                $localDate = $this->timezones->localDate($row->clock_in, $this->timezones->forClient($client));
-                if (!$localDate || !isset($result[$localDate])) return;
+            ->each(function ($row) use (&$result, $businessZone) {
+                if (!$row->clock_in) return;
+                $zone = $row->client_timezone ?: $businessZone;
+                try {
+                    $localDate = Carbon::parse((string) $row->clock_in, 'UTC')->setTimezone($zone)->toDateString();
+                } catch (\Throwable) {
+                    $localDate = Carbon::parse((string) $row->clock_in, 'UTC')->setTimezone($businessZone)->toDateString();
+                }
+                if (!isset($result[$localDate])) return;
                 $result[$localDate]['sessions']++;
                 $result[$localDate]['minutes'] += (int) ($row->total_minutes ?? 0);
             });
@@ -142,51 +151,52 @@ class AdminApiController extends Controller
             ];
         });
 
-        // Dashboard live count is one VA work session, even when multiple Doctor segments overlap.
+        // Dashboard only needs a count plus the latest three sessions. Never hydrate
+        // every open session or reconcile them during a dashboard read; the minute
+        // scheduler already performs reconciliation/auto-checkout.
         if ($this->workSessions->supported()) {
-            $openWorkSessions = WorkSession::query()->with('employee:id,first_name,last_name,employee_code,profile_picture,timezone')->whereNull('clock_out')->latest('clock_in')->get()
-                ->map(fn (WorkSession $session) => $this->workSessions->reconcile($session));
-            $checkedInCount = $openWorkSessions->count();
-            $currentlyWorking = $openWorkSessions->take(3)->map(function (WorkSession $session) {
-                $activeSegments = $session->attendances->whereNull('clock_out')->values();
-                $primary = $activeSegments->first() ?: $session->attendances->last();
-                return [
-                    'id' => 'work-session-'.$session->id,
-                    'employee' => $session->employee,
-                    'client' => $primary?->client,
-                    'doctor_names' => $activeSegments->map(fn (Attendance $row) => $row->client?->name ?: $row->client?->business_name)->filter()->unique()->values(),
-                    'doctor_segments' => $activeSegments->map(function (Attendance $row) {
-                        $client = $row->client;
-                        return [
-                            'id' => $row->id,
-                            'name' => $client?->name ?: $client?->business_name ?: 'Doctor',
-                            'timezone' => $this->timezones->forAttendance($row, true),
-                            'shift_ends_at' => $row->shift_end_snapshot?->copy()->utc()->toIso8601ZuluString(),
-                        ];
-                    })->values(),
-                    'clock_in' => $session->clock_in?->toIso8601String(),
-                ];
-            })->values();
+            $checkedInCount = WorkSession::query()->whereNull('clock_out')->count();
+            $currentlyWorking = WorkSession::query()
+                ->with([
+                    'employee.user:id,name,email,last_seen_at',
+                    'attendances.client:id,name,business_name,timezone,profile_picture,profile_picture',
+                    'attendances.schedule:id,weekday,start_time,end_time,timezone,break_allowed_hours',
+                    'attendances.breaks:id,attendance_id,start_time,end_time',
+                    'breaks:id,work_session_id,start_time,end_time',
+                ])
+                ->whereNull('clock_out')
+                ->latest('clock_in')
+                ->limit(3)
+                ->get()
+                ->map(fn (WorkSession $session) => $this->mapLiveWorkSession($session, $this->clock->now('UTC')))
+                ->values();
         } else {
             $checkedInCount = Attendance::query()->whereNull('clock_out')->count();
-            $currentlyWorking = Attendance::query()->with(['employee:id,first_name,last_name,employee_code,profile_picture,timezone','client:id,name,business_name,timezone,profile_picture'])->whereNull('clock_out')->latest('clock_in')->limit(3)->get()->map(function (Attendance $attendance) {
-                $doctorName = $attendance->client?->name ?: $attendance->client?->business_name;
-                return [
-                    'id'=>$attendance->id,
-                    'employee'=>$attendance->employee,
-                    'client'=>$attendance->client,
-                    'doctor_names'=>collect([$doctorName])->filter()->values(),
-                    'doctor_segments'=>collect([[
+            $currentlyWorking = Attendance::query()
+                ->with(['employee:id,first_name,last_name,employee_code,profile_picture,timezone','client:id,name,business_name,timezone,profile_picture,profile_picture'])
+                ->whereNull('clock_out')->latest('clock_in')->limit(3)->get()->map(function (Attendance $attendance) {
+                    $doctorName = $attendance->client?->name ?: $attendance->client?->business_name;
+                    return [
                         'id'=>$attendance->id,
-                        'name'=>$doctorName ?: 'Doctor',
-                        'timezone'=>$this->timezones->forAttendance($attendance, true),
-                        'shift_ends_at'=>$attendance->shift_end_snapshot?->copy()->utc()->toIso8601ZuluString(),
-                    ]]),
-                    'clock_in'=>$attendance->clock_in?->toIso8601String(),
-                ];
-            })->values();
+                        'employee'=>$attendance->employee,
+                        'client'=>$attendance->client,
+                        'doctor_names'=>collect([$doctorName])->filter()->values(),
+                        'doctor_segments'=>collect([[
+                            'id'=>$attendance->id,
+                            'name'=>$doctorName ?: 'Doctor',
+                            'timezone'=>$this->timezones->forAttendance($attendance, true),
+                            'shift_ends_at'=>$attendance->shift_end_snapshot?->copy()->utc()->toIso8601ZuluString(),
+                        ]]),
+                        'clock_in'=>$attendance->clock_in?->toIso8601String(),
+                    ];
+                })->values();
         }
-        $pendingOvertime = Attendance::whereIn('overtime_status', ['pending', 'review_required'])->count();
+        // Match the Overtime Review list: zero-minute rows cannot be reviewed.
+        // Older/test attendance can retain a pending status even with no overtime.
+        $pendingOvertime = Attendance::query()
+            ->where('overtime', '>', 0)
+            ->whereIn('overtime_status', ['pending', 'review_required'])
+            ->count();
 
         $employeeTimezoneCounts = Employee::query()
             ->whereNotNull('timezone')
@@ -267,18 +277,16 @@ class AdminApiController extends Controller
         $cycleEnd = BillingCycle::endOf($openCycleStart)->toDateString();
         $scheduledClose = $this->invoiceAutoSchedule->dueAt($cycleEnd);
         $cycleEndOpenAttendance = $this->invoiceAutoSchedule->openAttendanceCount($cycleEnd);
-        $doctorInvoiceRuns = $this->invoiceAutoSchedule->doctorRunDetails($cycleStart, $cycleEnd, $this->clock->now('UTC'));
 
         $cycleInvoices = Invoice::query()
             ->where('auto_generated', true)
-            ->whereDate('period_start', $cycleStart)
+            ->where('billing_cycle_month', Carbon::parse($cycleEnd)->startOfMonth()->toDateString())
             ->whereDate('period_end', $cycleEnd);
-        $cycleInvoiceIds = (clone $cycleInvoices)->pluck('id');
-        $cycleCount = $cycleInvoiceIds->count();
+        $cycleCount = (clone $cycleInvoices)->count();
         $cycleAmount = (float) (clone $cycleInvoices)->sum('total_amount');
-        $cycleVaCount = $cycleInvoiceIds->isEmpty() ? 0 : EmployeeSalary::query()
-            ->whereIn('invoice_id', $cycleInvoiceIds)
-            ->distinct('employee_id')
+        $cycleVaCount = $cycleCount === 0 ? 0 : EmployeeSalary::query()
+            ->whereIn('invoice_id', (clone $cycleInvoices)->select('id'))
+            ->distinct()
             ->count('employee_id');
         $lastGeneratedAt = (clone $cycleInvoices)->max('generated_at');
         $lastCompletedCycle = null;
@@ -300,25 +308,25 @@ class AdminApiController extends Controller
             $cycleEnd = BillingCycle::endOf($openCycleStart)->toDateString();
             $scheduledClose = $this->invoiceAutoSchedule->dueAt($cycleEnd);
             $cycleEndOpenAttendance = $this->invoiceAutoSchedule->openAttendanceCount($cycleEnd);
-            $doctorInvoiceRuns = $this->invoiceAutoSchedule->doctorRunDetails($cycleStart, $cycleEnd, $this->clock->now('UTC'));
 
             $cycleInvoices = Invoice::query()
                 ->where('auto_generated', true)
-                ->whereDate('period_start', $cycleStart)
+                ->where('billing_cycle_month', Carbon::parse($cycleEnd)->startOfMonth()->toDateString())
                 ->whereDate('period_end', $cycleEnd);
-            $cycleInvoiceIds = (clone $cycleInvoices)->pluck('id');
-            $cycleCount = $cycleInvoiceIds->count();
+            $cycleCount = (clone $cycleInvoices)->count();
             $cycleAmount = (float) (clone $cycleInvoices)->sum('total_amount');
-            $cycleVaCount = $cycleInvoiceIds->isEmpty() ? 0 : EmployeeSalary::query()
-                ->whereIn('invoice_id', $cycleInvoiceIds)
-                ->distinct('employee_id')
+            $cycleVaCount = $cycleCount === 0 ? 0 : EmployeeSalary::query()
+                ->whereIn('invoice_id', (clone $cycleInvoices)->select('id'))
+                ->distinct()
                 ->count('employee_id');
             $lastGeneratedAt = (clone $cycleInvoices)->max('generated_at');
         }
 
+        $canViewFinance = Modules::allows($request->user(), 'company-finance');
+        $canViewInvoices = Modules::allows($request->user(), 'invoices');
         $financeRangeStart = $appNow->copy()->subMonthsNoOverflow(5)->startOfMonth();
         $financeRangeEnd = $appNow->copy()->endOfMonth();
-        $financeDaily = $this->financeDailySeries($financeRangeStart, $financeRangeEnd);
+        $financeDaily = $canViewFinance ? $this->financeDailySeries($financeRangeStart, $financeRangeEnd) : [];
         $financeTrend = collect(range(5, 0))->map(function ($offset) use ($appNow, $financeDaily) {
             $month = $appNow->copy()->subMonthsNoOverflow($offset);
             $snapshot = $this->financeSummaryFromDaily($financeDaily, $month->copy()->startOfMonth(), $month->copy()->endOfMonth());
@@ -339,12 +347,12 @@ class AdminApiController extends Controller
                 'active' => $checkedInCount,
                 'today_sessions' => ($attendanceSummaries[$today]['sessions'] ?? 0),
                 'pending_overtime' => $pendingOvertime,
-                'invoices' => Invoice::count(),
+                'invoices' => $canViewInvoices ? Invoice::count() : null,
             ],
             'trend' => $trend,
             'recent_attendance' => Attendance::with([
                 'employee:id,first_name,last_name,profile_picture,timezone',
-                'client:id,name,business_name,timezone',
+                'client:id,name,business_name,timezone,profile_picture',
             ])->latest('id')->limit(5)->get()->map(function (Attendance $row) {
                 $clientZone = $this->timezones->forAttendance($row, true);
                 $row->setAttribute('client_timezone', $clientZone);
@@ -358,7 +366,7 @@ class AdminApiController extends Controller
             'birthdays_today' => $birthdaysToday,
             'timezone_clocks' => $timezoneClocks,
             'currently_working' => $currentlyWorking,
-            'auto_invoice_cycle' => [
+            'auto_invoice_cycle' => $canViewInvoices ? [
                 'period_start' => $cycleStart,
                 'period_end' => $cycleEnd,
                 'scheduled_for' => $scheduledClose->toIso8601String(),
@@ -373,14 +381,52 @@ class AdminApiController extends Controller
                 'open_cycle_end_attendance' => $cycleEndOpenAttendance,
                 'generation_rule' => 'after_final_cycle_end_shift',
                 'admin_timezone' => $this->timezones->businessTimezone(),
-                'doctor_runs' => $doctorInvoiceRuns,
+                'doctor_runs' => [],
+                'doctor_runs_total' => Client::query()->count(),
                 'last_completed_cycle' => $lastCompletedCycle,
-            ],
-            'finance' => $finance,
-            'finance_trend' => $financeTrend,
+            ] : null,
+            'finance' => $canViewFinance ? $finance : null,
+            'finance_trend' => $canViewFinance ? $financeTrend : [],
         ]);
     }
 
+
+    public function invoiceRunDetails(Request $request)
+    {
+        $data = $request->validate([
+            'period_start' => ['required', 'date'],
+            'period_end' => ['required', 'date'],
+            'search' => ['nullable', 'string', 'max:120'],
+            'page' => ['nullable', 'integer', 'min:1'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:50'],
+        ]);
+        $perPage = min(max((int) ($data['per_page'] ?? 25), 1), 50);
+        $query = Client::query()->select(['id', 'name', 'business_name', 'timezone']);
+        if ($search = trim((string) ($data['search'] ?? ''))) {
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', $search.'%')
+                    ->orWhere('business_name', 'like', $search.'%')
+                    ->orWhere('email', 'like', $search.'%');
+            });
+        }
+        $paginator = $query->orderBy('name')->orderBy('id')->paginate($perPage);
+        $rows = $this->invoiceAutoSchedule->doctorRunDetailsForClients(
+            $paginator->getCollection(),
+            Carbon::parse($data['period_start'])->toDateString(),
+            Carbon::parse($data['period_end'])->toDateString(),
+            $this->clock->now('UTC')
+        );
+
+        return response()->json([
+            'data' => $rows,
+            'current_page' => $paginator->currentPage(),
+            'last_page' => $paginator->lastPage(),
+            'per_page' => $paginator->perPage(),
+            'total' => $paginator->total(),
+            'from' => $paginator->firstItem(),
+            'to' => $paginator->lastItem(),
+        ]);
+    }
 
     public function liveCount(Request $request)
     {
@@ -390,217 +436,26 @@ class AdminApiController extends Controller
 
     public function liveUsers(Request $request)
     {
-        if ($this->workSessions->supported()) {
-            try { return $this->liveUsersFromWorkSessions(); }
-            catch (\Throwable $e) {\Log::error('Live Workforce work-session feed failed; using legacy attendance fallback.', ['error'=>$e->getMessage(),'file'=>$e->getFile(),'line'=>$e->getLine()]);}
-        }
-        $serverNow = $this->clock->now('UTC');
-
-        $sessions = Attendance::query()
-            ->with([
-                'employee:id,user_id,first_name,last_name,email,employee_code,profile_picture,timezone',
-                'employee.user:id,name,email,last_seen_at',
-                'client:id,name,business_name,timezone,profile_picture',
-                'schedule:id,weekday,start_time,end_time,timezone,break_allowed_hours',
-                'openBreak:id,attendance_id,start_time,end_time',
-            ])
-            ->whereNull('clock_out')
-            ->latest('clock_in')
-            ->get()
-            ->map(function (Attendance $attendance) use ($serverNow) {
-                $openBreak = $attendance->openBreak;
-
-                /*
-                 * Attendance timestamps are stored as UTC database values.  Do not let
-                 * Laravel's application timezone reinterpret a raw UTC value before we
-                 * calculate elapsed time; doing that creates the exact +5 hour error seen
-                 * when the app timezone is Asia/Karachi.
-                 */
-                $clockInUtc = null;
-                $rawClockIn = $attendance->getRawOriginal('clock_in');
-                if ($rawClockIn) {
-                    try {
-                        $clockInUtc = Carbon::parse((string) $rawClockIn, 'UTC')->utc();
-                    } catch (\Throwable $e) {
-                        $clockInUtc = null;
-                    }
-                }
-
-                $elapsedSeconds = 0;
-                if ($clockInUtc) {
-                    $elapsedSeconds = max(0, $serverNow->timestamp - $clockInUtc->timestamp);
-                }
-
-                $currentBreakSeconds = 0;
-                if ($openBreak) {
-                    $rawBreakStart = method_exists($openBreak, 'getRawOriginal')
-                        ? $openBreak->getRawOriginal('start_time')
-                        : $openBreak->start_time;
-
-                    if ($rawBreakStart) {
-                        try {
-                            $breakStartUtc = Carbon::parse((string) $rawBreakStart, 'UTC')->utc();
-                            $currentBreakSeconds = max(0, $serverNow->timestamp - $breakStartUtc->timestamp);
-                        } catch (\Throwable $e) {
-                            $currentBreakSeconds = 0;
-                        }
-                    }
-                }
-
-                $completedBreakSeconds = (int) ($attendance->break_taken ?? 0);
-
-                $vaTimezone = $attendance->employee?->timezone ?: 'UTC';
-                $doctorTimezone = $attendance->client?->timezone
-                    ?: $attendance->timezone_snapshot
-                    ?: $attendance->schedule?->timezone
-                    ?: null;
-                $calculationTimezone = $attendance->timezone_snapshot
-                    ?: $doctorTimezone
-                    ?: $attendance->schedule?->timezone
-                    ?: $vaTimezone;
-
-                $clockInVaLabel = null;
-                $clockInDoctorLabel = null;
-                $clockInUtcIso = null;
-
-                if ($clockInUtc) {
-                    $clockInUtcIso = $clockInUtc->toIso8601ZuluString();
-                    try {
-                        $clockInVaLabel = $clockInUtc->copy()->setTimezone($vaTimezone)->format('M d, Y, g:i A');
-                    } catch (\Throwable $e) {
-                        $clockInVaLabel = $clockInUtc->format('M d, Y, g:i A').' UTC';
-                    }
-
-                    if ($doctorTimezone) {
-                        try {
-                            $clockInDoctorLabel = $clockInUtc->copy()->setTimezone($doctorTimezone)->format('M d, Y, g:i A');
-                        } catch (\Throwable $e) {
-                            $clockInDoctorLabel = null;
-                        }
-                    }
-                }
-
-                $scheduleDoctorLabel = null;
-                $scheduleVaLabel = null;
-                if ($attendance->schedule && $attendance->date) {
-                    try {
-                        $start = Carbon::parse($attendance->date->format('Y-m-d').' '.$attendance->schedule->start_time, $calculationTimezone);
-                        $end = Carbon::parse($attendance->date->format('Y-m-d').' '.$attendance->schedule->end_time, $calculationTimezone);
-                        if ($end->lte($start)) $end->addDay();
-                        $scheduleDoctorLabel = $start->copy()->setTimezone($doctorTimezone ?: $calculationTimezone)->format('D, M d, g:i A').' – '.$end->copy()->setTimezone($doctorTimezone ?: $calculationTimezone)->format('D, M d, g:i A');
-                        $scheduleVaLabel = $start->copy()->setTimezone($vaTimezone)->format('D, M d, g:i A').' – '.$end->copy()->setTimezone($vaTimezone)->format('D, M d, g:i A');
-                    } catch (\Throwable $e) {
-                        $scheduleDoctorLabel = null;
-                        $scheduleVaLabel = null;
-                    }
-                }
-
-                return [
-                    'id' => $attendance->id,
-                    'employee' => $attendance->employee,
-                    'client' => $attendance->client,
-                    'schedule' => $attendance->schedule,
-                    'clock_in' => $clockInUtcIso,
-                    'clock_in_utc' => $clockInUtcIso,
-                    'clock_in_va_label' => $clockInVaLabel,
-                    'clock_in_doctor_label' => $clockInDoctorLabel,
-                    'elapsed_seconds' => $elapsedSeconds,
-                    'timezone' => $vaTimezone,
-                    'va_timezone' => $vaTimezone,
-                    'doctor_timezone' => $doctorTimezone,
-                    'calculation_timezone' => $calculationTimezone,
-                    'schedule_doctor_label' => $scheduleDoctorLabel,
-                    'schedule_va_label' => $scheduleVaLabel,
-                    'late_minutes' => (int) ($attendance->late_minutes ?? 0),
-                    'break_limit' => $attendance->break_limit,
-                    'completed_break_seconds' => $completedBreakSeconds,
-                    'current_break_seconds' => $currentBreakSeconds,
-                    'total_break_seconds' => $completedBreakSeconds + $currentBreakSeconds,
-                    'is_on_break' => (bool) $openBreak,
-                    'status' => $openBreak ? 'break' : 'working',
-                ];
-            })
-            ->values();
-
-        $sessionEmployeeIds = $sessions->pluck('employee.id')->filter()->map(fn ($id) => (int) $id)->all();
-
-        $sessions = $sessions->map(function (array $row) use ($serverNow) {
-            $lastSeenAt = $row['employee']?->user?->last_seen_at;
-            $isOnline = $lastSeenAt && Carbon::parse($lastSeenAt)->gt($serverNow->copy()->subMinutes(5));
-            $lateMinutes = (int) ($row['late_minutes'] ?? 0);
-
-            $row['is_online'] = (bool) $isOnline;
-            $row['last_seen_at'] = $lastSeenAt?->toIso8601String();
-            $row['attendance_status'] = 'Checked in';
-            $row['status_key'] = $row['is_on_break'] ? 'break' : ($lateMinutes > 0 ? 'late' : 'checked_in');
-            $row['status_label'] = $row['is_on_break'] ? 'On Break' : ($lateMinutes > 0 ? 'Late' : 'Checked In');
-
-            return $row;
-        });
-
-        $offlineRows = Employee::query()
-            ->with(['user:id,name,email,last_seen_at'])
-            ->whereNotIn('id', $sessionEmployeeIds ?: [0])
-            ->orderBy('first_name')
-            ->orderBy('last_name')
-            ->get(['id','user_id','first_name','last_name','email','employee_code','profile_picture','timezone','location'])
-            ->map(function (Employee $employee) use ($serverNow) {
-                $lastSeenAt = $employee->user?->last_seen_at;
-                $isOnline = $lastSeenAt && Carbon::parse($lastSeenAt)->gt($serverNow->copy()->subMinutes(5));
-
-                return [
-                    'id' => 'employee-'.$employee->id,
-                    'employee' => $employee,
-                    'client' => null,
-                    'schedule' => null,
-                    'clock_in' => null,
-                    'clock_in_utc' => null,
-                    'clock_in_va_label' => null,
-                    'clock_in_doctor_label' => null,
-                    'elapsed_seconds' => 0,
-                    'timezone' => $employee->timezone ?: 'UTC',
-                    'va_timezone' => $employee->timezone ?: 'UTC',
-                    'doctor_timezone' => null,
-                    'calculation_timezone' => null,
-                    'schedule_doctor_label' => null,
-                    'schedule_va_label' => null,
-                    'late_minutes' => 0,
-                    'break_limit' => null,
-                    'completed_break_seconds' => 0,
-                    'current_break_seconds' => 0,
-                    'total_break_seconds' => 0,
-                    'is_on_break' => false,
-                    'is_online' => (bool) $isOnline,
-                    'last_seen_at' => $lastSeenAt?->toIso8601String(),
-                    'attendance_status' => 'Not checked in',
-                    'status' => $isOnline ? 'online' : 'offline',
-                    'status_key' => $isOnline ? 'online' : 'offline',
-                    'status_label' => $isOnline ? 'Online' : 'Offline',
-                ];
-            });
-
-        $people = $sessions->concat($offlineRows)->sortBy(function (array $row) {
-            return match ($row['status_key'] ?? 'offline') {
-                'break' => 10,
-                'late' => 20,
-                'checked_in' => 30,
-                'online' => 40,
-                default => 90,
-            };
-        })->values();
-
-        return response()->json([
-            'server_now' => $serverNow->toIso8601ZuluString(),
-            'time_source' => $this->clock->source(),
-            'total' => $people->count(),
-            'online' => $people->where('is_online', true)->count(),
-            'checked_in' => $sessions->count(),
-            'working' => $sessions->where('is_on_break', false)->count(),
-            'on_break' => $sessions->where('is_on_break', true)->count(),
-            'late' => $sessions->where('late_minutes', '>', 0)->count(),
-            'offline' => $people->where('status_key', 'offline')->count(),
-            'sessions' => $people,
+        $request->validate([
+            'status' => ['nullable', Rule::in(['checked_in', 'break', 'late', 'offline'])],
+            'page' => ['nullable', 'integer', 'min:1'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:48'],
         ]);
+
+        if ($this->workSessions->supported()) {
+            try {
+                return $this->liveUsersFromWorkSessions($request);
+            } catch (\Throwable $e) {
+                Log::error('Live Workforce work-session feed failed.', [
+                    'error' => $e->getMessage(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                ]);
+                return response()->json(['message' => 'Live workforce data could not be loaded.'], 500);
+            }
+        }
+
+        return response()->json(['message' => 'Work sessions are not available.'], 503);
     }
 
     public function employees(Request $request)
@@ -627,7 +482,7 @@ class AdminApiController extends Controller
     public function employee(Employee $employee)
     {
         $employee->load(['user:id,name,email,role,is_active,last_seen_at', 'department', 'role', 'employmentType', 'shiftType', 'designation', 'employeeStatus', 'expertise', 'reportingManager']);
-        $employee->setAttribute('upload_documents', Employee::documentUrls($employee->upload_documents));
+        $employee->setAttribute('upload_documents', $this->employeeDocumentUrls($employee));
 
         // "This month" in the VA's own timezone, so the figures match what they see.
         $timezone = in_array($employee->timezone, DateTimeZone::listIdentifiers(), true) ? $employee->timezone : config('app.timezone');
@@ -682,11 +537,14 @@ class AdminApiController extends Controller
 
         $invite = $this->sendEmployeeInvitation($user, $employee);
 
+        $freshEmployee = $employee->fresh();
+        $freshEmployee->setAttribute('upload_documents', $this->employeeDocumentUrls($freshEmployee));
+
         return response()->json([
             'message' => $invite['sent']
                 ? 'VA created and activation invitation sent.'
                 : 'VA created. Email delivery failed, so use the activation link below after checking SMTP settings.',
-            'employee' => $employee->fresh(),
+            'employee' => $freshEmployee,
             'invitation_sent' => $invite['sent'],
             'activation_url' => $invite['url'],
         ], 201);
@@ -710,9 +568,17 @@ class AdminApiController extends Controller
 
     public function updateEmployee(Request $request, Employee $employee)
     {
+        $removePicture = $request->boolean('remove_profile_picture') && !$request->hasFile('profile_picture');
         $data = $this->validateEmployee($request, $employee, true);
-        return DB::transaction(function () use ($data, $employee) {
+        $previousPicture = $employee->profile_picture;
+        $newPicture = null;
+        if ($request->hasFile('profile_picture')) {
+            $newPicture = '/storage/'.$request->file('profile_picture')->store('employees/profile_pictures', 'public');
+        }
+        $response = DB::transaction(function () use ($data, $employee, $removePicture, $newPicture) {
             $payload = $this->employeePayload($data);
+            if ($newPicture) $payload['profile_picture'] = $newPicture;
+            elseif ($removePicture) $payload['profile_picture'] = null;
             $employee->update($payload);
             $userData = ['name' => trim($employee->first_name.' '.$employee->last_name), 'email' => $employee->email];
             if (!empty($data['password'])) {
@@ -720,8 +586,14 @@ class AdminApiController extends Controller
                 $employee->update(['password' => $userData['password']]);
             }
             $employee->user?->update($userData);
-            return response()->json(['message' => 'Employee updated.', 'employee' => $employee->fresh()]);
+            $freshEmployee = $employee->fresh();
+            $freshEmployee->setAttribute('upload_documents', $this->employeeDocumentUrls($freshEmployee));
+            return response()->json(['message' => 'Employee updated.', 'employee' => $freshEmployee]);
         });
+        if (($newPicture || $removePicture) && $previousPicture) {
+            \App\Support\ProfilePhotoStorage::deleteOld($previousPicture, 'employees/profile_pictures');
+        }
+        return $response;
     }
 
     public function updateProbation(Request $request, Employee $employee)
@@ -802,6 +674,20 @@ class AdminApiController extends Controller
             'employee' => $employee,
             'probation' => $employee->probationStatusData($today),
         ]);
+    }
+
+    public function downloadEmployeeDocument(Employee $employee, int $index)
+    {
+        $documents = Employee::documentPaths($employee->upload_documents);
+        abort_unless(array_key_exists($index, $documents), 404);
+
+        $storage = $this->employeeDocumentStorageReference($documents[$index]);
+        abort_unless($storage, 404);
+
+        $disk = Storage::disk($storage['disk']);
+        abort_unless($disk->exists($storage['path']), 404);
+
+        return $disk->download($storage['path'], basename($storage['path']));
     }
 
     public function destroyEmployee(Employee $employee)
@@ -898,6 +784,9 @@ class AdminApiController extends Controller
                 ->orWhere('email', 'like', "%{$search}%")
                 ->orWhere('business_name', 'like', "%{$search}%"));
         }
+        if ($request->filled('business_name')) $query->where('business_name', (string) $request->query('business_name'));
+        if ($request->filled('country')) $query->where('country', (string) $request->query('country'));
+        if ($request->filled('timezone')) $query->where('timezone', (string) $request->query('timezone'));
         return response()->json($this->sortAndPaginate($request, $query, [
             'id' => 'id', 'name' => 'name', 'email' => 'email', 'business_name' => 'business_name', 'country' => 'country',
             'timezone' => 'timezone', 'per_hour_charges' => 'per_hour_charges', 'created_at' => 'created_at',
@@ -967,9 +856,11 @@ class AdminApiController extends Controller
 
     public function updateClient(Request $request, Client $client)
     {
+        $removePicture = $request->boolean('remove_profile_picture') && !$request->hasFile('profile_picture');
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', Rule::unique('users', 'email')->ignore($client->user_id)],
+            'profile_picture' => ['nullable','file','image','mimes:jpg,jpeg,png,webp','max:5120'],
             'business_name' => ['nullable', 'string', 'max:255'],
             'phone_number' => ['nullable', 'string', 'max:60'],
             'country' => ['nullable', 'string', 'max:100'],
@@ -979,6 +870,14 @@ class AdminApiController extends Controller
             'service_id' => ['nullable', 'exists:services,id'],
             'ring_center' => ['nullable', 'boolean'],
         ]);
+        $oldPicture = $client->profile_picture;
+        if ($request->hasFile('profile_picture')) {
+            $data['profile_picture'] = '/storage/'.$request->file('profile_picture')->store('clients/profile_pictures', 'public');
+        } elseif ($removePicture) {
+            $data['profile_picture'] = null;
+        } else {
+            unset($data['profile_picture']);
+        }
         DB::transaction(function () use ($data, $client) {
             $previousTimezone = $client->timezone;
             $client->update($data);
@@ -991,6 +890,9 @@ class AdminApiController extends Controller
                 EmployeeClientSchedule::where('client_id', $client->id)->update(['timezone' => $client->timezone]);
             }
         });
+        if (array_key_exists('profile_picture', $data) && $oldPicture) {
+            \App\Support\ProfilePhotoStorage::deleteOld($oldPicture, 'clients/profile_pictures');
+        }
         return response()->json(['message' => 'Client updated.', 'client' => $client->fresh()]);
     }
 
@@ -1080,8 +982,8 @@ class AdminApiController extends Controller
     public function schedules(Request $request)
     {
         $query = EmployeeClientSchedule::with([
-            'employee:id,first_name,last_name,employee_code,email,timezone',
-            'client:id,name,business_name,timezone',
+            'employee:id,first_name,last_name,employee_code,email,timezone,profile_picture',
+            'client:id,name,business_name,timezone,profile_picture',
         ]);
         if ($request->filled('employee_id')) $query->where('employee_id', $request->integer('employee_id'));
         if ($request->filled('client_id')) $query->where('client_id', $request->integer('client_id'));
@@ -1158,10 +1060,11 @@ class AdminApiController extends Controller
         $data = $this->normalizeScheduleRecurrence($data);
         $data['no_of_hours'] = $this->hoursBetween($data['start_time'], $data['end_time']);
         $schedule = EmployeeClientSchedule::create($data);
+        $this->invoiceAutoSchedule->forgetScheduleCaches();
         if ($request->filled('per_hour_rate')) {
             ClientEmployeeRate::updateOrCreate(['client_id' => $data['client_id'], 'employee_id' => $data['employee_id']], ['per_hour_rate' => $request->input('per_hour_rate')]);
         }
-        $schedule->load(['employee:id,first_name,last_name,employee_code,email,timezone', 'client:id,name,business_name,timezone']);
+        $schedule->load(['employee:id,first_name,last_name,employee_code,email,timezone,profile_picture', 'client:id,name,business_name,timezone,profile_picture']);
         $this->decorateScheduleForDisplay($schedule);
         $schedule->setAttribute('per_hour_rate', ClientEmployeeRate::where('client_id', $schedule->client_id)->where('employee_id', $schedule->employee_id)->value('per_hour_rate'));
         return response()->json(['message' => 'Schedule created.', 'schedule' => $schedule], 201);
@@ -1231,6 +1134,7 @@ class AdminApiController extends Controller
             return $rows;
         });
 
+        $this->invoiceAutoSchedule->forgetScheduleCaches();
         $operationalNotifier = app(\App\Services\OperationalNotifier::class);
 
         if ($employee->user) {
@@ -1274,10 +1178,11 @@ class AdminApiController extends Controller
         $data = $this->normalizeScheduleRecurrence($data, $schedule);
         $data['no_of_hours'] = $this->hoursBetween($data['start_time'], $data['end_time']);
         $schedule->update($data);
+        $this->invoiceAutoSchedule->forgetScheduleCaches();
         if ($request->filled('per_hour_rate')) {
             ClientEmployeeRate::updateOrCreate(['client_id' => $data['client_id'], 'employee_id' => $data['employee_id']], ['per_hour_rate' => $request->input('per_hour_rate')]);
         }
-        $schedule = $schedule->fresh(['employee:id,first_name,last_name,employee_code,email,timezone', 'client:id,name,business_name,timezone']);
+        $schedule = $schedule->fresh(['employee:id,first_name,last_name,employee_code,email,timezone,profile_picture', 'client:id,name,business_name,timezone,profile_picture']);
         $this->decorateScheduleForDisplay($schedule);
         $schedule->setAttribute('per_hour_rate', ClientEmployeeRate::where('client_id', $schedule->client_id)->where('employee_id', $schedule->employee_id)->value('per_hour_rate'));
         return response()->json(['message' => 'Schedule updated.', 'schedule' => $schedule]);
@@ -1286,6 +1191,7 @@ class AdminApiController extends Controller
     public function destroySchedule(EmployeeClientSchedule $schedule)
     {
         $schedule->delete();
+        $this->invoiceAutoSchedule->forgetScheduleCaches();
         return response()->json(['message' => 'Schedule deleted.']);
     }
 
@@ -1296,7 +1202,7 @@ class AdminApiController extends Controller
             'breaks',
             'schedule:id,client_id,employee_id,start_time,end_time,timezone,break_allowed_hours',
         ]);
-        $query->with('client:id,name,business_name,timezone');
+        $query->with('client:id,name,business_name,timezone,profile_picture');
         if ($request->filled('employee_id')) $query->where('employee_id', $request->integer('employee_id'));
         $selectedClientId = $request->filled('client_id') ? $request->integer('client_id') : null;
         if ($selectedClientId) {
@@ -1387,78 +1293,273 @@ class AdminApiController extends Controller
 
     private function applyAttendanceLocalDateFilter($query, ?string $from, ?string $to, ?int $clientId = null): void
     {
-        if (!$from && !$to) {
-            return;
-        }
+        if (!$from && !$to) return;
 
-        $clients = $clientId
-            ? Client::query()->whereKey($clientId)->get(['id', 'timezone'])
-            : Client::query()->get(['id', 'timezone']);
+        // Modern CareVMA attendance persists `date` as the Doctor-local work date.
+        // Filtering that indexed snapshot is both more correct and dramatically more
+        // scalable than loading every Doctor timezone and building tens of thousands
+        // of OR clauses. The clock_in envelope below is only for very old rows whose
+        // local-date snapshot is missing.
+        $query->where(function ($outer) use ($from, $to, $clientId) {
+            $outer->where(function ($modern) use ($from, $to) {
+                $modern->whereNotNull('date');
+                if ($from) $modern->whereDate('date', '>=', $from);
+                if ($to) $modern->whereDate('date', '<=', $to);
+            });
 
-        $query->where(function ($outer) use ($clients, $from, $to) {
-            foreach ($clients as $client) {
-                [$startUtc, $endUtc] = $this->timezones->utcRangeForLocalFilters($from, $to, $client);
-                $outer->orWhere(function ($clientQuery) use ($client, $startUtc, $endUtc) {
-                    $clientQuery->where('client_id', $client->id);
-                    if ($startUtc) $clientQuery->where('clock_in', '>=', $startUtc);
-                    if ($endUtc) $clientQuery->where('clock_in', '<=', $endUtc);
-                });
-            }
-
-            // Keep legacy/unassigned attendance queryable without pretending it has a client timezone.
-            $outer->orWhere(function ($legacy) use ($from, $to) {
-                $legacy->whereNull('client_id');
-                if ($from) $legacy->whereDate('date', '>=', $from);
-                if ($to) $legacy->whereDate('date', '<=', $to);
+            $outer->orWhere(function ($legacy) use ($from, $to, $clientId) {
+                $legacy->whereNull('date');
+                if ($clientId) $legacy->where('client_id', $clientId);
+                if ($from) $legacy->where('clock_in', '>=', Carbon::parse($from, 'UTC')->subDays(2)->startOfDay());
+                if ($to) $legacy->where('clock_in', '<=', Carbon::parse($to, 'UTC')->addDays(2)->endOfDay());
             });
         });
     }
 
-    private function liveUsersFromWorkSessions()
+    private function liveUsersFromWorkSessions(Request $request)
     {
-        $serverNow=$this->clock->now('UTC');
-        $open=WorkSession::query()->with(['employee.user:id,name,email,last_seen_at','attendances.client','attendances.schedule','attendances.breaks','breaks'])->whereNull('clock_out')->latest('clock_in')->get()->map(function(WorkSession $session) use($serverNow){
-            try { return $this->workSessions->reconcile($session,$serverNow); }
-            catch (\Throwable $e) {
-                \Log::error('Live Workforce reconcile skipped for one session.', ['work_session_id'=>$session->id,'error'=>$e->getMessage()]);
-                return $session->fresh(['employee.user:id,name,email,last_seen_at','attendances.client','attendances.schedule','attendances.breaks','breaks']);
-            }
+        $serverNow = $this->clock->now('UTC');
+        $status = (string) $request->query('status', 'checked_in');
+        $perPage = min(max((int) $request->query('per_page', config('carevma.performance.live_workforce_per_page', 24)), 1), 48);
+        // Presence must use the same clock source that writes users.last_seen_at.
+        // RoleMiddleware updates last_seen_at with Laravel now(), while $serverNow is
+        // the trusted business clock used for shift/attendance calculations. If the
+        // trusted clock carries an offset, comparing last_seen_at against it can mark
+        // every offline employee as online (or the reverse) and break pagination.
+        $onlineSince = now()->subMinutes(5);
+
+        // A manual Refresh must return fresh counters immediately instead of the
+        // five-second metrics cache. Automatic polling keeps using the short cache
+        // so large workforce pages remain lightweight.
+        if ($request->has('_refresh')) {
+            Cache::forget('carevma:live-workforce-metrics');
+        }
+
+        $metrics = Cache::remember('carevma:live-workforce-metrics', now()->addSeconds(5), function () use ($onlineSince) {
+            $checkedIn = WorkSession::query()->whereNull('clock_out')->count();
+            $onBreak = WorkSession::query()
+                ->whereNull('clock_out')
+                ->whereHas('breaks', fn ($q) => $q->whereNull('end_time'))
+                ->count();
+            $late = WorkSession::query()
+                ->whereNull('clock_out')
+                ->whereHas('attendances', fn ($q) => $q->whereNull('clock_out')->where('late_minutes', '>', 0))
+                ->count();
+            $online = Employee::query()
+                ->whereHas('user', fn ($q) => $q->where('last_seen_at', '>', $onlineSince))
+                ->count();
+            $offline = $this->offlineEmployeeIdsQuery($onlineSince)->count();
+
+            return [
+                'total' => Employee::query()->count(),
+                'online' => $online,
+                'checked_in' => $checkedIn,
+                'working' => max(0, $checkedIn - $onBreak),
+                'on_break' => $onBreak,
+                'late' => $late,
+                'offline' => $offline,
+            ];
         });
-        $sessions=$open->map(function(WorkSession $session) use($serverNow){
-            $employee=$session->employee; $active=$session->attendances->whereNull('clock_out')->values(); $all=$session->attendances->values();
-            $primary=$active->sortByDesc(fn($a)=>$a->shift_end_snapshot?->timestamp??0)->first() ?: $all->last();
-            $doctorNames=$active->map(fn($a)=>$a->client?->name?:$a->client?->business_name)->filter()->unique()->values();
-            $doctorSegments=$active->map(function(Attendance $attendance){
-                $segmentZone=$this->timezones->forAttendance($attendance,false);
-                $segmentStart=$attendance->shift_start_snapshot?->copy()->setTimezone($segmentZone?:'UTC');
-                $segmentEnd=$attendance->shift_end_snapshot?->copy()->setTimezone($segmentZone?:'UTC');
-                return [
-                    'attendance_id'=>$attendance->id,
-                    'client_id'=>$attendance->client_id,
-                    'name'=>$attendance->client?->name?:$attendance->client?->business_name?:'Doctor',
-                    'profile_picture'=>$attendance->client?->profile_picture,
-                    'timezone'=>$segmentZone,
-                    'shift_label'=>($segmentStart&&$segmentEnd)?$segmentStart->format('D, M d, g:i A').' – '.$segmentEnd->format('D, M d, g:i A'):null,
-                    'shift_ends_at'=>$attendance->shift_end_snapshot?->copy()->utc()->toIso8601ZuluString(),
-                    'shift_end_label'=>$segmentEnd?->format('D, M d, g:i A'),
-                    'late_minutes'=>(int)($attendance->late_minutes??0),
-                    'clock_in_utc'=>$attendance->clock_in?->copy()->utc()->toIso8601ZuluString(),
-                    'elapsed_seconds'=>$attendance->clock_in?max(0,$this->clock->now('UTC')->timestamp-$attendance->clock_in->copy()->utc()->timestamp):0,
-                    'status'=>'active',
-                ];
-            })->values();
-            $openBreak=$session->breaks->whereNull('end_time')->sortByDesc('id')->first();
-            $completed=(int)$session->breaks->whereNotNull('end_time')->sum(fn($b)=>max(0,$b->end_time->timestamp-$b->start_time->timestamp));
-            $current=$openBreak?max(0,$serverNow->timestamp-$openBreak->start_time->timestamp):0; $elapsed=max(0,$serverNow->timestamp-$session->clock_in->timestamp);
-            $lastSeen=$employee?->user?->last_seen_at; $online=$lastSeen&&Carbon::parse($lastSeen)->gt($serverNow->copy()->subMinutes(5));
-            $late=(int)$active->max(fn($a)=>(int)($a->late_minutes??0)); $zone=$primary?$this->timezones->forAttendance($primary,false):null;
-            $scheduleLabel=null; if($primary?->shift_start_snapshot&&$primary?->shift_end_snapshot){$st=$primary->shift_start_snapshot->copy()->setTimezone($zone?:'UTC');$en=$primary->shift_end_snapshot->copy()->setTimezone($zone?:'UTC');$scheduleLabel=$st->format('D, M d, g:i A').' – '.$en->format('D, M d, g:i A');}
-            return ['id'=>'work-session-'.$session->id,'work_session_id'=>$session->id,'employee'=>$employee,'client'=>$primary?->client,'clients'=>$active->pluck('client')->filter()->values(),'doctor_names'=>$doctorNames,'doctor_segments'=>$doctorSegments,'schedule'=>$primary?->schedule,'clock_in'=>$session->clock_in->toIso8601ZuluString(),'clock_in_utc'=>$session->clock_in->toIso8601ZuluString(),'clock_in_doctor_label'=>$zone?$session->clock_in->copy()->setTimezone($zone)->format('M d, Y, g:i A'):null,'elapsed_seconds'=>$elapsed,'doctor_timezone'=>$zone,'schedule_doctor_label'=>$scheduleLabel,'late_minutes'=>$late,'break_limit'=>$primary?->break_limit,'completed_break_seconds'=>$completed,'current_break_seconds'=>$current,'total_break_seconds'=>$completed+$current,'is_on_break'=>(bool)$openBreak,'is_online'=>(bool)$online,'last_seen_at'=>$lastSeen?->toIso8601String(),'attendance_status'=>'Checked in','status_key'=>$openBreak?'break':($late>0?'late':'checked_in'),'status_label'=>$openBreak?'On Break':($late>0?'Late':'Checked In')];
+
+        if ($status === 'offline') {
+            // Use one indexed paginator query for both the count and page slice.
+            // The previous two-step ID query could report the correct total while
+            // hydrating an empty page on MySQL page 2+. Joining only an open work
+            // session row keeps the result one-row-per-employee and remains bounded.
+            $requestedPage = max(1, (int) $request->query('page', 1));
+            $paginator = Employee::query()
+                ->leftJoin('users as live_workforce_users', 'live_workforce_users.id', '=', 'employees.user_id')
+                ->leftJoin('work_sessions as live_open_sessions', function ($join) {
+                    $join->on('live_open_sessions.employee_id', '=', 'employees.id')
+                        ->whereNull('live_open_sessions.clock_out');
+                })
+                ->whereNull('live_open_sessions.id')
+                ->where(function ($query) use ($onlineSince) {
+                    $query->whereNull('employees.user_id')
+                        ->orWhereNull('live_workforce_users.id')
+                        ->orWhereNull('live_workforce_users.last_seen_at')
+                        ->orWhere('live_workforce_users.last_seen_at', '<=', $onlineSince);
+                })
+                ->select('employees.*')
+                ->with('user:id,name,email,last_seen_at')
+                ->orderBy('employees.first_name')
+                ->orderBy('employees.last_name')
+                ->orderBy('employees.id')
+                ->paginate($perPage, ['*'], 'page', $requestedPage);
+
+            $paginator->setCollection(
+                $paginator->getCollection()
+                    ->map(fn (Employee $employee) => $this->mapOfflineEmployee($employee, $serverNow))
+                    ->values()
+            );
+
+            return response()->json(array_merge($metrics, [
+                'server_now' => $serverNow->toIso8601ZuluString(),
+                'sessions' => $paginator->items(),
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total_filtered' => $paginator->total(),
+                'from' => $paginator->firstItem(),
+                'to' => $paginator->lastItem(),
+            ]));
+        } else {
+            $query = WorkSession::query()
+                ->with([
+                    'employee.user:id,name,email,last_seen_at',
+                    'attendances.client:id,name,business_name,timezone,profile_picture,profile_picture',
+                    'attendances.schedule:id,weekday,start_time,end_time,timezone,break_allowed_hours',
+                    'attendances.breaks:id,attendance_id,start_time,end_time',
+                    'breaks:id,work_session_id,start_time,end_time',
+                ])
+                ->whereNull('clock_out');
+
+            if ($status === 'break') {
+                $query->whereHas('breaks', fn ($q) => $q->whereNull('end_time'));
+            } elseif ($status === 'late') {
+                $query->whereHas('attendances', fn ($q) => $q->whereNull('clock_out')->where('late_minutes', '>', 0));
+            }
+
+            $paginator = $query->latest('clock_in')->latest('id')->paginate($perPage);
+            $paginator->setCollection($paginator->getCollection()->map(fn (WorkSession $session) => $this->mapLiveWorkSession($session, $serverNow)));
+        }
+
+        return response()->json(array_merge($metrics, [
+            'server_now' => $serverNow->toIso8601ZuluString(),
+            'sessions' => $paginator->items(),
+            'current_page' => $paginator->currentPage(),
+            'last_page' => $paginator->lastPage(),
+            'per_page' => $paginator->perPage(),
+            'total_filtered' => $paginator->total(),
+            'from' => $paginator->firstItem(),
+            'to' => $paginator->lastItem(),
+        ]));
+    }
+
+    private function offlineEmployeeIdsQuery(Carbon $onlineSince)
+    {
+        return DB::table('employees')
+            ->whereNotExists(function ($query) {
+                $query->selectRaw('1')
+                    ->from('work_sessions as open_work_sessions')
+                    ->whereColumn('open_work_sessions.employee_id', 'employees.id')
+                    ->whereNull('open_work_sessions.clock_out');
+            })
+            ->where(function ($query) use ($onlineSince) {
+                $query->whereNull('employees.user_id')
+                    ->orWhereNotExists(function ($missingUser) {
+                        $missingUser->selectRaw('1')
+                            ->from('users as missing_live_users')
+                            ->whereColumn('missing_live_users.id', 'employees.user_id');
+                    })
+                    ->orWhereExists(function ($offlineUser) use ($onlineSince) {
+                        $offlineUser->selectRaw('1')
+                            ->from('users as offline_live_users')
+                            ->whereColumn('offline_live_users.id', 'employees.user_id')
+                            ->where(function ($user) use ($onlineSince) {
+                                $user->whereNull('offline_live_users.last_seen_at')
+                                    ->orWhere('offline_live_users.last_seen_at', '<=', $onlineSince);
+                            });
+                    });
+            });
+    }
+
+    private function mapLiveWorkSession(WorkSession $session, Carbon $serverNow): array
+    {
+        $employee = $session->employee;
+        $active = $session->attendances->whereNull('clock_out')->values();
+        $all = $session->attendances->values();
+        $primary = $active->sortByDesc(fn ($row) => $row->shift_end_snapshot?->timestamp ?? 0)->first() ?: $all->last();
+        $doctorNames = $active->map(fn ($row) => $row->client?->name ?: $row->client?->business_name)->filter()->unique()->values();
+        $doctorSegments = $active->map(function (Attendance $attendance) use ($serverNow) {
+            $zone = $this->timezones->forAttendance($attendance, false);
+            $start = $attendance->shift_start_snapshot?->copy()->setTimezone($zone ?: 'UTC');
+            $end = $attendance->shift_end_snapshot?->copy()->setTimezone($zone ?: 'UTC');
+            return [
+                'attendance_id' => $attendance->id,
+                'client_id' => $attendance->client_id,
+                'name' => $attendance->client?->name ?: $attendance->client?->business_name ?: 'Doctor',
+                'profile_picture' => $attendance->client?->profile_picture,
+                'timezone' => $zone,
+                'shift_label' => ($start && $end) ? $start->format('D, M d, g:i A').' – '.$end->format('D, M d, g:i A') : null,
+                'shift_ends_at' => $attendance->shift_end_snapshot?->copy()->utc()->toIso8601ZuluString(),
+                'shift_end_label' => $end?->format('D, M d, g:i A'),
+                'late_minutes' => (int) ($attendance->late_minutes ?? 0),
+                'clock_in_utc' => $attendance->clock_in?->copy()->utc()->toIso8601ZuluString(),
+                'elapsed_seconds' => $attendance->clock_in ? max(0, $serverNow->timestamp - $attendance->clock_in->copy()->utc()->timestamp) : 0,
+                'status' => 'active',
+            ];
         })->values();
-        $activeIds=$open->pluck('employee_id')->map(fn($id)=>(int)$id)->all();
-        $offline=Employee::query()->with('user:id,name,email,last_seen_at')->whereNotIn('id',$activeIds?:[0])->orderBy('first_name')->get(['id','user_id','first_name','last_name','email','employee_code','profile_picture','timezone','location'])->map(function(Employee $employee) use($serverNow){$last=$employee->user?->last_seen_at;$online=$last&&Carbon::parse($last)->gt($serverNow->copy()->subMinutes(5));return ['id'=>'employee-'.$employee->id,'employee'=>$employee,'client'=>null,'clients'=>[],'doctor_names'=>[],'doctor_segments'=>[],'schedule'=>null,'clock_in'=>null,'elapsed_seconds'=>0,'doctor_timezone'=>null,'schedule_doctor_label'=>null,'late_minutes'=>0,'completed_break_seconds'=>0,'current_break_seconds'=>0,'total_break_seconds'=>0,'is_on_break'=>false,'is_online'=>(bool)$online,'last_seen_at'=>$last?->toIso8601String(),'attendance_status'=>'Not checked in','status_key'=>$online?'online':'offline','status_label'=>$online?'Online':'Offline'];});
-        $people=$sessions->concat($offline)->values();
-        return response()->json(['server_now'=>$serverNow->toIso8601ZuluString(),'total'=>$people->count(),'online'=>$people->where('is_online',true)->count(),'checked_in'=>$sessions->count(),'working'=>$sessions->where('is_on_break',false)->count(),'on_break'=>$sessions->where('is_on_break',true)->count(),'late'=>$sessions->where('late_minutes','>',0)->count(),'offline'=>$people->where('status_key','offline')->count(),'sessions'=>$people]);
+        $openBreak = $session->breaks->whereNull('end_time')->sortByDesc('id')->first();
+        $completed = (int) $session->breaks->whereNotNull('end_time')->sum(fn ($break) => max(0, $break->end_time->timestamp - $break->start_time->timestamp));
+        $current = $openBreak ? max(0, $serverNow->timestamp - $openBreak->start_time->timestamp) : 0;
+        $elapsed = $session->clock_in ? max(0, $serverNow->timestamp - $session->clock_in->timestamp) : 0;
+        $lastSeen = $employee?->user?->last_seen_at;
+        $online = $lastSeen && Carbon::parse($lastSeen)->gt($serverNow->copy()->subMinutes(5));
+        $late = (int) ($active->max(fn ($row) => (int) ($row->late_minutes ?? 0)) ?? 0);
+        $zone = $primary ? $this->timezones->forAttendance($primary, false) : null;
+        $scheduleLabel = null;
+        if ($primary?->shift_start_snapshot && $primary?->shift_end_snapshot) {
+            $start = $primary->shift_start_snapshot->copy()->setTimezone($zone ?: 'UTC');
+            $end = $primary->shift_end_snapshot->copy()->setTimezone($zone ?: 'UTC');
+            $scheduleLabel = $start->format('D, M d, g:i A').' – '.$end->format('D, M d, g:i A');
+        }
+
+        return [
+            'id' => 'work-session-'.$session->id,
+            'work_session_id' => $session->id,
+            'employee' => $employee,
+            'client' => $primary?->client,
+            'clients' => $active->pluck('client')->filter()->values(),
+            'doctor_names' => $doctorNames,
+            'doctor_segments' => $doctorSegments,
+            'schedule' => $primary?->schedule,
+            'clock_in' => $session->clock_in?->toIso8601ZuluString(),
+            'clock_in_utc' => $session->clock_in?->toIso8601ZuluString(),
+            'clock_in_doctor_label' => ($zone && $session->clock_in) ? $session->clock_in->copy()->setTimezone($zone)->format('M d, Y, g:i A') : null,
+            'elapsed_seconds' => $elapsed,
+            'doctor_timezone' => $zone,
+            'schedule_doctor_label' => $scheduleLabel,
+            'late_minutes' => $late,
+            'break_limit' => $primary?->break_limit,
+            'completed_break_seconds' => $completed,
+            'current_break_seconds' => $current,
+            'total_break_seconds' => $completed + $current,
+            'is_on_break' => (bool) $openBreak,
+            'is_online' => (bool) $online,
+            'last_seen_at' => $lastSeen?->toIso8601String(),
+            'attendance_status' => 'Checked in',
+            'status_key' => $openBreak ? 'break' : ($late > 0 ? 'late' : 'checked_in'),
+            'status_label' => $openBreak ? 'On Break' : ($late > 0 ? 'Late' : 'Checked In'),
+        ];
+    }
+
+    private function mapOfflineEmployee(Employee $employee, Carbon $serverNow): array
+    {
+        $lastSeen = $employee->user?->last_seen_at;
+        return [
+            'id' => 'employee-'.$employee->id,
+            'employee' => $employee,
+            'client' => null,
+            'clients' => [],
+            'doctor_names' => [],
+            'doctor_segments' => [],
+            'schedule' => null,
+            'clock_in' => null,
+            'elapsed_seconds' => 0,
+            'doctor_timezone' => null,
+            'schedule_doctor_label' => null,
+            'late_minutes' => 0,
+            'completed_break_seconds' => 0,
+            'current_break_seconds' => 0,
+            'total_break_seconds' => 0,
+            'is_on_break' => false,
+            'is_online' => false,
+            'last_seen_at' => $lastSeen?->toIso8601String(),
+            'attendance_status' => 'Not checked in',
+            'status_key' => 'offline',
+            'status_label' => 'Offline',
+        ];
     }
 
     public function changeRequests(Request $request)
@@ -1488,17 +1589,30 @@ class AdminApiController extends Controller
     {
         $data=$request->validate(['decision'=>['required',Rule::in(['approved','rejected'])],'note'=>['nullable','string','max:1000'],'approved_clock_in'=>['nullable','date_format:H:i'],'approved_clock_out'=>['nullable','date_format:H:i']]);
         if($changeRequest->status!=='pending')return response()->json(['message'=>'This request has already been reviewed.'],422);
-        DB::transaction(function() use($changeRequest,$data,$request){
+
+        $affectedAttendanceId = null;
+        $previousLocalDate = null;
+        DB::transaction(function() use($changeRequest,$data,$request,&$affectedAttendanceId,&$previousLocalDate){
             $approvedIn=$data['approved_clock_in']??substr((string)$changeRequest->requested_clock_in,0,5); $approvedOut=$data['approved_clock_out']??substr((string)$changeRequest->requested_clock_out,0,5);
-            if($data['decision']==='approved'){$attendance=$changeRequest->attendance()->lockForUpdate()->firstOrFail();$date=Carbon::parse($changeRequest->date)->toDateString();$zone=$this->timezones->forAttendance($attendance,false);$in=Carbon::parse($date.' '.$approvedIn,$zone);$out=Carbon::parse($date.' '.$approvedOut,$zone);if($out->lte($in))$out->addDay();$attendance->clock_in=$in->utc();$attendance->clock_out=$out->utc();$attendance->save();$this->recalculateAttendance($attendance);}
+            if($data['decision']==='approved'){
+                $attendance=$changeRequest->attendance()->lockForUpdate()->firstOrFail();
+                $previousLocalDate=optional($attendance->date)->toDateString() ?: Carbon::parse($changeRequest->date)->toDateString();
+                $date=Carbon::parse($changeRequest->date)->toDateString();$zone=$this->timezones->forAttendance($attendance,false);$in=Carbon::parse($date.' '.$approvedIn,$zone);$out=Carbon::parse($date.' '.$approvedOut,$zone);if($out->lte($in))$out->addDay();$attendance->clock_in=$in->utc();$attendance->clock_out=$out->utc();$attendance->save();$this->recalculateAttendance($attendance);
+                $affectedAttendanceId=$attendance->id;
+            }
             $update=['status'=>$data['decision'],'reviewed_by'=>$request->user()->id,'reviewed_at'=>$this->clock->now('UTC'),'review_note'=>$data['note']??null]; $update['approved_clock_in']=$data['decision']==='approved'?$approvedIn:null; $update['approved_clock_out']=$data['decision']==='approved'?$approvedOut:null; $changeRequest->update($update);
         });
+
+        if ($affectedAttendanceId) {
+            $this->invoiceDraftSync->syncForAttendance(Attendance::findOrFail($affectedAttendanceId), $previousLocalDate);
+        }
+
         return response()->json(['message'=>'Change request '.$data['decision'].'.']);
     }
 
     public function scheduleChangeRequests(Request $request)
     {
-        $query = ScheduleChangeRequest::with(['employee:id,first_name,last_name,employee_code','schedule.client:id,name,business_name,timezone']);
+        $query = ScheduleChangeRequest::with(['employee:id,first_name,last_name,employee_code','schedule.client:id,name,business_name,timezone,profile_picture']);
         if ($request->filled('status')) $query->where('status', $request->input('status'));
         if ($search = trim((string) $request->query('search'))) {
             $query->where(function ($q) use ($search) {
@@ -1528,7 +1642,7 @@ class AdminApiController extends Controller
 
     public function overtime(Request $request)
     {
-        $query = Attendance::with('employee:id,first_name,last_name,employee_code')->where('overtime', '>', 0);
+        $query = Attendance::with(['employee:id,first_name,last_name,employee_code','client:id,name,business_name,timezone,profile_picture'])->where('overtime', '>', 0);
         $query->whereIn('overtime_status', ['review_required', 'pending', 'approved', 'rejected']);
         if ($search = trim((string) $request->query('search'))) {
             $query->where(function ($q) use ($search) {
@@ -1537,7 +1651,10 @@ class AdminApiController extends Controller
                 $q->orWhereHas('employee', fn ($employee) => $employee
                     ->where('first_name', 'like', "%{$search}%")
                     ->orWhere('last_name', 'like', "%{$search}%")
-                    ->orWhere('employee_code', 'like', "%{$search}%"));
+                    ->orWhere('employee_code', 'like', "%{$search}%"))
+                    ->orWhereHas('client', fn ($client) => $client
+                        ->where('name', 'like', "%{$search}%")
+                        ->orWhere('business_name', 'like', "%{$search}%"));
             });
         }
         return response()->json($this->sortAndPaginate($request, $query, [
@@ -1560,21 +1677,26 @@ class AdminApiController extends Controller
             'overtime_approved_by' => $request->user()->id,
             'overtime_approved_at' => $this->clock->now('UTC'),
         ]);
+        $this->invoiceDraftSync->syncForAttendance($attendance->fresh());
         return response()->json(['message' => 'Overtime review saved.']);
     }
 
     public function companyFinance(Request $request)
     {
-        $view = in_array($request->query('view'), ['day', 'month', 'year'], true)
-            ? $request->query('view')
-            : 'month';
-        $anchor = $request->filled('date')
-            ? Carbon::parse($request->query('date'), $this->timezones->businessTimezone())
-            : $this->clock->now($this->timezones->businessTimezone());
+        $filters = $request->validate([
+            'view' => ['nullable', Rule::in(['day', 'month', 'year', 'range'])],
+            'date' => ['nullable', 'date_format:Y-m-d'],
+            'start_date' => ['exclude_unless:view,range', 'required', 'date_format:Y-m-d'],
+            'end_date' => ['exclude_unless:view,range', 'required', 'date_format:Y-m-d', 'after_or_equal:start_date'],
+        ]);
+        $view = $filters['view'] ?? 'month';
+        $timezone = $this->timezones->businessTimezone();
+        $anchor = isset($filters['date']) ? Carbon::parse($filters['date'], $timezone) : $this->clock->now($timezone);
 
         [$from, $to] = match ($view) {
             'day' => [$anchor->copy()->startOfDay(), $anchor->copy()->endOfDay()],
             'year' => [$anchor->copy()->startOfYear(), $anchor->copy()->endOfYear()],
+            'range' => [Carbon::parse($filters['start_date'], $timezone)->startOfDay(), Carbon::parse($filters['end_date'], $timezone)->endOfDay()],
             default => [$anchor->copy()->startOfMonth(), $anchor->copy()->endOfMonth()],
         };
 
@@ -1586,9 +1708,10 @@ class AdminApiController extends Controller
         $daily = $this->financeDailySeries($seriesFrom, $to);
         $summary = $this->financeSummaryFromDaily($daily, $from, $to);
 
+        $trendUnit = $view === 'year' ? 'month' : 'day';
         if ($view === 'year') {
-            $trend = collect(range(1, 12))->map(function ($month) use ($anchor, $daily) {
-                $point = $anchor->copy()->month($month);
+            $trend = collect(range(1, 12))->map(function ($month) use ($from, $daily) {
+                $point = $from->copy()->month($month);
                 $snapshot = $this->financeSummaryFromDaily($daily, $point->copy()->startOfMonth(), $point->copy()->endOfMonth());
                 return ['label' => $point->format('M'), 'income' => $snapshot['incoming'], 'outgoing' => $snapshot['outgoing'], 'net' => $snapshot['net']];
             });
@@ -1598,6 +1721,13 @@ class AdminApiController extends Controller
                 $snapshot = $daily[$point->toDateString()] ?? $this->emptyFinanceSnapshot();
                 return ['label' => (string) $day, 'income' => $snapshot['incoming'], 'outgoing' => $snapshot['outgoing'], 'net' => $snapshot['net']];
             });
+        } elseif ($view === 'range') {
+            $trendUnit = match (true) {
+                $to->lt($from->copy()->addDays(31)) => 'day',
+                $to->lt($from->copy()->addYearNoOverflow()) => 'month',
+                default => 'year',
+            };
+            $trend = $this->financeRangeTrend($daily, $from, $to, $trendUnit);
         } else {
             // range(6, 0) already ends on the anchor day; the extra push() that used to
             // follow drew today twice and made this a seven-day chart with eight points.
@@ -1608,22 +1738,52 @@ class AdminApiController extends Controller
             });
         }
 
-        $entries = CompanyFinanceEntry::query()
+        $entriesPage = CompanyFinanceEntry::query()
             ->with('creator:id,name')
             ->whereBetween('entry_date', [$from->toDateString(), $to->toDateString()])
             ->latest('entry_date')
             ->latest('id')
-            ->limit(100)
-            ->get();
+            ->paginate(min(max((int) $request->query('per_page', 25), 1), 100));
 
         return response()->json([
             'view' => $view,
+            'trend_unit' => $trendUnit,
             'from' => $from->toDateString(),
             'to' => $to->toDateString(),
             'summary' => $summary,
             'trend' => $trend,
-            'entries' => $entries,
+            'entries' => $entriesPage->items(),
+            'entries_pagination' => $entriesPage->toArray(),
         ]);
+    }
+
+    private function financeRangeTrend(array $daily, Carbon $from, Carbon $to, string $unit): array
+    {
+        $format = match ($unit) {
+            'year' => 'Y',
+            'month' => 'Y-m',
+            default => 'Y-m-d',
+        };
+
+        $labelLength = strlen($from->format($format));
+        $buckets = [];
+        foreach ($daily as $date => $snapshot) {
+            $key = substr($date, 0, $labelLength);
+            $buckets[$key]['income'] = ($buckets[$key]['income'] ?? 0) + $snapshot['incoming'];
+            $buckets[$key]['outgoing'] = ($buckets[$key]['outgoing'] ?? 0) + $snapshot['outgoing'];
+        }
+
+        $point = $from->copy()->startOf($unit);
+        $trend = [];
+        while ($point->lte($to)) {
+            $label = $point->format($format);
+            $income = round($buckets[$label]['income'] ?? 0, 2);
+            $outgoing = round($buckets[$label]['outgoing'] ?? 0, 2);
+            $trend[] = ['label' => $label, 'income' => $income, 'outgoing' => $outgoing, 'net' => round($income - $outgoing, 2)];
+            $point->add($unit, 1);
+        }
+
+        return $trend;
     }
 
     public function storeCompanyFinanceEntry(Request $request)
@@ -1757,9 +1917,11 @@ class AdminApiController extends Controller
             ? DB::table('invoice_generation_failures')->where('billing_month', $month)->whereNull('resolved_at')->pluck('client_id')->unique()
             : collect();
         $failed = $failedDoctorIds->count();
-        $coveredDoctorIds = (clone $invoiceQuery)->pluck('client_id')->filter()->unique();
-        $pending = max(0, $totalDoctors - $coveredDoctorIds->count() - $failed);
-        $remainingToSend = max(0, $coveredDoctorIds->count() - $sentDoctors);
+        // Only the distinct Doctor count is needed here. Let SQL count it instead
+        // of hydrating every matching client_id into PHP when invoice history grows.
+        $coveredDoctorCount = (clone $invoiceQuery)->distinct()->count('client_id');
+        $pending = max(0, $totalDoctors - $coveredDoctorCount - $failed);
+        $remainingToSend = max(0, $coveredDoctorCount - $sentDoctors);
 
         return response()->json([
             'month' => $month,
@@ -1779,7 +1941,7 @@ class AdminApiController extends Controller
     public function invoices(Request $request)
     {
         $query = Invoice::with([
-            'client:id,name,business_name,timezone,service_id,contract_type_id',
+            'client:id,name,business_name,timezone,profile_picture,service_id,contract_type_id',
             'client.service:id,name',
             'client.contractType:id,name',
         ]);
@@ -1870,10 +2032,9 @@ class AdminApiController extends Controller
         }
 
         return response()->json([
-            'message' => $invoices->count() === 1
-                ? 'Invoice generated as an editable draft.'
-                : $invoices->count().' separate VA invoices generated as editable drafts.',
-            // Keep the legacy key for the existing UI while also returning every VA-wise invoice.
+            'message' => 'Invoice generated as an editable draft.',
+            // Keep both keys for UI/backward compatibility. One Doctor/cycle run
+            // creates one invoice containing all eligible VA salary rows.
             'invoice' => $invoice,
             'invoices' => $invoices->values(),
         ], 201);
@@ -1882,7 +2043,7 @@ class AdminApiController extends Controller
     public function invoice(Invoice $invoice)
     {
         return response()->json($invoice->load([
-            'client:id,name,business_name,timezone,service_id,contract_type_id',
+            'client:id,name,business_name,timezone,profile_picture,service_id,contract_type_id',
             'client.service:id,name',
             'client.contractType:id,name',
             'salaries.employee:id,first_name,last_name,employee_code',
@@ -1897,7 +2058,15 @@ class AdminApiController extends Controller
             return response()->json(['message' => 'The selected Doctor / Client does not have an email address.'], 422);
         }
 
+        $hadSnapshot = Schema::hasColumn('invoices', 'snapshot_at') && (bool) $invoice->snapshot_at;
+        if (!$hadSnapshot) {
+            $invoice = $this->invoiceSnapshots->freeze($invoice);
+            $invoice->loadMissing('client');
+        }
+
         try {
+            // Render from the frozen snapshot so the emailed PDF is identical to
+            // every later download of this financial record.
             $pdfContent = $documents->make($invoice)->output();
             Mail::to($invoice->client->email)->send(
                 new InvoiceNotificationMail($invoice, $pdfContent)
@@ -1908,6 +2077,10 @@ class AdminApiController extends Controller
             }
         } catch (\Throwable $e) {
             report($e);
+            if (!$hadSnapshot) {
+                // A failed send must not accidentally freeze an otherwise editable draft.
+                $this->invoiceSnapshots->clearDraftSnapshot($invoice);
+            }
             if (Schema::hasColumn('invoices', 'send_failed_at')) {
                 $invoice->forceFill(['send_failed_at' => now(), 'send_error' => mb_substr($e->getMessage(), 0, 1000)])->save();
             }
@@ -1929,12 +2102,62 @@ class AdminApiController extends Controller
     public function destroyInvoice(Invoice $invoice)
     {
         DB::transaction(function () use ($invoice) {
-            $invoice->adjustments()->delete();
-            $invoice->salaries()->delete();
-            $invoice->delete();
+            $locked = Invoice::query()->whereKey($invoice->id)->lockForUpdate()->firstOrFail();
+            $reason = $this->invoiceHardDeleteBlockReason($locked);
+            if ($reason) {
+                throw ValidationException::withMessages(['invoice' => [$reason]]);
+            }
+            $this->hardDeleteInvoice($locked);
         });
 
-        return response()->json(['message' => 'Invoice deleted successfully.']);
+        return response()->json(['message' => 'Draft invoice deleted successfully.']);
+    }
+
+    public function bulkDeleteInvoices(Request $request)
+    {
+        $data = $request->validate([
+            'invoice_ids' => ['required', 'array', 'min:1', 'max:100'],
+            'invoice_ids.*' => ['integer', 'distinct', 'exists:invoices,id'],
+        ]);
+
+        $result = DB::transaction(function () use ($data) {
+            $invoices = Invoice::query()
+                ->whereIn('id', $data['invoice_ids'])
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
+
+            $deleted = [];
+            $protected = [];
+            foreach ($invoices as $invoice) {
+                if ($reason = $this->invoiceHardDeleteBlockReason($invoice)) {
+                    $protected[] = [
+                        'id' => $invoice->id,
+                        'invoice_number' => $invoice->invoice_number,
+                        'reason' => $reason,
+                    ];
+                    continue;
+                }
+
+                $deleted[] = $invoice->id;
+                $this->hardDeleteInvoice($invoice);
+            }
+
+            return ['deleted' => $deleted, 'protected' => $protected];
+        });
+
+        $deletedCount = count($result['deleted']);
+        $protectedCount = count($result['protected']);
+
+        return response()->json([
+            'message' => $protectedCount
+                ? "Bulk delete complete: {$deletedCount} draft invoice(s) deleted, {$protectedCount} protected invoice(s) kept."
+                : "Bulk delete complete: {$deletedCount} draft invoice(s) deleted.",
+            'deleted_count' => $deletedCount,
+            'protected_count' => $protectedCount,
+            'deleted_ids' => $result['deleted'],
+            'protected' => $result['protected'],
+        ]);
     }
 
     public function updateInvoice(Request $request, Invoice $invoice)
@@ -1958,30 +2181,45 @@ class AdminApiController extends Controller
             'adjustments.*.amount' => ['required_with:adjustments', 'numeric', 'gt:0', 'max:999999999.99'],
         ]);
 
-        // A paid or voided invoice is a settled financial record. Its status may still
-        // move -- voiding a paid invoice, or undoing a mistaken one -- but its lines,
-        // adjustments, period and totals must never be rewritten underneath it.
-        $locked = in_array($previousStatus, ['paid', 'void'], true);
+        // Issued, sent, paid and void invoices are financial history. Amounts, period,
+        // salary lines and adjustments are immutable after finalization. Only safe
+        // forward status transitions remain available (Issued -> Paid/Void, Paid -> Void).
+        $sentLocked = Schema::hasColumn('invoices', 'sent_at') && $invoice->sent_at;
+        $locked = in_array($previousStatus, ['issued', 'paid', 'void'], true) || $sentLocked;
 
-        if ($locked && ($data['status'] ?? $previousStatus) === $previousStatus) {
-            return response()->json([
-                'message' => 'This invoice is '.$previousStatus.' and its amounts can no longer be changed. Move it out of '.$previousStatus.' first if it needs correcting.',
-                'code' => 'INVOICE_LOCKED',
-            ], 422);
-        }
+        if ($locked) {
+            $targetStatus = $data['status'] ?? $previousStatus;
+            $allowedTargets = match ($previousStatus) {
+                'issued' => ['paid', 'void'],
+                'paid' => ['void'],
+                'void' => [],
+                default => $sentLocked ? ['issued', 'paid', 'void'] : [],
+            };
 
-        DB::transaction(function () use ($invoice, $data, $request, $locked) {
-            if ($locked) {
-                // Settled record: apply the status transition and nothing else.
-                $invoice->update([
-                    'status' => $data['status'],
+            if ($targetStatus === $previousStatus || !in_array($targetStatus, $allowedTargets, true)) {
+                return response()->json([
+                    'message' => 'This invoice has been finalized or sent. Its financial details are frozen; only an allowed status transition can be applied.',
+                    'code' => 'INVOICE_LOCKED',
+                ], 422);
+            }
+
+            DB::transaction(function () use ($invoice, $targetStatus, $request) {
+                $lockedInvoice = Invoice::query()->whereKey($invoice->id)->lockForUpdate()->firstOrFail();
+                $lockedInvoice->update([
+                    'status' => $targetStatus,
                     'edited_by' => $request->user()->id,
                     'edited_at' => $this->clock->now('UTC'),
                 ]);
+            });
 
-                return;
-            }
+            $fresh = $this->invoiceSnapshots->freeze($invoice->fresh());
+            return response()->json([
+                'message' => $targetStatus === 'paid' ? 'Invoice marked as paid.' : 'Invoice status updated.',
+                'invoice' => $fresh,
+            ]);
+        }
 
+        DB::transaction(function () use ($invoice, $data, $request) {
             $totalHours = 0;
             $totalAmount = 0;
             $effectiveLineStarts = [];
@@ -2046,9 +2284,8 @@ class AdminApiController extends Controller
 
             $grandTotal = max(0, round($totalAmount + $adjustmentTotal, 2));
 
-            // New invoices are VA-wise. For legacy multi-line invoices use the
-            // earliest allowed VA start for the header; each salary line keeps
-            // its own first-check-in clamp.
+            // Combined Doctor invoices use the earliest allowed included-VA start
+            // for the header; each salary line keeps its own first-check-in clamp.
             $effectiveInvoiceStart = $effectiveLineStarts
                 ? min($effectiveLineStarts)
                 : Carbon::parse($data['period_start'])->toDateString();
@@ -2065,10 +2302,13 @@ class AdminApiController extends Controller
         });
 
         $fresh = $invoice->fresh([
-            'client:id,name,business_name,timezone',
+            'client:id,name,business_name,timezone,profile_picture',
             'salaries.employee:id,first_name,last_name,employee_code',
             'adjustments.employee:id,first_name,last_name,employee_code',
         ]);
+        if (in_array($fresh->status ?? 'draft', ['issued', 'paid', 'void'], true) || $fresh->sent_at) {
+            $fresh = $this->invoiceSnapshots->freeze($fresh);
+        }
         $message = ($previousStatus !== 'issued' && $fresh->status === 'issued')
             ? 'Invoice marked as issued.'
             : (($previousStatus !== 'paid' && $fresh->status === 'paid') ? 'Invoice marked as paid.' : 'Invoice updated successfully.');
@@ -2093,7 +2333,7 @@ class AdminApiController extends Controller
 
     public function storeReference(Request $request, string $type)
     {
-        $this->assertReferenceAccess($request, $type);
+        $this->assertReferenceAccess($request, $type, 'create');
         $model = $this->referenceModel($type);
         $data = $request->validate(['name' => ['required', 'string', 'max:255'], 'description' => ['nullable', 'string', 'max:1000']]);
         $payload = ['name' => $data['name']];
@@ -2105,7 +2345,7 @@ class AdminApiController extends Controller
 
     public function updateReference(Request $request, string $type, int $id)
     {
-        $this->assertReferenceAccess($request, $type);
+        $this->assertReferenceAccess($request, $type, 'edit');
         $model = $this->referenceModel($type); $item = $model::findOrFail($id);
         $data = $request->validate(['name' => ['required', 'string', 'max:255'], 'description' => ['nullable', 'string', 'max:1000']]);
         $payload = ['name' => $data['name']];
@@ -2117,7 +2357,7 @@ class AdminApiController extends Controller
 
     public function destroyReference(Request $request, string $type, int $id)
     {
-        $this->assertReferenceAccess($request, $type);
+        $this->assertReferenceAccess($request, $type, 'delete');
         $model = $this->referenceModel($type); $item = $model::findOrFail($id);
         try { $item->delete(); } catch (\Throwable $e) { return response()->json(['message' => 'This item is in use and cannot be deleted.'], 422); }
         $this->forgetReferenceOptionsCache();
@@ -2137,6 +2377,143 @@ class AdminApiController extends Controller
         }
     }
 
+    /**
+     * Lightweight remote people lookup for high-volume installs.
+     *
+     * The old /management/options payload hydrated every Employee and Doctor on
+     * every admin page. At 50k + 50k records that became a 100k-row JSON response
+     * and the browser repeatedly paid the same cost. Searchable selects now call
+     * this endpoint and receive at most a small page of matching people.
+     */
+    public function peopleOptions(Request $request)
+    {
+        $data = $request->validate([
+            'type' => ['required', Rule::in(['employee', 'client', 'user'])],
+            'q' => ['nullable', 'string', 'max:120'],
+            'limit' => ['nullable', 'integer', 'min:1', 'max:50'],
+            'value_field' => ['nullable', Rule::in(['id', 'user_id'])],
+            'ids' => ['nullable', 'array', 'max:100'],
+            'ids.*' => ['integer', 'min:1'],
+        ]);
+
+        $type = $data['type'];
+        $limit = min(50, max(1, (int) ($data['limit'] ?? 30)));
+        $valueField = $type === 'user' ? 'id' : ($data['value_field'] ?? 'id');
+        $selectedIds = collect($data['ids'] ?? [])->map(fn ($id) => (int) $id)->filter()->unique()->values();
+        $search = trim((string) ($data['q'] ?? ''));
+        $prefix = addcslashes($search, '%_\\').'%';
+
+        if ($type === 'employee') {
+            $columns = ['id', 'user_id', 'employee_code', 'first_name', 'last_name', 'email', 'timezone'];
+            $base = Employee::query()->select($columns);
+            $selected = $selectedIds->isEmpty()
+                ? collect()
+                : (clone $base)->whereIn($valueField, $selectedIds)->get();
+
+            $matches = (clone $base)
+                ->when($search !== '', function ($query) use ($prefix) {
+                    $query->where(function ($q) use ($prefix) {
+                        $q->where('employee_code', 'like', $prefix)
+                            ->orWhere('first_name', 'like', $prefix)
+                            ->orWhere('last_name', 'like', $prefix)
+                            ->orWhere('email', 'like', $prefix)
+                            ->orWhere('timezone', 'like', $prefix);
+                    });
+                })
+                ->orderBy($search !== '' ? 'first_name' : 'id', $search !== '' ? 'asc' : 'desc')
+                ->limit($limit)
+                ->get();
+
+            $rows = $selected->concat($matches)->unique($valueField)->values()->map(function (Employee $employee) use ($valueField) {
+                $name = trim($employee->first_name.' '.$employee->last_name);
+                return [
+                    'value' => (string) $employee->{$valueField},
+                    'id' => $employee->id,
+                    'user_id' => $employee->user_id,
+                    'label' => trim(($employee->employee_code ? $employee->employee_code.' · ' : '').($name ?: $employee->email)),
+                    'meta' => $employee->timezone ?: ($employee->email ?: 'Timezone not set'),
+                    'searchText' => trim(($employee->email ?: '').' '.($employee->employee_code ?: '').' '.($employee->timezone ?: '')),
+                    'timezone' => $employee->timezone,
+                    'first_name' => $employee->first_name,
+                    'last_name' => $employee->last_name,
+                    'employee_code' => $employee->employee_code,
+                    'email' => $employee->email,
+                ];
+            });
+        } elseif ($type === 'client') {
+            $columns = ['id', 'user_id', 'name', 'email', 'business_name', 'country', 'timezone', 'per_hour_charges'];
+            $base = Client::query()->select($columns);
+            $selected = $selectedIds->isEmpty()
+                ? collect()
+                : (clone $base)->whereIn($valueField, $selectedIds)->get();
+
+            $matches = (clone $base)
+                ->when($search !== '', function ($query) use ($prefix) {
+                    $query->where(function ($q) use ($prefix) {
+                        $q->where('name', 'like', $prefix)
+                            ->orWhere('business_name', 'like', $prefix)
+                            ->orWhere('email', 'like', $prefix)
+                            ->orWhere('timezone', 'like', $prefix)
+                            ->orWhere('country', 'like', $prefix);
+                    });
+                })
+                ->orderBy($search !== '' ? 'name' : 'id', $search !== '' ? 'asc' : 'desc')
+                ->limit($limit)
+                ->get();
+
+            $rows = $selected->concat($matches)->unique($valueField)->values()->map(function (Client $client) use ($valueField) {
+                $label = $client->name ?: $client->business_name ?: $client->email ?: 'Doctor / Client';
+                $meta = collect([$client->business_name, $client->timezone])->filter()->unique()->implode(' · ');
+                return [
+                    'value' => (string) $client->{$valueField},
+                    'id' => $client->id,
+                    'user_id' => $client->user_id,
+                    'label' => $label,
+                    'meta' => $meta ?: ($client->email ?: 'Timezone not set'),
+                    'searchText' => trim(($client->business_name ?: '').' '.($client->email ?: '').' '.($client->timezone ?: '').' '.($client->country ?: '')),
+                    'timezone' => $client->timezone,
+                    'name' => $client->name,
+                    'business_name' => $client->business_name,
+                    'email' => $client->email,
+                    'country' => $client->country,
+                    'per_hour_charges' => $client->per_hour_charges,
+                ];
+            });
+        } else {
+            // Activity-log actor lookup. Search the compact users table instead of
+            // materialising every distinct actor from activity_logs on each page load.
+            $base = User::query()->select(['id', 'name', 'email', 'role']);
+            $selected = $selectedIds->isEmpty()
+                ? collect()
+                : (clone $base)->whereIn('id', $selectedIds)->get();
+
+            $matches = (clone $base)
+                ->when($search !== '', function ($query) use ($prefix) {
+                    $query->where(function ($q) use ($prefix) {
+                        $q->where('name', 'like', $prefix)
+                            ->orWhere('email', 'like', $prefix);
+                    });
+                })
+                ->orderBy($search !== '' ? 'name' : 'id', $search !== '' ? 'asc' : 'desc')
+                ->limit($limit)
+                ->get();
+
+            $rows = $selected->concat($matches)->unique('id')->values()->map(function (User $user) {
+                return [
+                    'value' => (string) $user->id,
+                    'id' => $user->id,
+                    'label' => $user->name ?: $user->email ?: 'User',
+                    'meta' => collect([$user->role, $user->email])->filter()->implode(' · '),
+                    'searchText' => trim(($user->email ?: '').' '.($user->role ?: '')),
+                    'email' => $user->email,
+                    'role' => $user->role,
+                ];
+            });
+        }
+
+        return response()->json(['data' => $rows, 'limit' => $limit]);
+    }
+
     public function options()
     {
         $references = Cache::remember('carevma:reference-options:v1', now()->addMinutes(10), function () {
@@ -2154,10 +2531,22 @@ class AdminApiController extends Controller
             ];
         });
 
+        $facets = Cache::remember('carevma:people-filter-facets:v2', now()->addMinutes(5), function () {
+            return [
+                'employee_timezones' => Employee::query()->whereNotNull('timezone')->where('timezone', '!=', '')->distinct()->orderBy('timezone')->pluck('timezone')->values(),
+                'client_businesses' => Client::query()->whereNotNull('business_name')->where('business_name', '!=', '')->distinct()->orderBy('business_name')->limit(500)->pluck('business_name')->values(),
+                'client_countries' => Client::query()->whereNotNull('country')->where('country', '!=', '')->distinct()->orderBy('country')->pluck('country')->values(),
+                'client_timezones' => Client::query()->whereNotNull('timezone')->where('timezone', '!=', '')->distinct()->orderBy('timezone')->pluck('timezone')->values(),
+            ];
+        });
+
+        // Deliberately do not include every employee/client here. Large installs use
+        // /management/people-options for remote searchable selects. Keep empty arrays
+        // for backward-compatible consumers that still inspect these keys.
         return response()->json(array_merge([
-            'employees' => Employee::orderBy('first_name')->get(['id', 'user_id', 'employee_code', 'first_name', 'last_name', 'email', 'timezone']),
-            'clients' => Client::orderBy('name')->get(['id', 'user_id', 'name', 'email', 'business_name', 'timezone', 'per_hour_charges']),
-        ], $references, [
+            'employees' => [],
+            'clients' => [],
+        ], $references, $facets, [
             'business_timezone' => $this->timezones->businessTimezone(),
         ]));
     }
@@ -2171,18 +2560,23 @@ class AdminApiController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', Rule::unique('users', 'email')->ignore($user->id)],
             'profile_picture' => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+            'remove_profile_picture' => ['sometimes', 'boolean'],
         ]);
 
+        $previousPicture = $user->profile_picture;
+        $removePicture = $request->boolean('remove_profile_picture') && !$request->hasFile('profile_picture');
+        unset($data['remove_profile_picture']);
         if ($request->hasFile('profile_picture')) {
-            if ($user->profile_picture) {
-                Storage::disk('public')->delete(ltrim(str_replace('/storage/', '', $user->profile_picture), '/'));
-            }
             $data['profile_picture'] = '/storage/'.$request->file('profile_picture')->store('users/profile_pictures', 'public');
+        } elseif ($removePicture) {
+            $data['profile_picture'] = null;
         } else {
             unset($data['profile_picture']);
         }
-
         $user->update($data);
+        if (array_key_exists('profile_picture', $data) && $previousPicture) {
+            \App\Support\ProfilePhotoStorage::deleteOld($previousPicture, 'users/profile_pictures');
+        }
         return response()->json(['message' => 'Account updated.', 'user' => $user->fresh()]);
     }
 
@@ -2262,6 +2656,67 @@ class AdminApiController extends Controller
         return ['sent' => $sent, 'url' => $url, 'error' => $error];
     }
 
+    private function employeeDocumentUrls(Employee $employee): array
+    {
+        $documents = Employee::documentPaths($employee->upload_documents);
+
+        return collect($documents)->map(function (string $reference, int $index) use ($employee) {
+            $storage = $this->employeeDocumentStorageReference($reference);
+            if ($storage) {
+                $name = rawurlencode(basename($storage['path']));
+                return "/api/management/employees/{$employee->id}/documents/{$index}?name={$name}";
+            }
+
+            return Employee::documentUrls([$reference])[0] ?? null;
+        })->filter()->values()->all();
+    }
+
+    private function employeeDocumentStorageReference(string $reference): ?array
+    {
+        $reference = trim($reference);
+        if ($reference === '') return null;
+
+        if (Str::startsWith($reference, 'private:')) {
+            $path = ltrim(substr($reference, strlen('private:')), '/');
+            return Str::startsWith($path, 'employees/documents/')
+                ? ['disk' => 'local', 'path' => $path]
+                : null;
+        }
+
+        $path = parse_url($reference, PHP_URL_PATH) ?: $reference;
+        $path = ltrim((string) $path, '/');
+        foreach (['public/storage/', 'storage/'] as $prefix) {
+            if (Str::startsWith($path, $prefix)) {
+                $path = substr($path, strlen($prefix));
+                break;
+            }
+        }
+
+        return Str::startsWith($path, 'employees/documents/')
+            ? ['disk' => 'public', 'path' => $path]
+            : null;
+    }
+
+    private function invoiceHardDeleteBlockReason(Invoice $invoice): ?string
+    {
+        $status = strtolower(trim((string) ($invoice->status ?? 'draft'))) ?: 'draft';
+        if ($status !== 'draft') {
+            return 'Only draft invoices can be permanently deleted. Issued, paid, or void invoices must stay in the audit history.';
+        }
+        if ($invoice->getAttribute('sent_at')) {
+            return 'This invoice has already been sent to the Doctor / Client and cannot be permanently deleted. Mark it void instead.';
+        }
+
+        return null;
+    }
+
+    private function hardDeleteInvoice(Invoice $invoice): void
+    {
+        $invoice->adjustments()->delete();
+        $invoice->salaries()->delete();
+        $invoice->delete();
+    }
+
     private function storeEmployeeMedia(Request $request): array
     {
         $media = [];
@@ -2274,7 +2729,8 @@ class AdminApiController extends Controller
         if ($request->hasFile('upload_documents')) {
             $documents = [];
             foreach ($request->file('upload_documents') as $file) {
-                $documents[] = Storage::url($file->store('employees/documents', 'public'));
+                $path = $file->store('employees/documents', 'local');
+                $documents[] = 'private:'.$path;
             }
             $media['upload_documents'] = $documents;
         }
@@ -2484,11 +2940,9 @@ class AdminApiController extends Controller
     }
 
 
-    private function assertReferenceAccess(Request $request, string $type): void
+    private function assertReferenceAccess(Request $request, string $type, string $action = 'view'): void
     {
-        if ($request->user()?->role === 'hr' && in_array($type, ['services', 'contracts'], true)) {
-            abort(403, 'Client configuration is Admin-only.');
-        }
+        abort_unless(Modules::allows($request->user(), Modules::referenceModule($type), $action), 403);
     }
 
     private function referenceModel(string $type): string

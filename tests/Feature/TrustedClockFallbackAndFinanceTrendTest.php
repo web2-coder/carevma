@@ -117,4 +117,36 @@ class TrustedClockFallbackAndFinanceTrendTest extends TestCase
         $this->assertSame(50.0, (float) $data['summary']['incoming']);
         $this->assertSame(0.0, (float) $data['summary']['outgoing']);
     }
+
+    public function test_finance_filters_include_both_dates_and_validate_the_range(): void
+    {
+        $admin = User::create([
+            'name' => 'Admin', 'email' => 'finance@carevma.test', 'password' => 'password', 'role' => 'admin',
+        ]);
+        foreach (['2026-02-27', '2026-02-28', '2026-03-01', '2026-03-02'] as $date) {
+            CompanyFinanceEntry::create([
+                'entry_date' => $date, 'type' => 'income', 'category' => 'Test',
+                'amount' => 10, 'created_by' => $admin->id,
+            ]);
+        }
+
+        $this->actingAs($admin)
+            ->getJson('/api/admin/company-finance?view=range&start_date=2026-02-28&end_date=2026-03-01')
+            ->assertOk()->assertJsonPath('from', '2026-02-28')->assertJsonPath('to', '2026-03-01')
+            ->assertJsonPath('summary.incoming', 20)->assertJsonCount(2, 'entries')
+            ->assertJsonPath('trend.0.label', '2026-02-28')->assertJsonPath('trend.1.income', 10);
+        $this->getJson('/api/admin/company-finance?view=range&start_date=2026-03-01&end_date=2026-02-28')
+            ->assertUnprocessable()->assertJsonValidationErrors('end_date');
+        $this->getJson('/api/admin/company-finance?view=range&start_date=2026-02-28')
+            ->assertUnprocessable()->assertJsonValidationErrors('end_date');
+        $this->getJson('/api/admin/company-finance?view=month&date=2026-02-01')
+            ->assertOk()->assertJsonPath('summary.incoming', 20)->assertJsonCount(28, 'trend');
+        $this->getJson('/api/admin/company-finance?view=year&date=2026-03-31')
+            ->assertOk()->assertJsonPath('summary.incoming', 40)->assertJsonCount(12, 'trend')
+            ->assertJsonPath('trend.1.label', 'Feb')->assertJsonPath('trend.1.income', 20);
+
+        $this->getJson('/api/admin/company-finance?view=range&start_date=2026-02-28&end_date=2026-04-01')
+            ->assertOk()->assertJsonPath('trend_unit', 'month')
+            ->assertJsonPath('trend.0.label', '2026-02')->assertJsonPath('trend.0.income', 10);
+    }
 }

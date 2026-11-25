@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, Link, useSearchParams, useParams } from 'react-router-dom';
 import { ArrowRight, Eye, EyeOff, Lock, LockKeyhole, Mail } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -9,12 +9,14 @@ import '../../css/carevma-brand-clock.css';
 
 export function LoginPage() {
   const { login } = useAuth(); const navigate = useNavigate();
+  const [hero,setHero]=useState(()=>window.__carevmaBrand?.login_background||'/VMA-Hero_Image.jpg');
+  useEffect(()=>{const sync=()=>setHero(window.__carevmaBrand?.login_background||'/VMA-Hero_Image.jpg');window.addEventListener('carevma:brand-changed',sync);return()=>window.removeEventListener('carevma:brand-changed',sync)},[]);
   const [form, setForm] = useState({ email: '', password: '', remember: false });
   const [show, setShow] = useState(false); const [error, setError] = useState(''); const [loading, setLoading] = useState(false);
   const submit = async e => { e.preventDefault(); setLoading(true); setError(''); try { const data = await login(form); navigate(data.redirect, { replace: true }); } catch (e) { setError(messageFrom(e)); } finally { setLoading(false); } };
   return <div className="auth-page">
     <section className="auth-visual">
-      <img className="auth-hero-image" src="/VMA-Hero_Image.jpg" alt=""/><div className="auth-visual-overlay"/>
+      <img className="auth-hero-image" src={hero} alt=""/><div className="auth-visual-overlay"/>
       <div className="auth-brand"><span className="auth-brand-plate"><BrandLogo/></span><span className="auth-brand-tag">Clinical suite</span></div>
       <div className="auth-hero">
         <h1>One workspace for<br/><em>people, time,</em><br/><em className="is-sky">approvals</em><br/>and billing.</h1>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
   CalendarDays,
@@ -19,11 +19,13 @@ import {
 } from 'lucide-react';
 import api, { messageFrom } from '../api';
 import { emitToast } from '../feedback';
+import { can } from '../permissions';
 import { useAuth } from '../context/AuthContext';
 import { employeePath } from '../recordLinks';
 import { attendanceColumns, vaColumn } from '../attendanceColumns';
 import {
   Badge,
+  AvatarMedia,
   Button,
   Card,
   Input,
@@ -150,6 +152,16 @@ export default function ClientProfilePage() {
   const navigate = useNavigate();
   const { user: authUser } = useAuth();
   const activeTab = tabFromPath(location.pathname);
+  const canEditClient = can(authUser, 'clients', 'edit');
+  const canViewSchedules = can(authUser, 'schedules');
+  const canCreateSchedule = can(authUser, 'schedules', 'create');
+  const canViewReport = can(authUser, 'attendance');
+  const visibleTabs = TABS.filter(({key}) => {
+    if (key === 'schedule') return canViewSchedules;
+    if (key === 'assign') return canCreateSchedule;
+    if (key === 'report') return canViewReport;
+    return true;
+  });
 
   const [client, setClient] = useState(null);
   const [form, setForm] = useState({});
@@ -166,6 +178,8 @@ export default function ClientProfilePage() {
   const groupKey = group => String(group?.employee?.id || group?.employee?.employee_code || group?.employee?.email || group?.schedules?.[0]?.id || '');
   const [editingSchedule, setEditingSchedule] = useState(null);
   const [scheduleForm, setScheduleForm] = useState(emptySchedule);
+  const [selectedScheduleEmployee, setSelectedScheduleEmployee] = useState(null);
+  const [selectedAssignEmployee, setSelectedAssignEmployee] = useState(null);
   const [weeklyAssign, setWeeklyAssign] = useState({
     employee_id: '',
     per_hour_rate: '',
@@ -195,6 +209,7 @@ export default function ClientProfilePage() {
         break_allowed_hours: '0.30',
         days: makeWeeklyDays(),
       });
+      setSelectedAssignEmployee(null);
       setAssignmentMode('weekly');
       setSpecificDates([{ date: '', start_time: '09:00', end_time: '17:00' }]);
     }
@@ -207,7 +222,7 @@ export default function ClientProfilePage() {
       const [clientResponse, optionsResponse, scheduleResponse] = await Promise.all([
         api.get(`/admin/clients/${clientId}`),
         api.get('/management/options'),
-        api.get('/management/schedules', { params: { client_id: clientId } }),
+        canViewSchedules ? api.get('/management/schedules', { params: { client_id: clientId } }) : Promise.resolve({data:[]}),
       ]);
 
       setClient(clientResponse.data);
@@ -243,11 +258,11 @@ export default function ClientProfilePage() {
 
   useEffect(() => {
     loadCore();
-  }, [clientId]);
+  }, [clientId, canViewSchedules]);
 
   useEffect(() => {
-    if (activeTab === 'report') loadReport(reportFilters, reportPage);
-  }, [activeTab, reportPage, clientId]);
+    if (activeTab === 'report' && canViewReport) loadReport(reportFilters, reportPage);
+  }, [activeTab, reportPage, clientId, canViewReport]);
 
   const groupedSchedules = useMemo(() => {
     const groups = new Map();
@@ -316,11 +331,6 @@ export default function ClientProfilePage() {
     });
     return [...map.values()];
   }, [schedules]);
-
-  const selectedAssignEmployee = useMemo(
-    () => (options.employees || []).find(employee => String(employee.id) === String(weeklyAssign.employee_id)) || null,
-    [options.employees, weeklyAssign.employee_id],
-  );
 
   const selectedAssignDays = useMemo(
     () => WEEKDAYS.filter(day => weeklyAssign.days?.[day]?.selected),
@@ -520,7 +530,8 @@ export default function ClientProfilePage() {
   };
 
   const openAddSchedule = (employeeId = '') => {
-    const employee = (options.employees || []).find(item => String(item.id) === String(employeeId));
+    const employee = assignedEmployees.find(item => String(item.id) === String(employeeId)) || null;
+    setSelectedScheduleEmployee(employee ? { value:String(employee.id), id:employee.id, label:`${employee.employee_code||'VA'} · ${employee.first_name||''} ${employee.last_name||''}`.trim(), meta:employee.timezone||'Timezone not set', timezone:employee.timezone, first_name:employee.first_name, last_name:employee.last_name, employee_code:employee.employee_code, email:employee.email } : null);
     setEditingSchedule(null);
     setScheduleForm({
       ...emptySchedule,
@@ -534,6 +545,8 @@ export default function ClientProfilePage() {
 
   const openEditSchedule = schedule => {
     setEditingSchedule(schedule);
+    const employee = schedule.employee || null;
+    setSelectedScheduleEmployee(employee ? { value:String(employee.id), id:employee.id, label:`${employee.employee_code||'VA'} · ${employee.first_name||''} ${employee.last_name||''}`.trim(), meta:employee.timezone||'Timezone not set', timezone:employee.timezone, first_name:employee.first_name, last_name:employee.last_name, employee_code:employee.employee_code, email:employee.email } : null);
     setScheduleForm({
       employee_id: String(schedule.employee_id || schedule.employee?.id || ''),
       date: schedule.schedule_date ? String(schedule.schedule_date).slice(0, 10) : '',
@@ -550,7 +563,6 @@ export default function ClientProfilePage() {
   };
 
   const saveSchedule = async () => {
-    const employee = (options.employees || []).find(item => String(item.id) === String(scheduleForm.employee_id));
     const payload = {
       employee_id: scheduleForm.employee_id,
       client_id: clientId,
@@ -610,41 +622,42 @@ export default function ClientProfilePage() {
     loadReport(clean, 1);
   };
 
+  if (!visibleTabs.some(tab => tab.key === activeTab)) return <Navigate to={`/admin/client/${clientId}/profile`} replace/>;
   if (loading && !client) return <Loading />;
   if (!client) return null;
 
   const renderProfile = () => (
     <Card className="client-workspace-panel" title="Client details" subtitle="Identity, billing defaults and account classification.">
       <div className="client-profile-form-grid">
-        <Input label="Client / Doctor name *" value={form.name || ''} onChange={event => setClientField('name', event.target.value)} />
-        <Input label="Email *" type="email" value={form.email || ''} onChange={event => setClientField('email', event.target.value)} />
-        <Input label="Business / Practice" value={form.business_name || ''} onChange={event => setClientField('business_name', event.target.value)} />
-        <Input label="Phone" value={form.phone_number || ''} onChange={event => setClientField('phone_number', event.target.value)} />
-        <Input label="Country" value={form.country || ''} onChange={event => setClientField('country', event.target.value)} />
-        <Input label="Default rate / hour" type="number" step="0.01" value={form.per_hour_charges ?? ''} onChange={event => setClientField('per_hour_charges', event.target.value)} />
-        <Select label="Service" value={form.service_id || ''} onChange={event => setClientField('service_id', event.target.value)}>
+        <Input disabled={!canEditClient} label="Client / Doctor name *" value={form.name || ''} onChange={event => setClientField('name', event.target.value)} />
+        <Input disabled={!canEditClient} label="Email *" type="email" value={form.email || ''} onChange={event => setClientField('email', event.target.value)} />
+        <Input disabled={!canEditClient} label="Business / Practice" value={form.business_name || ''} onChange={event => setClientField('business_name', event.target.value)} />
+        <Input disabled={!canEditClient} label="Phone" value={form.phone_number || ''} onChange={event => setClientField('phone_number', event.target.value)} />
+        <Input disabled={!canEditClient} label="Country" value={form.country || ''} onChange={event => setClientField('country', event.target.value)} />
+        <Input disabled={!canEditClient} label="Default rate / hour" type="number" step="0.01" value={form.per_hour_charges ?? ''} onChange={event => setClientField('per_hour_charges', event.target.value)} />
+        <Select disabled={!canEditClient} label="Service" value={form.service_id || ''} onChange={event => setClientField('service_id', event.target.value)}>
           <option value="">Select service</option>
           {(options.services || []).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
         </Select>
-        <Select label="Contract type" value={form.contract_type_id || ''} onChange={event => setClientField('contract_type_id', event.target.value)}>
+        <Select disabled={!canEditClient} label="Contract type" value={form.contract_type_id || ''} onChange={event => setClientField('contract_type_id', event.target.value)}>
           <option value="">Select contract</option>
           {(options.contracts || []).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
         </Select>
       </div>
-      <label className="client-ring-toggle"><input type="checkbox" checked={!!form.ring_center} onChange={event => setClientField('ring_center', event.target.checked)} /><span>Ring Center enabled</span></label>
-      <div className="client-panel-actions"><Button icon={Save} loading={busy} onClick={saveClient}>Save profile</Button></div>
+      <label className="client-ring-toggle"><input type="checkbox" disabled={!canEditClient} checked={!!form.ring_center} onChange={event => setClientField('ring_center', event.target.checked)} /><span>Ring Center enabled</span></label>
+      {canEditClient&&<div className="client-panel-actions"><Button icon={Save} loading={busy} onClick={saveClient}>Save profile</Button></div>}
     </Card>
   );
 
   const renderTimezone = () => (
     <Card className="client-workspace-panel" title="Client timezone" subtitle="Doctor-facing times and converted schedule previews use this timezone.">
       <div className="client-timezone-layout">
-        <TimezonePicker
+        {canEditClient&&<TimezonePicker
           label="Timezone *"
           value={form.timezone || ''}
           onChange={value => setClientField('timezone', value)}
           onCitySelect={place => setForm(current => ({ ...current, timezone: place.timezone, country: place.country || current.country }))}
-        />
+        />}
         <div className="timezone-summary-card">
           <Clock3 size={24} />
           <span>Assigned timezone</span>
@@ -652,7 +665,7 @@ export default function ClientProfilePage() {
           <small>This is the timezone used when CareVMA shows Doctor / Client local schedule time.</small>
         </div>
       </div>
-      <div className="client-panel-actions"><Button icon={Save} loading={busy} onClick={saveClient}>Save timezone</Button></div>
+      {canEditClient&&<div className="client-panel-actions"><Button icon={Save} loading={busy} onClick={saveClient}>Save timezone</Button></div>}
     </Card>
   );
 
@@ -665,8 +678,8 @@ export default function ClientProfilePage() {
           <p>Manage weekly coverage, hourly rates, Doctor-time schedules and assignment status from one place.</p>
         </div>
         <div className="client-schedule-hero-actions">
-          <Button variant="secondary" icon={UsersRound} onClick={() => goTab('assign')}>Assign VA</Button>
-          <Button icon={Plus} onClick={() => openAddSchedule()}>Add schedule</Button>
+          {canCreateSchedule&&<Button variant="secondary" icon={UsersRound} onClick={() => goTab('assign')}>Assign VA</Button>}
+          {canCreateSchedule&&<Button icon={Plus} onClick={() => openAddSchedule()}>Add schedule</Button>}
         </div>
       </section>
 
@@ -714,8 +727,8 @@ export default function ClientProfilePage() {
             <h3>No VA schedules yet</h3>
             <p>Assign a VA and create the first weekly shift for this client.</p>
             <div className="client-empty-actions">
-              <Button variant="secondary" icon={UsersRound} onClick={() => goTab('assign')}>Assign VA</Button>
-              <Button icon={Plus} onClick={() => openAddSchedule()}>Add schedule</Button>
+              {canCreateSchedule&&<Button variant="secondary" icon={UsersRound} onClick={() => goTab('assign')}>Assign VA</Button>}
+              {canCreateSchedule&&<Button icon={Plus} onClick={() => openAddSchedule()}>Add schedule</Button>}
             </div>
           </div>
         </Card>
@@ -740,7 +753,7 @@ export default function ClientProfilePage() {
               <button type="button" className="client-va-toggle" aria-expanded={isOpen} aria-controls={panelId} onClick={() => setOpenVaKey(isOpen ? '' : key)}>
               <span className="client-va-chevron" aria-hidden="true"><ChevronDown size={16} /></span>
               <div className="client-va-identity">
-                <div className="client-va-avatar">{initials}</div>
+                <div className="client-va-avatar"><AvatarMedia src={group.employee?.profile_picture} alt={`${group.employee?.first_name||''} ${group.employee?.last_name||''}`} fallback={initials}/></div>
                 <div>
                   <div className="client-va-title-line">
                     <strong>{group.employee?.first_name} {group.employee?.last_name}</strong>
@@ -754,7 +767,7 @@ export default function ClientProfilePage() {
                 <div className="client-va-timezone"><Clock3 size={15} /><span>{client?.timezone || group.schedules[0]?.client_timezone || group.schedules[0]?.timezone || 'Doctor timezone not set'}</span></div>
                 <div className="client-va-rate">{group.rate !== null && group.rate !== '' ? `${money(group.rate)}/hr` : 'Rate not set'}</div>
                 {employeePath(authUser?.role, group.employee?.id) && <Link className="btn btn-secondary" to={employeePath(authUser?.role, group.employee.id)}>Profile</Link>}
-                <Button variant="secondary" icon={Plus} onClick={() => openAddSchedule(group.employee?.id)}>Add shift</Button>
+                {canCreateSchedule&&<Button variant="secondary" icon={Plus} onClick={() => openAddSchedule(group.employee?.id)}>Add shift</Button>}
               </div>
             </div>
 
@@ -779,8 +792,8 @@ export default function ClientProfilePage() {
                   <div className="client-schedule-cell" data-label="Doctor break"><span className="schedule-break-chip">{Number(schedule.break_allowed_hours || 0).toFixed(2)} H.MM</span></div>
                   <div className="client-schedule-cell" data-label="Status"><Badge tone={schedule.enabled ? 'success' : 'danger'}>{schedule.enabled ? 'Enabled' : 'Disabled'}</Badge></div>
                   <div className="client-row-menu" data-label="Actions">
-                    <button type="button" title="Edit schedule" onClick={() => openEditSchedule(schedule)}><Pencil size={16} /></button>
-                    <button type="button" className="danger" title="Delete schedule" onClick={() => removeSchedule(schedule)}><Trash2 size={16} /></button>
+                    {can(authUser,'schedules','edit')&&<button type="button" title="Edit schedule" onClick={() => openEditSchedule(schedule)}><Pencil size={16} /></button>}
+                    {can(authUser,'schedules','delete')&&<button type="button" className="danger" title="Delete schedule" onClick={() => removeSchedule(schedule)}><Trash2 size={16} /></button>}
                   </div>
                 </div>
               ))}
@@ -817,12 +830,8 @@ export default function ClientProfilePage() {
               onChange={setAssignEmployee}
               placeholder="Search and select VA"
               searchPlaceholder="Search VA name, code or timezone…"
-              options={(options.employees || []).map(employee => ({
-                value: String(employee.id),
-                label: `${employee.employee_code || 'VA'} · ${employee.first_name || ''} ${employee.last_name || ''}`.trim(),
-                meta: `${employee.timezone || 'Timezone not set'}${assignedEmployeeIds.has(String(employee.id)) ? ' · already assigned' : ''}`,
-                searchText: `${employee.email || ''} ${employee.employee_code || ''}`,
-              }))}
+              remoteType="employee"
+              onOptionChange={setSelectedAssignEmployee}
             />
             <div className="assign-va-selected-meta">
               <span>VA assigned timezone</span>
@@ -958,9 +967,9 @@ export default function ClientProfilePage() {
           <p>Manage client details, timezone, VA schedules and daily work records.</p>
         </div>
         <div className="client-profile-page-actions">
-          {activeTab === 'schedule'
+          {canCreateSchedule&&(activeTab === 'schedule'
             ? <Button variant="secondary" icon={Plus} onClick={() => openAddSchedule()}>Add schedule</Button>
-            : <Button variant="secondary" icon={Plus} onClick={() => goTab('assign')}>Assign VA</Button>}
+            : <Button variant="secondary" icon={Plus} onClick={() => goTab('assign')}>Assign VA</Button>)}
           <Button icon={ArrowLeft} onClick={() => navigate('/admin/clients')}>Clients</Button>
         </div>
       </div>
@@ -968,7 +977,7 @@ export default function ClientProfilePage() {
 
       <div className="client-profile-shell">
         <aside className="client-profile-tabs" aria-label="Client profile sections">
-          {TABS.map(tab => {
+          {visibleTabs.map(tab => {
             const Icon = tab.icon;
             return <button key={tab.key} type="button" className={activeTab === tab.key ? 'active' : ''} onClick={() => goTab(tab.key)}><Icon size={20} /><span>{tab.label}</span></button>;
           })}
@@ -991,18 +1000,11 @@ export default function ClientProfilePage() {
               <SearchableSelect
                 label="VA / Employee *"
                 value={scheduleForm.employee_id}
-                onChange={employeeId => {
-                  const employee = (options.employees || []).find(item => String(item.id) === String(employeeId));
-                  setScheduleForm(current => ({ ...current, employee_id: employeeId, timezone: employee?.timezone || current.timezone }));
-                }}
+                onChange={employeeId => setScheduleForm(current => ({ ...current, employee_id: employeeId }))}
+                onOptionChange={option => { setSelectedScheduleEmployee(option); setScheduleForm(current => ({ ...current, timezone: option?.timezone || current.timezone })); }}
                 placeholder="Search and select VA"
                 searchPlaceholder="Search VA name, code or timezone…"
-                options={(options.employees || []).map(employee => ({
-                  value: String(employee.id),
-                  label: `${employee.employee_code || 'VA'} · ${employee.first_name || ''} ${employee.last_name || ''}`.trim(),
-                  meta: employee.timezone || 'Timezone not set',
-                  searchText: `${employee.email || ''} ${employee.employee_code || ''}`,
-                }))}
+                remoteType="employee"
               />
               <Input label={scheduleForm.repeat ? 'Date (optional while weekly)' : 'Date *'} type="date" value={scheduleForm.date || ''} disabled={!!scheduleForm.repeat} onChange={event => { const date = event.target.value; const weekday = weekdayFromDate(date); setScheduleForm(current => ({ ...current, date, weekday: weekday || current.weekday, repeat: date ? false : current.repeat })); }} hint="For a one-time shift, select the exact Doctor-local date; weekday is set automatically." />
               <Select label="Day *" value={scheduleForm.weekday} onChange={event => setScheduleField('weekday', event.target.value)}>{WEEKDAYS.map(day => <option key={day} value={day}>{day}</option>)}</Select>
@@ -1010,7 +1012,7 @@ export default function ClientProfilePage() {
               <Input label="End time *" type="time" value={scheduleForm.end_time} onChange={event => setScheduleField('end_time', event.target.value)} />
               <Input label="Rate / hour" type="number" min="0" step="0.01" value={scheduleForm.per_hour_rate} onChange={event => setScheduleField('per_hour_rate', event.target.value)} />
               <Input label="Allowed Break (H.MM) *" type="number" min="0" max="12.59" step="0.01" value={scheduleForm.break_allowed_hours || '0.00'} onChange={event => setScheduleField('break_allowed_hours', event.target.value)} hint="0.30 = 30 min · 0.50 = 50 min" />
-              <Input label="VA assigned timezone" value={(options.employees || []).find(item => String(item.id) === String(scheduleForm.employee_id))?.timezone || 'Select a VA'} disabled />
+              <Input label="VA assigned timezone" value={selectedScheduleEmployee?.timezone || 'Select a VA'} disabled />
               <Input label="Doctor timezone" value={client?.timezone || scheduleForm.timezone || 'Set client timezone'} disabled />
               <label className="client-ring-toggle"><input type="checkbox" checked={!!scheduleForm.repeat} onChange={event => setScheduleForm(current => ({ ...current, repeat: event.target.checked, date: event.target.checked ? '' : current.date }))} /><span>Repeat weekly</span></label>
             </div>

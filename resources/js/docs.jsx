@@ -66,7 +66,7 @@ export const DOCS = [
     rules: [
       'An employee with schedules, attendance or billing history cannot be deleted. Disable or reassign them instead.',
       'The VA\'s own timezone is used to show local shift times; the Doctor\'s timezone remains the basis for attendance and billing.',
-      'A VA\'s joining date caps what an invoice can bill: days before it are never charged.',
+      'First-month Doctor billing starts at the VA’s first valid check-in for that Doctor, not their employment joining date. Previously billed attendance must not be charged again.',
     ],
   },
   {
@@ -126,7 +126,7 @@ export const DOCS = [
     ],
     rules: [
       'Total minutes on a row are regular minutes inside the shift, net of break; overtime is kept separately.',
-      'Attendance already on an invoice stays billed; later changes do not alter a generated invoice.',
+      'Completed, previously billed attendance cannot be billed twice. Corrections must trigger a review of editable drafts, while issued financial records remain protected.',
     ],
   },
   {
@@ -149,14 +149,14 @@ export const DOCS = [
     summary: 'Approve, partially approve or reject the minutes a VA worked after a shift ended.',
     who: 'Roles with the Overtime Review module.',
     steps: [
-      'The list shows every shift with overtime, its status (pending, review required, approved or rejected), the calculated minutes and what was approved.',
+      'The review list includes overtime greater than zero which requires a decision or has an approval history. Zero-minute pending rows must not inflate the dashboard pending count.',
       'Open a row to approve all minutes, approve a smaller number, set a custom payment amount, or reject.',
       'VAs can request a review of their own overtime from their portal; it then shows as pending here.',
     ],
     rules: [
       'Only approved overtime is billable. Invoices count approved minutes (capped at the recorded overtime) and show pending minutes as not yet counted.',
       'If the attendance changes after an approval, the decision goes back for review automatically.',
-      'Approve overtime before generating the invoice for that period; invoice amounts are fixed at generation time.',
+      'Approve overtime before issuing an invoice. Editable draft figures must be reconciled before finalizing; issued/sent/paid invoices must not silently change.',
     ],
   },
   {
@@ -165,15 +165,15 @@ export const DOCS = [
     who: 'Administrators by default; grant the module to other roles on Roles & Permissions.',
     steps: [
       'Automatic drafts: once a billing cycle closes (see Invoice Settings) a draft is created per Doctor, in the Doctor\'s timezone, for every VA with unbilled attendance.',
-      'Generate invoice: pick a Doctor and any date range, then "All assigned VAs" or "Selected VAs only". Only completed, unbilled attendance is billed, so per-VA invoices for the same period coexist and a later run bills whoever is still outstanding.',
+      'Generate invoice: select a Doctor, date range and optionally particular VAs. A combined Doctor invoice contains separate VA billing rows. Only completed, unbilled attendance supported by a valid Doctor–VA assignment is eligible.',
       'Bulk actions: choose an invoice month and several Doctors to generate drafts or email PDFs in one go.',
       'Edit: adjust hours, base salary, late minutes and approved overtime per VA, add bonus/allowance/reimbursement/other adjustments as additions or deductions, and move the status draft → issued → paid, or void it.',
-      'View PDF renders the invoice with a per-day table per VA: shift, clock in/out, break, worked hours, approved overtime and payable hours. Send emails it to the Doctor.',
+      'View PDF presents Doctor and billing details, VA-wise eligible attendance, payable hours, approved overtime, applicable rates and grand total. Send emails it to the Doctor. The configured PDF template determines which intermediate columns are visible.',
     ],
     rules: [
-      'A paid invoice cannot have its amounts changed; move it out of paid first. Voiding is always possible and frees its attendance for rebilling.',
+      'Finalized, sent or paid invoices must not be silently recalculated. Correct issued financial records only through an authorized and auditable workflow.',
       'An invoice is filed under the month its period ends in.',
-      'Amounts: regular minutes at the VA\'s rate for that Doctor plus approved overtime at the same rate (or the custom amount set at approval).',
+      'Amounts: regular payable minutes times the applicable Doctor–VA billing rate, plus only approved overtime or authorized custom overtime payment. Pending and rejected overtime remain unbilled.',
       'Deleting an invoice removes its salary lines and adjustments; the attendance becomes unbilled again.',
     ],
   },
@@ -215,14 +215,14 @@ export const DOCS = [
   },
   {
     key: 'activity-logs', group: 'Logs', title: 'Activity Logs', module: 'activity-logs', path: () => '/admin/activity-logs',
-    summary: 'A record of every sign-in attempt and every change made by any user.',
+    summary: 'Audit history of recorded authentication and administrative events; the exact event coverage depends on the implemented logging hooks.',
     who: 'Administrators by default; grant the module to other roles on Roles & Permissions.',
     steps: [
       'Each row shows when, who (name, email, role), the action, the module, the affected user, the request method and path, and the IP address.',
       'Filter by user, module, role or date range, or search across action, description, names, path and IP.',
       'Successful and failed sign-ins and sign-outs are logged as well as every create, update and delete.',
     ],
-    rules: ['Reads are not logged. Entries are kept indefinitely; there is no automatic pruning yet.'],
+    rules: ['The updated retention patch disables the prior automatic 10-day pruning. Confirm scheduler configuration and backups; data already pruned cannot be recovered without a backup.'],
   },
   {
     key: 'configuration', group: 'Setup', title: 'Configuration', module: 'configuration', path: base => `${base}/options/departments`,
@@ -270,6 +270,92 @@ export const DOCS = [
     rules: [
       'Sign-in allows five attempts a minute and twenty an hour per account from one place, and thirty a minute per network address across all accounts; the form shows how long to wait.',
       'Password changes and resets are limited to six attempts a minute.',
+    ],
+  },
+
+  {
+    key: 'va-live-timer', group: 'Time', title: 'VA live timer and overtime display', module: null,
+    summary: 'The VA dashboard separates scheduled shift progress, elapsed work-session time and live overtime. Overtime changes the circular indicator to amber.',
+    who: 'Administrators and HR can use these rules to explain the VA dashboard; the live timer itself is on the VA portal.',
+    steps: [
+      'During a Doctor shift the ring is the normal primary color and shows scheduled shift progress; the main counter continues to show elapsed session time.',
+      'When the latest still-open Doctor shift end is reached and the session remains open, the ring turns amber/orange and displays a live overtime timer in HH:MM:SS.',
+      'A separate overtime section displays elapsed overtime for this work session by Doctor. Each Doctor has its own shift-end boundary.',
+      'Doctor times are calculated from the API ISO timestamps, not from the browser timezone; the display updates every second and reanchors on periodic refresh.',
+      'Break timers remain separate. The live overtime display is elapsed after shift end, before overtime-break deductions or HR review.',
+    ],
+    rules: [
+      'The live overtime timer is informational only: it is not an approved, paid or invoiceable amount.',
+      'Auto-checkout is designed for two hours after the latest applicable shift end; the displayed overtime window is capped at 02:00:00.',
+      'When multiple Doctors overlap, Doctor-specific overtime durations are not added together to represent total unique VA work time.',
+      'Offline tabs and background throttling can delay visual ticks; the server remains authoritative for final attendance.',
+    ],
+  },
+  {
+    key: 'va-portal-guide', group: 'Role guides', title: 'Employee / VA portal', module: null,
+    summary: 'A VA sees personal schedules, a single work session, breaks, attendance, overtime review requests, shared documents and account settings.',
+    who: 'Employee / VA (documented here for Admin/HR).',
+    steps: [
+      'Open My Schedule to see Doctor and VA-local shift times and the date when check-in becomes available.',
+      'Check in during the allowed window, up to 15 minutes before Doctor shift start. Regular payable time never begins before scheduled start.',
+      'Use Start break and End break to log break time; choose Clock out when finished. A single session can cover multiple Doctors, each with its own attendance segment.',
+      'View regular shift progress and, after shift end, the amber overtime ring and separate live overtime figures.',
+      'Review My Attendance and submit a Change Request for a mistaken time. Request Overtime Review for eligible recorded overtime.',
+      'Update My Profile and My Settings; view only documents directly shared with this account.',
+    ],
+    rules: [
+      'The VA does not approve their own overtime or edit finalized invoices.',
+      'The Doctor timezone determines attendance boundaries; VA-local times are display conversions.',
+      'Live time and billable time differ because early arrival, breaks, overtime caps and approvals apply.',
+    ],
+  },
+  {
+    key: 'doctor-portal-guide', group: 'Role guides', title: 'Doctor / Client portal', module: null,
+    summary: 'Doctors see assigned VAs, Doctor-local shift/attendance information, invoices and specifically shared documents.',
+    who: 'Doctor / Client (documented here for Admin/HR).',
+    steps: [
+      'Sign in through the authorized client account and review assigned VAs and applicable schedules.',
+      'Inspect attendance belonging to this Doctor; unrelated client or VA history must not appear.',
+      'Review Doctor invoices, including separate VA billing rows on the combined client invoice, when available.',
+      'Download authorized invoice PDFs and shared documents.',
+    ],
+    rules: [
+      'All Doctor-facing times are shown in the Doctor timezone.',
+      'Only attendance validated for the Doctor–VA relationship can be billed.',
+      'Invoice detail and grand total must reconcile to the same validated attendance and approved overtime.',
+    ],
+  },
+  {
+    key: 'billing-integrity', group: 'Billing', title: 'Invoice safeguards and PDF snapshots', module: 'invoices', path: () => '/admin/invoices',
+    summary: 'Historical assignment validation, first-month billing, editable draft reconciliation, approved-only overtime and immutable finalized PDF data.',
+    who: 'Administrators and authorized invoice reviewers.',
+    steps: [
+      'Monthly cycles normally cover the 26th through the 25th; the configured start day in Invoice Settings controls future cycles.',
+      'Automatic draft generation waits until each Doctor’s final cycle-end VA shift and relevant open work sessions are complete.',
+      'First-month billing begins at the first valid check-in for that VA–Doctor pair, even when Admin selects an earlier date range.',
+      'The invoice generator and PDF snapshot must select the same assignment-valid, completed attendance; exclude unrelated or incorrectly linked VA rows.',
+      'Before finalizing, review stale drafts for invalid employees, hours or rates. Use a backup and the documented audit tool; do not silently remove existing financial rows.',
+      'Freeze finalized invoice/PDF values so later profile, time or rate edits cannot unexpectedly modify a sent or paid invoice.',
+    ],
+    rules: [
+      'Pending/rejected overtime has zero billable overtime charge; full or partial approvals use only approved minutes/custom amounts.',
+      'Historical disabled schedules can remain valid when an attendance record links to a genuinely assigned historical shift.',
+      'An in-app successful invoice generation action does not prove PDF totals agree; verify hours and charges before issuing.',
+    ],
+  },
+  {
+    key: 'payroll-probation-status', group: 'People', title: 'Probation and salary workflows', module: 'employees', path: base => `${base}/employees`,
+    summary: 'Existing profile/probation fields and reminders versus workflows that still require full end-to-end validation.',
+    who: 'Administrators and authorized HR.',
+    steps: [
+      'Record employee probation dates and monitor due reminders where configured.',
+      'The intended probation lifecycle includes start, extend, complete, terminate and decision history; verify these controls before using them as an authoritative HR record.',
+      'Keep employee compensation distinct from Doctor billing rates. Hourly and non-VA salaried staff may require different payroll calculations.',
+      'The full salary-slip generation, HR approval and distribution lifecycle is not yet verified as complete in this codebase.',
+    ],
+    rules: [
+      'Do not claim that a feature is payroll-approved based on an employee salary field or an invoice salary row alone.',
+      'Preserve historical employee and HR decisions rather than removing records on account offboarding.',
     ],
   },
 ];

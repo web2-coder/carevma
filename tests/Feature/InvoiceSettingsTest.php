@@ -40,7 +40,22 @@ class InvoiceSettingsTest extends TestCase
         $employee = Employee::create(['user_id' => $vaUser->id, 'first_name' => 'VA', 'last_name' => 'One', 'email' => 'va@carevma.test', 'password' => 'hashed', 'timezone' => 'UTC']);
         $doctor = $this->user('client', 'doctor@carevma.test');
         $client = Client::create(['user_id' => $doctor->id, 'name' => 'Doctor One', 'email' => 'doctor@carevma.test', 'timezone' => 'UTC', 'per_hour_charges' => 10]);
+        // Invoice eligibility requires a real Doctor-VA assignment; arbitrary
+        // client-linked attendance must not become billable.
+        $scheduleId = DB::table('employee_client_schedules')->insertGetId([
+            'client_id' => $client->id,
+            'employee_id' => $employee->id,
+            'weekday' => 'Thursday',
+            'start_time' => '09:00:00',
+            'end_time' => '17:00:00',
+            'no_of_hours' => '8',
+            'enabled' => true,
+            'repeat' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
         Attendance::create([
+            'schedule_id' => $scheduleId,
             'employee_id' => $employee->id, 'client_id' => $client->id, 'date' => '2026-10-01', 'timezone_snapshot' => 'UTC',
             'clock_in' => '2026-10-01 09:00:00', 'clock_out' => '2026-10-01 17:00:00', 'break_taken' => 0, 'total_minutes' => 480,
             'overtime' => 0, 'overtime_status' => 'none',

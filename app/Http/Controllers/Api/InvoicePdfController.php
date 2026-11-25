@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Invoice;
 use App\Services\InvoicePdfService;
+use App\Services\Modules;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Carbon\Carbon;
@@ -18,7 +19,7 @@ class InvoicePdfController extends Controller
     public function __invoke(Request $request, Invoice $invoice)
     {
         $user = $request->user();
-        if (!in_array($user->role, ['admin', 'superadmin'], true)) abort(403);
+        abort_unless(Modules::allows($user, 'invoices', 'export'), 403);
 
         $invoice->loadMissing('client');
 

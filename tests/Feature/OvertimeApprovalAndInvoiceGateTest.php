@@ -167,7 +167,22 @@ class OvertimeApprovalAndInvoiceGateTest extends TestCase
             'per_hour_charges' => 10,
         ]);
 
+        // Invoice eligibility requires a real Doctor-VA assignment; arbitrary
+        // client-linked attendance must not become billable.
+        $scheduleId = DB::table('employee_client_schedules')->insertGetId([
+            'client_id' => $client->id,
+            'employee_id' => $employee->id,
+            'weekday' => 'Thursday',
+            'start_time' => '09:00:00',
+            'end_time' => '17:00:00',
+            'no_of_hours' => '8',
+            'enabled' => true,
+            'repeat' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
         Attendance::create([
+            'schedule_id' => $scheduleId,
             'employee_id' => $employee->id,
             'client_id' => $client->id,
             'date' => '2026-10-01',
@@ -192,7 +207,9 @@ class OvertimeApprovalAndInvoiceGateTest extends TestCase
         $invoice = Invoice::first();
 
         $this->assertNotNull($invoice, 'The 26th billing close did not run after 00:15.');
-        $this->assertSame('2026-09-26', $invoice->period_start->toDateString());
+        // The cycle is 26 Sep -> 25 Oct, but first-month invoices intentionally
+        // start from the VA's first actual Doctor check-in (01 Oct here).
+        $this->assertSame('2026-10-01', $invoice->period_start->toDateString());
         $this->assertSame('2026-10-25', $invoice->period_end->toDateString());
     }
 }

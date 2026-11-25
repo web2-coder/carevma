@@ -189,7 +189,14 @@ class WorkSessionService
 
     private function ensureAttendance(WorkSession $session, EmployeeClientSchedule $schedule, Carbon $startUtc, Carbon $endUtc, string $zone, ?string $comment): Attendance
     {
-        $existing = Attendance::query()->where('work_session_id',$session->id)->where('schedule_id',$schedule->id)->first();
+        // Match the specific Doctor-local occurrence, not just a recurring schedule ID.
+        // An open multi-day VA session can contain the same weekly schedule more than once.
+        $occurrence = $startUtc->copy()->utc()->format('Y-m-d H:i:s');
+        $matchOccurrence = fn () => Attendance::query()
+            ->where('work_session_id', $session->id)
+            ->where('schedule_id', $schedule->id)
+            ->where('shift_start_snapshot', $occurrence);
+        $existing = $matchOccurrence()->first();
         if($existing) return $existing;
 
         $sessionIn=$session->clock_in->copy()->utc();
@@ -197,7 +204,13 @@ class WorkSessionService
         $date=$startUtc->copy()->setTimezone($zone)->toDateString();
         // Keep the real VA check-in on the primary Doctor. Later Doctor segments begin at
         // their own shift start (or the VA session start if the VA joined after it).
-        $segmentClockIn = ((int)$session->primary_schedule_id === (int)$schedule->id)
+        // Only the occurrence in which the VA actually checked in uses the raw
+        // primary Doctor clock-in; subsequent weekly occurrences begin at
+        // their own shift start, not at the prior week's clock-in.
+        $isInitialPrimaryOccurrence = (int)$session->primary_schedule_id === (int)$schedule->id
+            && $sessionIn->gte($startUtc->copy()->subMinutes(15))
+            && $sessionIn->lt($endUtc);
+        $segmentClockIn = $isInitialPrimaryOccurrence
             ? $sessionIn->copy()
             : $this->math->effectiveStart($sessionIn, $startUtc);
         $payload=[
@@ -209,7 +222,7 @@ class WorkSessionService
         $payload['overtime_status']='none';
         try { return Attendance::create($payload); }
         catch(\Illuminate\Database\QueryException $e){
-            $row=Attendance::query()->where('work_session_id',$session->id)->where('schedule_id',$schedule->id)->first();
+            $row=$matchOccurrence()->first();
             if($row)return $row; throw $e;
         }
     }

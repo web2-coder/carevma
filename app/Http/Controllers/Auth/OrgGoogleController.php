@@ -22,24 +22,36 @@ class OrgGoogleController extends Controller
 
     public function handleGoogleCallback()
     {
-        $googleUser = Socialite::driver('google')->stateless()->user();
+        $googleUser = Socialite::driver('google')->user();
 
         if (Auth::check()) {
             $user = Auth::user();
             abort_unless($user->role === 'employee', 403);
+
+            if ($user->is_active === false) {
+                Auth::logout();
+                request()->session()->invalidate();
+                request()->session()->regenerateToken();
+
+                return redirect()->route('login')->withErrors('This account is inactive. Contact an administrator.');
+            }
 
             if (strcasecmp((string) $googleUser->email, (string) $user->email) !== 0) {
                 return redirect()->route('employee.setting')
                     ->withErrors('Google email must match your registered email.');
             }
 
-            $user->update(['google_id' => $googleUser->id]);
+            $user->forceFill(['google_id' => $googleUser->id])->save();
             return redirect()->route('employee.setting')->with('success', 'Google account connected successfully.');
         }
 
         $user = User::where('google_id', $googleUser->id)->first();
         if (!$user || strcasecmp((string) $googleUser->email, (string) $user->email) !== 0) {
             return redirect()->route('login')->withErrors('Your account is not connected to this Google account.');
+        }
+
+        if ($user->is_active === false) {
+            return redirect()->route('login')->withErrors('This account is inactive. Contact an administrator.');
         }
 
         Auth::login($user, true);
@@ -50,7 +62,7 @@ class OrgGoogleController extends Controller
 
     public function disconnectGoogle(Request $request)
     {
-        $request->user()->update(['google_id' => null]);
+        $request->user()->forceFill(['google_id' => null])->save();
         return redirect()->route('employee.setting')->with('success', 'Google account disconnected successfully.');
     }
 

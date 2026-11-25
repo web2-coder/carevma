@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import api, { primeCsrf } from '../api';
+import { cachePersonalMode, cachedPersonalMode, setPersonalThemeMode } from '../branding';
 
 const AuthContext = createContext(null);
 
@@ -31,6 +32,27 @@ export function AuthProvider({ children }) {
       window.removeEventListener('carevma:timezone-updated', onTimezoneUpdated);
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    // Switching accounts immediately clears the previous user’s override.
+    setPersonalThemeMode(null);
+    if (!user?.id) return () => { active = false; };
+    const cached = cachedPersonalMode(user.id);
+    if (cached) setPersonalThemeMode(cached);
+    api.get('/profile/theme-mode', { carevmaSilent: true, carevmaPageLoader: false })
+      .then(({data}) => {
+        if (!active) return;
+        const mode = data?.mode === 'dark' ? 'dark' : 'light';
+        cachePersonalMode(user.id, mode);
+        setPersonalThemeMode(mode);
+      })
+      .catch(() => {
+        // Fail closed: no other user's saved appearance can be used.
+        if (active && !cached) setPersonalThemeMode('light');
+      });
+    return () => { active = false; };
+  }, [user?.id]);
 
   const login = async values => {
     // Login must start from a CSRF token tied to the current session cookie.

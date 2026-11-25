@@ -110,3 +110,10 @@
 .dashboard-summary-metrics{grid-template-columns:repeat(3,minmax(0,1fr))!important}
 @media(max-width:900px){.dashboard-summary-metrics{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
 @media(max-width:620px){.dashboard-summary-metrics{grid-template-columns:1fr!important}.dashboard-summary-metrics> :last-child:nth-child(odd){grid-column:auto}}
+
+/* Clearly identify the existing topbar notification bell without changing its behavior. */
+.topbar-right .notification-bell{width:auto;min-width:38px;padding:0 11px;display:inline-flex;align-items:center;justify-content:center;gap:7px;white-space:nowrap}
+.topbar-right .notification-bell svg{flex-shrink:0}
+.notification-bell-label{font-size:11px;font-weight:700;line-height:1}
+.notification-page-summary{margin-top:14px;padding:12px 2px 1px;color:var(--text-muted,#697b83);font-size:12px;font-weight:600;border-top:1px solid var(--border,#e1e7e9)}
+@media(max-width:1100px){.topbar-right .notification-bell{width:38px;padding:0}.notification-bell-label{display:none}}

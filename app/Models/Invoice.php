@@ -22,6 +22,8 @@ class Invoice extends Model
         'sent_at',
         'send_failed_at',
         'send_error',
+        'pdf_snapshot',
+        'snapshot_at',
     ];
 
     protected $casts = [
@@ -33,6 +35,8 @@ class Invoice extends Model
         'edited_at' => 'datetime',
         'sent_at' => 'datetime',
         'send_failed_at' => 'datetime',
+        'pdf_snapshot' => 'array',
+        'snapshot_at' => 'datetime',
     ];
 
     public function client()

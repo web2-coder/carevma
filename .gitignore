@@ -26,3 +26,17 @@ Thumbs.db
 .env
 /storage/app/private/**
 /storage/framework/cache/carevma-mail-provider-slot.lock
+
+# Safe production deployment exclusions
+/storage-backup/
+/storage_backup_*/
+/database/database/
+*.backup
+*.backup-*
+*.zip
+*.sql
+.env
+.env.backup
+.env.production
+/node_modules/
+/vendor/

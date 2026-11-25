@@ -26,6 +26,26 @@ const api = axios.create({
   },
 });
 
+function pageLoaderRequestId(config) {
+  if (!config || typeof window === 'undefined') return '';
+  const method = String(config.method || 'get').toLowerCase();
+  if (!['get', 'head'].includes(method) || config.carevmaPageLoader === false) return '';
+  return String(config.__carevmaPageLoaderId || config.headers?.['X-Request-ID'] || '');
+}
+
+function startPageLoaderRequest(config) {
+  const id = pageLoaderRequestId(config);
+  if (!id) return;
+  config.__carevmaPageLoaderId = id;
+  window.dispatchEvent(new CustomEvent('carevma:page-request-start', { detail: { id } }));
+}
+
+function finishPageLoaderRequest(config) {
+  const id = pageLoaderRequestId(config);
+  if (!id) return;
+  window.dispatchEvent(new CustomEvent('carevma:page-request-end', { detail: { id } }));
+}
+
 // Keep CSRF dynamic. Laravel regenerates the session token on logout and some
 // security-sensitive session changes, so a token captured only once at boot can
 // become stale and cause 419 / TokenMismatchException errors.
@@ -115,6 +135,8 @@ api.interceptors.request.use(
       config?.method || 'get',
     ).toLowerCase();
 
+    startPageLoaderRequest(config);
+
     if (!['get', 'head', 'options'].includes(method)) {
       const token = await refreshCsrfToken();
       delete config.headers['X-XSRF-TOKEN'];
@@ -135,6 +157,8 @@ api.interceptors.request.use(
 
 api.interceptors.response.use(
   response => {
+    finishPageLoaderRequest(response?.config);
+
     const method = String(
       response?.config?.method || 'get',
     ).toLowerCase();
@@ -192,8 +216,13 @@ api.interceptors.response.use(
 
           return api(retry);
         })
-        .catch(() => Promise.reject(error));
+        .catch(() => {
+          finishPageLoaderRequest(error?.config);
+          return Promise.reject(error);
+        });
     }
+
+    finishPageLoaderRequest(error?.config);
 
     /*
      * Session authentication expired.

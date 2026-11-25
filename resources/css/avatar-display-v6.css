@@ -1,0 +1,8 @@
+/* Scoped avatar image layout - preserve current component dimensions. */
+.birthday-avatar > img, .doctor-live-avatar > img, .client-va-avatar > img,
+.avatar.client-avatar > img, .avatar.small > img {
+  display: block; width: 100%; height: 100%; object-fit: cover;
+  border-radius: inherit;
+}
+.birthday-avatar, .doctor-live-avatar, .client-va-avatar,
+.avatar.client-avatar, .avatar.small { overflow: hidden; }

@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { LoaderCircle, Search, X, CheckCircle2, AlertCircle, ChevronDown, Check } from 'lucide-react';
 import { formatDateTime, formatTime24 } from '../timezone';
 import { emitToast } from '../feedback';
+import api from '../api';
 
 
 function normalizeMediaSrc(value) {
@@ -15,7 +16,7 @@ function normalizeMediaSrc(value) {
   if (src.startsWith('public/storage/')) return `/${src.replace(/^public\//, '')}`;
   if (src.startsWith('/')) return src;
   // Laravel public-disk paths are sometimes saved without the /storage prefix.
-  if (/^(employees|clients|profiles|uploads)\//i.test(src)) return `/storage/${src}`;
+  if (/^(users|employees|clients|profiles|uploads)\//i.test(src)) return `/storage/${src}`;
   return `/${src}`;
 }
 
@@ -65,6 +66,11 @@ export function Button({ children, variant = 'primary', loading, icon: Icon, cla
   </button>;
 }
 
+function notifyPaginationNavigation(server = true) {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent('carevma:pagination-navigation', { detail: { server } }));
+}
+
 export function Input({ label, error, hint, ...props }) {
   return <label className="field"><span>{label}</span><input {...props}/>{hint && <small>{hint}</small>}{error && <em>{error}</em>}</label>;
 }
@@ -77,18 +83,48 @@ export function MaritalStatusSelect(props) {
 
 export function SearchableSelect({
   label, value, onChange, options = [], placeholder = 'Select', searchPlaceholder = 'Search…',
-  disabled = false, error, emptyText = 'No matching results',
+  disabled = false, error, emptyText = 'No matching results', remoteType = null,
+  remoteValueField = 'id', remoteLimit = 30, onOptionChange,
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [remoteOptions, setRemoteOptions] = useState([]);
+  const [remoteLoading, setRemoteLoading] = useState(false);
   const rootRef = useRef(null);
+  const requestRef = useRef(0);
   const normalizedValue = String(value ?? '');
-  const selected = options.find(option => String(option.value ?? '') === normalizedValue);
+  const availableOptions = remoteType ? remoteOptions : options;
+  const selected = availableOptions.find(option => String(option.value ?? '') === normalizedValue);
   const filtered = useMemo(() => {
+    if (remoteType) return availableOptions;
     const q = query.trim().toLowerCase();
-    if (!q) return options;
-    return options.filter(option => `${option.label || ''} ${option.searchText || ''} ${option.meta || ''}`.toLowerCase().includes(q));
-  }, [options, query]);
+    if (!q) return availableOptions;
+    return availableOptions.filter(option => `${option.label || ''} ${option.searchText || ''} ${option.meta || ''}`.toLowerCase().includes(q));
+  }, [availableOptions, query, remoteType]);
+
+  useEffect(() => {
+    if (!remoteType || (!open && !normalizedValue)) return undefined;
+    const requestId = ++requestRef.current;
+    const timer = setTimeout(async () => {
+      setRemoteLoading(true);
+      try {
+        const params = {
+          type: remoteType,
+          q: open ? query.trim() : '',
+          limit: Math.max(1, Math.min(50, Number(remoteLimit) || 30)),
+          value_field: remoteValueField,
+        };
+        if (normalizedValue) params.ids = [normalizedValue];
+        const { data } = await api.get('/management/people-options', { params });
+        if (requestRef.current === requestId) setRemoteOptions(Array.isArray(data?.data) ? data.data : []);
+      } catch {
+        if (requestRef.current === requestId) setRemoteOptions([]);
+      } finally {
+        if (requestRef.current === requestId) setRemoteLoading(false);
+      }
+    }, open ? 180 : 0);
+    return () => clearTimeout(timer);
+  }, [remoteType, remoteValueField, remoteLimit, open, query, normalizedValue]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -101,6 +137,7 @@ export function SearchableSelect({
 
   const choose = option => {
     onChange?.(String(option.value ?? ''));
+    onOptionChange?.(option);
     setQuery('');
     setOpen(false);
   };
@@ -113,10 +150,10 @@ export function SearchableSelect({
     {open && <div className="searchable-select-popover">
       <div className="searchable-select-search"><Search size={15}/><input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder={searchPlaceholder}/>{query && <button type="button" onClick={() => setQuery('')} aria-label="Clear search"><X size={14}/></button>}</div>
       <div className="searchable-select-options" role="listbox">
-        {filtered.length ? filtered.map(option => {
+        {remoteLoading && !filtered.length ? <div className="searchable-select-empty">Loading…</div> : filtered.length ? filtered.map(option => {
           const active = String(option.value ?? '') === normalizedValue;
           return <button type="button" key={`${option.value}-${option.label}`} className={`searchable-select-option ${active ? 'is-selected' : ''}`} onClick={() => choose(option)} role="option" aria-selected={active}>
-            <span><strong>{option.label}</strong>{option.meta && <small>{option.meta}</small>}</span>{active && <Check size={15}/>}
+            <span><strong>{option.label}</strong>{option.meta && <small>{option.meta}</small>}</span>{active && <Check size={15}/>} 
           </button>;
         }) : <div className="searchable-select-empty">{emptyText}</div>}
       </div>
@@ -126,18 +163,48 @@ export function SearchableSelect({
 }
 export function SearchableMultiSelect({
   label, values = [], onChange, options = [], placeholder = 'Select', searchPlaceholder = 'Search…',
-  disabled = false, error, emptyText = 'No matching results',
+  disabled = false, error, emptyText = 'No matching results', remoteType = null,
+  remoteValueField = 'id', remoteLimit = 30,
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [remoteOptions, setRemoteOptions] = useState([]);
+  const [remoteLoading, setRemoteLoading] = useState(false);
   const rootRef = useRef(null);
+  const requestRef = useRef(0);
   const normalizedValues = (Array.isArray(values) ? values : []).map(value => String(value ?? ''));
-  const selected = options.filter(option => normalizedValues.includes(String(option.value ?? '')));
+  const availableOptions = remoteType ? remoteOptions : options;
+  const selected = availableOptions.filter(option => normalizedValues.includes(String(option.value ?? '')));
   const filtered = useMemo(() => {
+    if (remoteType) return availableOptions;
     const q = query.trim().toLowerCase();
-    if (!q) return options;
-    return options.filter(option => `${option.label || ''} ${option.searchText || ''} ${option.meta || ''}`.toLowerCase().includes(q));
-  }, [options, query]);
+    if (!q) return availableOptions;
+    return availableOptions.filter(option => `${option.label || ''} ${option.searchText || ''} ${option.meta || ''}`.toLowerCase().includes(q));
+  }, [availableOptions, query, remoteType]);
+
+  useEffect(() => {
+    if (!remoteType || (!open && !normalizedValues.length)) return undefined;
+    const requestId = ++requestRef.current;
+    const timer = setTimeout(async () => {
+      setRemoteLoading(true);
+      try {
+        const params = {
+          type: remoteType,
+          q: open ? query.trim() : '',
+          limit: Math.max(1, Math.min(50, Number(remoteLimit) || 30)),
+          value_field: remoteValueField,
+        };
+        if (normalizedValues.length) params.ids = normalizedValues;
+        const { data } = await api.get('/management/people-options', { params });
+        if (requestRef.current === requestId) setRemoteOptions(Array.isArray(data?.data) ? data.data : []);
+      } catch {
+        if (requestRef.current === requestId) setRemoteOptions([]);
+      } finally {
+        if (requestRef.current === requestId) setRemoteLoading(false);
+      }
+    }, open ? 180 : 0);
+    return () => clearTimeout(timer);
+  }, [remoteType, remoteValueField, remoteLimit, open, query, normalizedValues.join('|')]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -157,25 +224,25 @@ export function SearchableMultiSelect({
   };
 
   const summary = selected.length
-    ? selected.length === 1 ? selected[0].label : `${selected.length} Doctors / Clients selected`
-    : placeholder;
+    ? selected.length === 1 ? selected[0].label : `${selected.length} selected`
+    : normalizedValues.length ? `${normalizedValues.length} selected` : placeholder;
 
   return <div className={`field searchable-select-field searchable-multi-select-field ${disabled ? 'is-disabled' : ''}`} ref={rootRef}>
     <span>{label}</span>
     <button type="button" className={`searchable-select-trigger ${open ? 'is-open' : ''}`} disabled={disabled} onClick={() => setOpen(current => !current)} aria-haspopup="listbox" aria-expanded={open}>
-      <span className={selected.length ? '' : 'is-placeholder'}>{summary}</span><ChevronDown size={16}/>
+      <span className={(selected.length || normalizedValues.length) ? '' : 'is-placeholder'}>{summary}</span><ChevronDown size={16}/>
     </button>
     {open && <div className="searchable-select-popover searchable-multi-select-popover">
       <div className="searchable-select-search"><Search size={15}/><input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder={searchPlaceholder}/>{query && <button type="button" onClick={() => setQuery('')} aria-label="Clear search"><X size={14}/></button>}</div>
       <div className="searchable-select-options" role="listbox" aria-multiselectable="true">
-        {filtered.length ? filtered.map(option => {
+        {remoteLoading && !filtered.length ? <div className="searchable-select-empty">Loading…</div> : filtered.length ? filtered.map(option => {
           const active = normalizedValues.includes(String(option.value ?? ''));
           return <button type="button" key={`${option.value}-${option.label}`} className={`searchable-select-option ${active ? 'is-selected' : ''}`} onClick={() => toggle(option)} role="option" aria-selected={active}>
             <span><strong>{option.label}</strong>{option.meta && <small>{option.meta}</small>}</span><span className={`searchable-multi-check ${active ? 'is-selected' : ''}`}>{active && <Check size={14}/>}</span>
           </button>;
         }) : <div className="searchable-select-empty">{emptyText}</div>}
       </div>
-      <div className="searchable-multi-footer"><small>{selected.length} selected</small><button type="button" onClick={() => { onChange?.([]); setQuery(''); }}>Clear</button><button type="button" onClick={() => setOpen(false)}>Done</button></div>
+      <div className="searchable-multi-footer"><small>{normalizedValues.length} selected</small><button type="button" onClick={() => { onChange?.([]); setQuery(''); }}>Clear</button><button type="button" onClick={() => setOpen(false)}>Done</button></div>
     </div>}
     {error && <em>{error}</em>}
   </div>;
@@ -273,10 +340,6 @@ export function Table({
     return raw ? { kind: colon > 0 ? raw.slice(0, colon) : '', id: colon > 0 ? raw.slice(colon + 1) : raw } : null;
   }, [locationSearch]);
   const isHighlighted = row => !!highlight && (!highlight.kind || !record || highlight.kind === record) && String(row?.[rowKey]) === highlight.id;
-  const tableRef = useRef(null);
-  useEffect(() => {
-    if (highlight) tableRef.current?.querySelector('tr.is-highlight')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  }, [highlight, rows]);
   const serverMode = Boolean(meta);
   const showSearch = searchable ?? !serverMode;
   const [query, setQuery] = useState('');
@@ -341,6 +404,13 @@ export function Table({
     setPage(1);
   };
 
+  const goToLocalPage = target => {
+    const next = Math.max(1, Math.min(lastPage, Number(target) || 1));
+    if (next === currentPage) return;
+    notifyPaginationNavigation(false);
+    setPage(next);
+  };
+
   return <div className="smart-table">
     <div className="smart-table-tools">
       <div className="smart-table-tools-left">
@@ -361,7 +431,7 @@ export function Table({
       </div>
     </div>
 
-    {visibleRows.length ? <div className="table-wrap"><table ref={tableRef}><thead><tr><th className="row-index">#</th>{columns.map(c => {
+    {visibleRows.length ? <div className="table-wrap"><table><thead><tr><th className="row-index">#</th>{columns.map(c => {
       const sortable = Boolean(c.sortKey && onSort);
       const active = sortable && sort?.key === c.sortKey;
       const nextDir = active && sort.dir === 'asc' ? 'desc' : 'asc';
@@ -379,11 +449,11 @@ export function Table({
     {useLocalPager && total > effectivePageSize && <div className="smart-table-pagination">
       <span>Showing {from}–{to} of {total}</span>
       <div className="smart-page-buttons">
-        <button type="button" disabled={currentPage <= 1} onClick={() => setPage(1)} aria-label="First page">«</button>
-        <button type="button" disabled={currentPage <= 1} onClick={() => setPage(value => Math.max(1, value - 1))}>Previous</button>
+        <button type="button" disabled={currentPage <= 1} onClick={() => goToLocalPage(1)} aria-label="First page">«</button>
+        <button type="button" disabled={currentPage <= 1} onClick={() => goToLocalPage(currentPage - 1)}>Previous</button>
         <span>Page <strong>{currentPage}</strong> of {lastPage}</span>
-        <button type="button" disabled={currentPage >= lastPage} onClick={() => setPage(value => Math.min(lastPage, value + 1))}>Next</button>
-        <button type="button" disabled={currentPage >= lastPage} onClick={() => setPage(lastPage)} aria-label="Last page">»</button>
+        <button type="button" disabled={currentPage >= lastPage} onClick={() => goToLocalPage(currentPage + 1)}>Next</button>
+        <button type="button" disabled={currentPage >= lastPage} onClick={() => goToLocalPage(lastPage)} aria-label="Last page">»</button>
       </div>
     </div>}
 
@@ -411,13 +481,19 @@ export function Pagination({ meta, onPage }) {
   const from = meta.from ?? null;
   const to = meta.to ?? null;
   const total = meta.total ?? null;
+  const goToPage = target => {
+    const next = Math.max(1, Math.min(last, Number(target) || 1));
+    if (next === current) return;
+    notifyPaginationNavigation(true);
+    onPage(next);
+  };
 
   return <div className="pagination pagination-enhanced">
     <span>{from !== null && to !== null && total !== null ? `Showing ${from}–${to} of ${total}` : `Page ${current} of ${last}`}</span>
     <div className="pagination-buttons">
-      <Button variant="ghost" disabled={current <= 1} onClick={() => onPage(current - 1)}>Previous</Button>
-      <div className="pagination-pages">{pages.map(item => typeof item === 'number' ? <button type="button" key={item} className={item === current ? 'active' : ''} onClick={() => onPage(item)}>{item}</button> : <span key={item}>…</span>)}</div>
-      <Button variant="ghost" disabled={current >= last} onClick={() => onPage(current + 1)}>Next</Button>
+      <Button variant="ghost" disabled={current <= 1} onClick={() => goToPage(current - 1)}>Previous</Button>
+      <div className="pagination-pages">{pages.map(item => typeof item === 'number' ? <button type="button" key={item} className={item === current ? 'active' : ''} onClick={() => goToPage(item)}>{item}</button> : <span key={item}>…</span>)}</div>
+      <Button variant="ghost" disabled={current >= last} onClick={() => goToPage(current + 1)}>Next</Button>
     </div>
   </div>;
 }

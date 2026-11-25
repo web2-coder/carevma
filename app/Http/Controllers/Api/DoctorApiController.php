@@ -171,12 +171,20 @@ class DoctorApiController extends Controller
             'business_name' => ['nullable', 'string', 'max:255'], 'phone_number' => ['nullable', 'string', 'max:60'],
             'country' => ['nullable', 'string', 'max:100'], 'timezone' => ['required', 'timezone'],
             'profile_picture' => ['nullable', 'image', 'mimes:jpg,jpeg,png', 'max:800'],
+            'remove_profile_picture' => ['sometimes', 'boolean'],
         ]);
+        $previousPicture = $client->profile_picture;
+        $removePicture = $request->boolean('remove_profile_picture') && !$request->hasFile('profile_picture');
+        unset($data['remove_profile_picture']);
         if ($request->hasFile('profile_picture')) {
-            if ($client->profile_picture) Storage::disk('public')->delete(ltrim(str_replace('/storage/', '', $client->profile_picture), '/'));
             $data['profile_picture'] = '/storage/'.$request->file('profile_picture')->store('clients/profile_pictures', 'public');
+        } elseif ($removePicture) {
+            $data['profile_picture'] = null;
         }
-        $client->update($data); $request->user()->update(['name' => $client->name, 'email' => $client->email]);
+        $client->update($data);
+        if (array_key_exists('profile_picture', $data) && $previousPicture) {
+            \App\Support\ProfilePhotoStorage::deleteOld($previousPicture, 'clients/profile_pictures');
+        } $request->user()->update(['name' => $client->name, 'email' => $client->email]);
         return response()->json(['message' => 'Profile updated.', 'client' => $client->fresh()]);
     }
 

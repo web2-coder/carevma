@@ -419,6 +419,12 @@ td { padding: .75rem .875rem; border-bottom: 1px solid var(--border); color: var
 .finance-income-text { color: var(--chart-1); }
 .finance-expense-text { color: var(--chart-2); }
 
+/* ---- Global route preloader: reuse the dashboard skeleton on every portal page ---- */
+.route-loading-stage { position: relative; min-height: 16rem; }
+.route-loading-content.is-loading { visibility: hidden; pointer-events: none; }
+.route-loading-overlay { position: absolute; inset: 0; z-index: 8; min-height: min(70vh, 680px); background: var(--background); }
+.route-loading-overlay > .skeleton-screen { min-height: 100%; }
+
 /* ---- Skeleton loading: the page's own shapes, shimmer only when motion is allowed -- */
 .skeleton-screen { display: grid; gap: 1.5rem; }
 .skeleton { display: block; height: .75rem; border-radius: var(--radius-field); background: var(--surface-2); }
@@ -1029,4 +1035,223 @@ a.metric-card:focus-visible { outline: 2px solid var(--primary); outline-offset:
   }
   .topbar .navbar-live-clock { height: 34px; min-height: 34px; padding-left: 5px; padding-right: 5px; }
   .topbar .navbar-live-clock-copy strong { font-size: 8.5px; }
+}
+
+/* CareVMA: VA timer overtime state (visual only; billing remains server-authoritative). */
+.employee-dashboard-pro .live-session-counter.is-overtime{border-color:#edb064;background:linear-gradient(145deg,#fffaf0 0%,#fff2d9 100%)}
+.employee-dashboard-pro .live-session-counter.is-overtime .session-ring .ring-bar{stroke:#e78a20;filter:drop-shadow(0 0 3px rgba(220,119,14,.22))}
+.employee-dashboard-pro .live-session-counter.is-overtime .ring-pct,.employee-dashboard-pro .live-session-counter.is-overtime .session-ring-center em{color:#a95805}
+.employee-dashboard-pro .live-session-counter.is-overtime .session-ring-center em i{background:#e78a20}
+.live-overtime-summary{border:1px solid #ebb77a;border-radius:12px;background:rgba(245,158,11,.12);padding:12px 14px;margin-top:14px}
+.live-overtime-summary>div,.live-overtime-doctor{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.live-overtime-summary span,.live-overtime-title{font-weight:700;font-size:12px;color:#a55b0c}
+.live-overtime-summary strong{color:#ae5d00;font-variant-numeric:tabular-nums;font-size:19px}
+.live-overtime-summary small,.live-overtime-doctors>small{display:block;margin-top:6px;color:var(--muted-foreground);font-size:11px}
+.live-overtime-doctors{margin-top:12px;display:grid;gap:7px}
+.live-overtime-doctor{border:1px solid var(--border);border-radius:10px;background:var(--card);padding:9px 11px}
+.live-overtime-doctor span{font-size:12px;font-weight:650;color:var(--foreground)}
+.live-overtime-doctor span small{display:block;font-size:10px;color:var(--muted-foreground)}
+.live-overtime-doctor strong{font-variant-numeric:tabular-nums;color:#bd6a04}
+html[data-theme-mode="dark"] .employee-dashboard-pro .live-session-counter.is-overtime{background:linear-gradient(135deg,#30251a,#241f1b);border-color:#936020}
+html[data-theme-mode="dark"] .employee-dashboard-pro .live-overtime-summary{background:rgba(234,136,22,.13);border-color:#926020}
+html[data-theme-mode="dark"] .employee-dashboard-pro .live-overtime-summary span,html[data-theme-mode="dark"] .employee-dashboard-pro .live-overtime-summary strong,html[data-theme-mode="dark"] .employee-dashboard-pro .live-overtime-title,html[data-theme-mode="dark"] .employee-dashboard-pro .live-overtime-doctor strong{color:#ffbe69}
+@media(max-width:620px){.live-overtime-summary>div{align-items:flex-start;flex-direction:column;gap:5px}}
+
+
+
+/* ==========================================
+   CareVMA LOGIN FIELD FIX - FINAL
+   Fix label overlap and double focus borders
+   Scoped only to Login Page
+   ========================================== */
+
+/* Outer label must NOT look like an input */
+.auth-page .auth-form label.field.icon-field {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 9px !important;
+
+    width: 100%;
+    height: auto !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+
+    border: 0 !important;
+    border-radius: 0 !important;
+    outline: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+}
+
+/* Labels stay above the input */
+.auth-page .auth-form label.field.icon-field > span {
+    display: block !important;
+    position: static !important;
+    transform: none !important;
+    float: none !important;
+
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 1.5 !important;
+
+    font-size: 12px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.04em;
+    color: #14213d !important;
+}
+
+/* Only this wrapper receives the focus ring */
+.auth-page .auth-form label.field.icon-field > div {
+    display: flex !important;
+    align-items: center !important;
+    gap: 12px !important;
+
+    position: relative;
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 56px !important;
+    padding: 0 16px !important;
+
+    border: 1px solid #d8e1ee !important;
+    border-radius: 14px !important;
+    outline: none !important;
+    background: #f8fafc !important;
+    box-shadow: none !important;
+
+    transition: border-color .2s ease,
+                box-shadow .2s ease;
+}
+
+/* Hover */
+.auth-page .auth-form label.field.icon-field > div:hover {
+    border-color: #a8b9d6 !important;
+}
+
+/* One clean focus ring */
+.auth-page .auth-form label.field.icon-field > div:focus-within {
+    border-color: #2563eb !important;
+    outline: none !important;
+    box-shadow: 0 0 0 0px rgba(37, 99, 235, .12) !important;
+    background: #fff !important;
+}
+
+/* Completely remove inner input borders */
+.auth-page .auth-form label.field.icon-field > div > input,
+.auth-page .auth-form label.field.icon-field > div > input:focus,
+.auth-page .auth-form label.field.icon-field > div > input:focus-visible {
+    flex: 1 1 auto;
+    width: 100% !important;
+    min-width: 0 !important;
+    height: 52px !important;
+    min-height: 0 !important;
+
+    padding: 10px !important;
+    margin: 0 !important;
+
+    border: 0 !important;
+    border-radius: 0 !important;
+    outline: 0 !important;
+    box-shadow: none !important;
+
+    background: transparent !important;
+    font-size: 15px;
+    color: #14213d;
+}
+
+/* Icons */
+.auth-page .auth-form label.field.icon-field > div > svg {
+    flex-shrink: 0;
+    color: #8797ae;
+}
+
+/* Password visibility button */
+.auth-page .auth-form label.field.icon-field > div > button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 32px;
+    height: 36px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #8797ae;
+    cursor: pointer;
+}
+
+.auth-page .auth-form label.field.icon-field > div > button:focus-visible {
+    outline: 2px solid #2563eb !important;
+    outline-offset: 2px;
+    border-radius: 6px;
+}
+
+/* Responsive */
+@media (max-width: 620px) {
+    .auth-page .auth-form label.field.icon-field > div {
+        min-height: 54px !important;
+    }
+
+    .auth-page .auth-form label.field.icon-field > div > input {
+        font-size: 16px !important;
+    }
+}
+
+.activity-logs-page,
+.activity-logs-page .table-wrap th,
+.activity-logs-page .table-wrap td,
+.activity-logs-page .empty-state {
+  text-align: left;
+}
+
+.activity-logs-page .table-wrap td {
+  vertical-align: bottom;
+}
+
+.activity-logs-page .empty-state {
+  justify-items: start;
+  align-items: flex-start;
+}
+
+.attendance-activity-chart {
+  display: flex;
+  flex-direction: column;
+}
+
+.attendance-activity-chart .mini-chart {
+  margin-top: auto;
+}
+
+.attendance-activity-chart .chart-bar span {
+  min-height: 0;
+}
+
+.finance-filter-card .finance-filter-row {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+}
+
+.finance-main-chart.has-date-labels {
+  grid-auto-columns: minmax(76px, 1fr);
+}
+
+.finance-filter-actions {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  margin-top: .875rem;
+}
+
+.permissions-matrix tbody th {
+  background: none;
+  color: inherit;
+  font-size: inherit;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.permission-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .375rem .875rem;
 }

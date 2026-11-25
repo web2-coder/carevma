@@ -1,0 +1,585 @@
+/* White label overrides MUST load after existing global stylesheet rules. */
+:root{--wl-primary:#0E3180;--wl-secondary:#163B49;--wl-accent:#2763B8;--wl-background:#FFFFFF;--wl-text:#111111;--wl-sidebar:#FFFFFF;--wl-navbar:#FFFFFF;--wl-button:#0E3180;--wl-success:#16855B;--wl-warning:#C17A15;--wl-error:#C94949;--wl-info:#237DA9;--wl-radius:14px;--wl-spacing:1;--wl-font:Poppins,system-ui,sans-serif}
+body,.content,.app-shell{font-family:var(--wl-font)!important;color:var(--wl-text)}
+body,.content,.app-main{background-color:var(--wl-background)}
+.sidebar{background:var(--wl-sidebar)!important}.topbar{background:var(--wl-navbar)!important}.btn-primary,.button-primary{background:var(--wl-button)!important}.btn-primary:hover{filter:brightness(1.1)}
+a.text-link,.text-link,.nav-link.active{color:var(--wl-accent)}.card,.modal-content,.profile-dropdown{border-radius:var(--wl-radius)}
+.brand-logo,.carevma-brand-logo img,.carevma-brand-logo.is-compact img,.brand-row .carevma-brand-logo img,.auth-brand .carevma-brand-logo img,.mobile-brand .carevma-brand-logo img,.mobile-brand.always .carevma-brand-logo img{width:150px!important;height:auto!important;max-width:none!important;object-fit:contain!important;transform:none!important;min-width:150px!important}
+.carevma-brand-logo,.carevma-brand-logo.is-compact,.brand-row .carevma-brand-logo:not(.is-compact){width:150px!important;flex:0 0 150px!important;max-width:none!important;height:auto!important;min-height:0!important;overflow:visible!important;background:transparent!important}
+.brand-row,.mobile-brand,.auth-brand{overflow-x:auto;overflow-y:hidden}
+[data-theme-mode="dark"]{color-scheme:dark;--bg:var(--wl-background);--text:var(--wl-text);--nav:var(--wl-sidebar);--brand:var(--wl-primary);--brand-2:var(--wl-secondary);--surface:#152832;--surface-2:#1b303b;--border:#334653;--muted:#b3c3cf}
+[data-theme-mode="dark"] .card,[data-theme-mode="dark"] .login-card,[data-theme-mode="dark"] .topbar,[data-theme-mode="dark"] .modal,[data-theme-mode="dark"] input,[data-theme-mode="dark"] select,[data-theme-mode="dark"] textarea{background-color:#152832;color:var(--wl-text);border-color:#334653}
+[data-theme-mode="dark"] .auth-panel{background:var(--wl-background)}
+.wl-page{display:grid;gap:20px}.wl-tabs{display:flex;gap:8px;flex-wrap:wrap}.wl-tabs button{padding:10px 18px;border:1px solid var(--border);border-radius:10px;background:var(--surface,#fff);color:var(--text)}.wl-tabs button.active{background:var(--wl-primary);color:#fff}.wl-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}.wl-field{display:flex;flex-direction:column;gap:7px;font-weight:600}.wl-field input:not([type="color"]),.wl-field select{width:100%;padding:10px;border:1px solid #ccd5d9;border-radius:8px;background:var(--surface,#fff);color:var(--text)}.wl-color{display:flex;align-items:center;gap:8px}.wl-color input[type="color"]{width:52px;height:38px;border:0;padding:0;background:transparent}.wl-color input[type="text"]{flex:1;min-width:0}.wl-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}.wl-actions button{padding:10px 18px;border-radius:9px;border:1px solid #cbd8db;background:var(--wl-primary);color:#fff}.wl-actions button.secondary{background:transparent;color:var(--text)}.wl-upload{border:2px dashed #b8cbd0;border-radius:12px;min-height:110px;padding:12px;display:flex;align-items:center;gap:16px;cursor:pointer;flex-wrap:wrap}.wl-upload img.wl-logo-preview{width:150px!important;min-width:150px!important;max-width:150px!important;height:auto!important;object-fit:contain!important;flex:0 0 150px}.wl-upload img.wl-media-preview{width:100px;max-width:100%;max-height:90px;height:auto;object-fit:contain}.wl-upload small{font-weight:400;color:var(--muted)}.wl-error{color:#c94949}.wl-ok{color:#16855b}.wl-section{padding:22px;border:1px solid var(--border);background:var(--surface,#fff);border-radius:var(--wl-radius)}.wl-section h3{margin-top:0}.wl-preset{display:flex;gap:9px;flex-wrap:wrap}.wl-preset button{border:1px solid #ccd5d9;background:var(--surface,#fff);color:var(--text);padding:8px 12px;border-radius:8px}
+@media(max-width:600px){.wl-section{padding:14px}.wl-grid{grid-template-columns:1fr}}
+
+/* 150px brand system: keep logos undistorted, including compact sidebars and auth. */
+.carevma-brand-logo img.brand-logo,.carevma-brand-logo.is-compact img.brand-logo,.auth-brand img.brand-logo,.brand-row img.brand-logo,.mobile-brand img.brand-logo,.brand-logo{width:150px!important;min-width:150px!important;max-width:none!important;height:auto!important;object-fit:contain!important;transform:none!important}
+.carevma-brand-logo,.carevma-brand-logo.is-compact,.brand-row .carevma-brand-logo:not(.is-compact){width:150px!important;min-width:150px!important;max-width:none!important;flex:0 0 150px!important;height:auto!important;overflow:visible!important}
+.brand-row,.mobile-brand,.auth-brand{overflow-x:auto!important;overflow-y:hidden!important;min-width:0}
+.wl-upload{overflow-x:auto}.wl-upload .wl-logo-preview{width:150px!important;min-width:150px!important;max-width:150px!important;height:auto!important;flex:0 0 150px!important;object-fit:contain!important}
+
+/* Branding v2: map user choices to the tokens actually used by the portal. */
+:root {
+  --wl-surface:#FFFFFF;--wl-border:#DCE7F3;--wl-muted:#61748D;--wl-sidebar-text:#111111;--wl-sidebar-active:#E8F0FF;--wl-sidebar-active-text:#111111;--wl-navbar-text:#111111;--wl-button-text:#FFFFFF;--wl-input-background:#FFFFFF;
+  --cv-bg:var(--wl-background);--cv-surface:var(--wl-surface,#fff);
+  --cv-border:var(--wl-border,#dce7f3);--cv-slate-950:var(--wl-text);
+  --cv-slate-600:var(--wl-muted,#61748d);--cv-navy-800:var(--wl-primary);
+  --cv-blue-700:var(--wl-secondary);--cv-blue-600:var(--wl-accent);
+  --cv-success:var(--wl-success);--cv-warning:var(--wl-warning);--cv-danger:var(--wl-error);
+  --bg:var(--wl-background);--surface:var(--wl-surface,#fff);
+  --surface-2:var(--wl-surface,#fff);--text:var(--wl-text);
+  --muted:var(--wl-muted,#61748d);--border:var(--wl-border,#dce7f3);
+  --brand:var(--wl-primary);--brand-2:var(--wl-accent);
+  --nav:var(--wl-sidebar);--nav-2:var(--wl-sidebar);
+  --success:var(--wl-success);--warning:var(--wl-warning);
+  --danger:var(--wl-error);--radius:var(--wl-radius);
+}
+html,body{background:var(--wl-background)!important;color:var(--wl-text)}
+body,.app-shell,.content,.app-main{font-family:var(--wl-font)!important}
+.sidebar{background:var(--wl-sidebar)!important;color:var(--wl-sidebar-text)!important;border-right-color:var(--wl-border)!important}
+.sidebar .nav-link,.sidebar .nav-child,.sidebar .nav-section-title,.sidebar .sidebar-label,.sidebar .sidebar-group-title,.sidebar .nav-group-label,.sidebar .nav-heading,.sidebar .workspace-chip strong,.sidebar .user-mini strong,.sidebar .workspace-chip small,.sidebar .user-mini span{color:var(--wl-sidebar-text)!important}
+.sidebar .nav-link:hover,.sidebar .nav-child:hover{background:var(--wl-sidebar-active)!important;color:var(--wl-sidebar-active-text)!important;border-color:transparent!important}
+.sidebar .nav-link.active,.sidebar .nav-child.active{background:var(--wl-sidebar-active)!important;color:var(--wl-sidebar-active-text)!important;border-color:transparent!important;box-shadow:none!important}
+.sidebar .nav-link.active svg,.sidebar .nav-link:hover svg,.sidebar .nav-child.active svg{color:inherit!important}
+.sidebar .workspace-chip,.sidebar .icon-btn{background:transparent!important;color:var(--wl-sidebar-text)!important;border-color:var(--wl-border)!important}
+.sidebar .sidebar-foot{border-top-color:var(--wl-border)!important}
+.topbar{background:var(--wl-navbar)!important;color:var(--wl-navbar-text)!important}
+.topbar .topbar-context strong,.topbar .topbar-context span{color:var(--wl-navbar-text)!important}
+.content,.app-main,.wl-page{background:var(--wl-background);color:var(--wl-text)}
+.card,.wl-section,.modal-content,.panel,.profile-dropdown{background-color:var(--wl-surface)!important;color:var(--wl-text);border-color:var(--wl-border)!important;border-radius:var(--wl-radius)!important}
+.card p,.card small,.wl-note{color:var(--wl-muted)!important}
+.btn-primary,.button-primary,.wl-actions button:not(.secondary),.wl-preview-surface button{background:var(--wl-button)!important;color:var(--wl-button-text)!important;border:1px solid var(--wl-button)!important}
+.btn-primary:hover,.button-primary:hover{filter:brightness(1.08)}
+.btn-secondary,.btn-ghost{background:var(--wl-surface)!important;color:var(--wl-text)!important;border:1px solid var(--wl-border)!important}
+.field input,.field select,.field textarea,.wl-field input:not([type=color]),.wl-field select,.search-box{background:var(--wl-input-background)!important;color:var(--wl-text)!important;border-color:var(--wl-border)!important}
+.field input:focus,.field select:focus,.field textarea:focus,.wl-field input:focus,.wl-field select:focus{outline:2px solid var(--wl-accent);outline-offset:1px}
+.wl-page{max-width:100%;padding:0 0 32px}.wl-page h1{font-size:clamp(22px,2vw,30px);color:var(--wl-text)}
+.wl-page h3,.wl-page h4,.wl-page .wl-field{color:var(--wl-text)}
+.wl-tabs{margin:4px 0 0}.wl-tabs button{min-width:145px;font-size:13px;font-weight:700;background:var(--wl-surface)!important;color:var(--wl-text)!important;border:1px solid var(--wl-border)!important;cursor:pointer}
+.wl-tabs button.active{background:var(--wl-button)!important;color:var(--wl-button-text)!important;border-color:var(--wl-button)!important}
+.wl-preset button{background:var(--wl-surface)!important;color:var(--wl-text)!important;border-color:var(--wl-border)!important;cursor:pointer}
+.wl-section{min-width:0}.wl-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr))}
+.wl-actions button{min-height:43px;font-size:12px;font-weight:700;cursor:pointer}
+.wl-actions button.secondary{background:var(--wl-surface)!important;color:var(--wl-text)!important;border-color:var(--wl-border)!important}
+.wl-upload{background:var(--wl-input-background);border-color:var(--wl-border);color:var(--wl-text)}
+.wl-upload small{color:var(--wl-muted)}.wl-upload input[type=file]{max-width:100%!important;min-width:0}
+.wl-preview-card{display:grid;grid-template-columns:minmax(110px,27%) 1fr;min-height:165px;overflow:hidden;border:1px solid var(--wl-border);border-radius:var(--wl-radius);margin:16px 0;background:var(--wl-background)}
+.wl-preview-side{background:var(--wl-sidebar);color:var(--wl-sidebar-text);padding:14px;display:flex;flex-direction:column;gap:9px;font-weight:700}
+.wl-preview-side span{font-size:11px;opacity:.9}.wl-preview-side strong{padding:9px;border-radius:7px;background:var(--wl-sidebar-active);color:var(--wl-sidebar-active-text);font-size:11px}
+.wl-preview-body{min-width:0;padding:10px}.wl-preview-top{background:var(--wl-navbar);color:var(--wl-navbar-text);border:1px solid var(--wl-border);border-radius:8px;padding:9px;font-size:12px;font-weight:700}
+.wl-preview-surface{margin-top:9px;padding:10px;background:var(--wl-surface);color:var(--wl-text);border:1px solid var(--wl-border);border-radius:var(--wl-radius);font-size:12px}.wl-preview-surface p{color:var(--wl-muted);margin:7px 0}.wl-preview-surface button{border-radius:7px;padding:7px 12px;font-size:11px}
+.wl-note{font-size:12px;margin:0 0 12px}.wl-color input[type=color]{flex:0 0 42px;cursor:pointer}
+@media(max-width:620px){.wl-preview-card{grid-template-columns:1fr}.wl-preview-side{min-height:90px}.wl-section{padding:14px}}
+
+/* Branding simplification: eliminate WHITE gradient/fade inherited from design-system.css. */
+.sidebar .sidebar-nav,.sidebar-nav{background:var(--wl-sidebar)!important;background-image:none!important;background-attachment:initial!important;box-shadow:none!important}
+.sidebar .nav-group-label,.sidebar .nav-group-label.eyebrow{background:transparent!important;background-image:none!important;box-shadow:none!important;text-shadow:none!important;color:var(--wl-sidebar-text)!important;opacity:.87}
+.sidebar .nav-group-separator{background:var(--wl-sidebar-text)!important;opacity:.2}
+.wl-simple-colors{grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px}
+.wl-main-logo-editor{display:flex;align-items:center;flex-wrap:wrap;gap:24px;padding:18px;border:1px solid var(--wl-border);border-radius:14px;background:var(--wl-input-background)}
+.wl-main-logo-display{flex:0 0 190px;min-height:100px;display:grid;place-items:center;border:1px dashed var(--wl-border);border-radius:12px;background:var(--wl-surface);padding:18px;overflow:auto}
+.wl-main-logo-display img.wl-logo-preview{display:block;width:150px!important;min-width:150px!important;max-width:150px!important;height:auto!important;object-fit:contain!important}
+.wl-logo-empty{font-size:12px;color:var(--wl-muted);text-align:center}
+.wl-main-logo-controls{display:flex;align-items:flex-start;flex-direction:column;gap:12px;flex:1 1 240px;min-width:0}
+.wl-single-upload{width:100%;max-width:440px;min-height:130px;flex-direction:column;align-items:flex-start;gap:8px}
+.wl-single-upload span{font-size:12px;color:var(--wl-muted)}
+.wl-single-upload input[type=file]{display:block;max-width:100%}
+.wl-remove-logo{border:1px solid var(--wl-error);background:transparent;color:var(--wl-error);border-radius:9px;padding:10px 16px;font-weight:700;cursor:pointer}
+.wl-remove-logo:disabled{opacity:.5;cursor:wait}
+@media(max-width:620px){.wl-main-logo-editor{padding:12px}.wl-main-logo-display{flex:1 1 100%}}
+
+/* Preset-only theme selector: no individual hex inputs. */
+.wl-preset-grid{display:grid!important;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:11px;margin:13px 0 20px}
+.wl-preset-grid .wl-preset-choice{display:flex!important;position:relative;flex-direction:column;align-items:flex-start;justify-content:center;gap:9px;min-height:95px;text-align:left;padding:13px!important;border:2px solid var(--wl-border)!important;border-radius:12px!important;background:var(--wl-surface)!important;color:var(--wl-text)!important;transition:border-color .12s,box-shadow .12s}
+.wl-preset-grid .wl-preset-choice:hover{border-color:var(--wl-accent)!important}
+.wl-preset-grid .wl-preset-choice.is-selected{border-color:var(--wl-primary)!important;box-shadow:0 0 0 2px color-mix(in srgb,var(--wl-primary) 17%,transparent)}
+.wl-preset-swatches{display:flex;gap:3px;width:100%;height:20px;overflow:hidden;border-radius:6px}
+.wl-preset-swatches i{display:block;flex:1;height:20px;border:1px solid rgba(0,0,0,.08)}
+.wl-preset-title{font-size:13px;font-weight:700;line-height:1.25}
+.wl-preset-default{font-size:10px;color:var(--wl-muted);font-weight:600}
+.wl-preset-check{position:absolute;right:10px;bottom:12px;font-size:17px;font-weight:800;color:var(--wl-primary)}
+@media(max-width:560px){.wl-preset-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Original White: readable black icon/label color on white sidebar and navbar. */
+.sidebar .nav-link:not(.active) svg,.sidebar .nav-child:not(.active) svg,.sidebar .nav-link:not(.active) .nav-icon{color:var(--wl-sidebar-text)!important}
+.topbar .topbar-context,.topbar .topbar-context strong,.topbar .topbar-context span{color:var(--wl-navbar-text)!important}
+
+/* Keep sidebar navigation glyphs and nested text synchronized with the chosen
+   preset text tokens (white for colored presets, dark for Original White). */
+.sidebar .nav-link,.sidebar .nav-child,.sidebar .nav-link span,.sidebar .nav-child span,
+.sidebar .nav-link svg,.sidebar .nav-child svg,.sidebar .nav-link .nav-icon,
+.sidebar .nav-child .nav-icon,.sidebar .nav-group-label,.sidebar .nav-group-label.eyebrow{
+  color:var(--wl-sidebar-text)!important;
+}
+.sidebar .nav-link.active,.sidebar .nav-child.active,
+.sidebar .nav-link.active span,.sidebar .nav-child.active span,
+.sidebar .nav-link.active svg,.sidebar .nav-child.active svg,
+.sidebar .nav-link.active .nav-icon,.sidebar .nav-child.active .nav-icon,
+.sidebar .nav-link:hover,.sidebar .nav-child:hover,
+.sidebar .nav-link:hover span,.sidebar .nav-child:hover span,
+.sidebar .nav-link:hover svg,.sidebar .nav-child:hover svg{
+  color:var(--wl-sidebar-active-text)!important;
+}
+
+/* Sidebar rendering fix 2026-11-18: keep the floating panel and surrounding
+   canvas distinct, including full-page screenshots and short viewports. */
+.app-shell,.app-shell.sidebar-collapsed{
+  background-color:var(--wl-background)!important;
+  background-image:none!important;
+}
+.sidebar{background-color:var(--wl-sidebar)!important;background-image:none!important}
+.sidebar .sidebar-nav{background-color:var(--wl-sidebar)!important;background-image:none!important}
+.sidebar .nav-link,.sidebar .nav-group-label,.sidebar .nav-child,
+.sidebar .nav-link .nav-icon,.sidebar .nav-link svg,
+.sidebar .sidebar-foot .nav-link{color:var(--wl-sidebar-text)!important}
+.sidebar .nav-link.active,.sidebar .nav-link:hover,
+.sidebar .nav-link.active .nav-icon,.sidebar .nav-link:hover .nav-icon,
+.sidebar .nav-link.active svg,.sidebar .nav-link:hover svg,
+.sidebar .nav-link.active span,.sidebar .nav-link:hover span,
+.sidebar .nav-child.active,.sidebar .nav-child:hover{
+  color:var(--wl-sidebar-active-text)!important;
+}
+
+/* Personal appearance: token-based overrides for all role dashboards. */
+.topbar .personal-theme-toggle{
+  display:inline-flex!important;align-items:center;justify-content:center;
+  flex:0 0 36px;width:36px;height:36px;min-width:36px;
+  border:1px solid var(--wl-border)!important;border-radius:11px;
+  background:var(--wl-surface)!important;color:var(--wl-text)!important;
+  cursor:pointer;transition:background .15s,border-color .15s;
+}
+.topbar .personal-theme-toggle:hover{border-color:var(--wl-accent)!important}
+.topbar .personal-theme-toggle:focus-visible{outline:2px solid var(--wl-accent);outline-offset:2px}
+.topbar .personal-theme-toggle:disabled{opacity:.5;cursor:wait}
+[data-theme-mode="dark"] body,[data-theme-mode="dark"] .app-shell,[data-theme-mode="dark"] .app-main,
+[data-theme-mode="dark"] .content,[data-theme-mode="dark"] .route-loading-stage,
+[data-theme-mode="dark"] .page,[data-theme-mode="dark"] .page-header,
+[data-theme-mode="dark"] .dashboard-section{background-color:var(--wl-background)!important;color:var(--wl-text)!important}
+[data-theme-mode="dark"] .card,[data-theme-mode="dark"] .panel,[data-theme-mode="dark"] .wl-section,
+[data-theme-mode="dark"] .modal-content,[data-theme-mode="dark"] .profile-dropdown,
+[data-theme-mode="dark"] .notification-dropdown,[data-theme-mode="dark"] .search-results,
+[data-theme-mode="dark"] .dropdown-menu,[data-theme-mode="dark"] .table-wrap{
+  background:var(--wl-surface)!important;color:var(--wl-text)!important;border-color:var(--wl-border)!important
+}
+[data-theme-mode="dark"] .topbar{background:var(--wl-navbar)!important;color:var(--wl-navbar-text)!important}
+[data-theme-mode="dark"] .sidebar{background:var(--wl-sidebar)!important;color:var(--wl-sidebar-text)!important}
+[data-theme-mode="dark"] h1,[data-theme-mode="dark"] h2,[data-theme-mode="dark"] h3,
+[data-theme-mode="dark"] h4,[data-theme-mode="dark"] .card strong,[data-theme-mode="dark"] .page-header strong,
+[data-theme-mode="dark"] .page-header h1{color:var(--wl-text)!important}
+[data-theme-mode="dark"] .field input,[data-theme-mode="dark"] .field textarea,
+[data-theme-mode="dark"] .field select,[data-theme-mode="dark"] .wl-field input,
+[data-theme-mode="dark"] .wl-field select,[data-theme-mode="dark"] .search-box,
+[data-theme-mode="dark"] .form-control{
+  background:var(--wl-input-background)!important;color:var(--wl-text)!important;border-color:var(--wl-border)!important
+}
+[data-theme-mode="dark"] table,[data-theme-mode="dark"] th,[data-theme-mode="dark"] td{
+  background-color:var(--wl-surface);color:var(--wl-text);border-color:var(--wl-border)
+}
+[data-theme-mode="dark"] th{background-color:var(--wl-background)!important}
+[data-theme-mode="dark"] .btn-secondary,[data-theme-mode="dark"] .btn-ghost{
+  color:var(--wl-text)!important;background:var(--wl-surface)!important;border-color:var(--wl-border)!important
+}
+@media(max-width:600px){.topbar .personal-theme-toggle{flex-basis:34px;width:34px;min-width:34px;height:34px}}
+
+
+/* Shared footer: visible after the last page section for Admin, HR, VA, Doctor. */
+.app-shell > .app-main { display: flex; flex-direction: column; min-height: 0; }
+.app-shell > .app-main > .content { flex: 1 0 auto; min-width: 0; }
+.app-shell > .app-main > .carevma-dashboard-footer {
+  flex: 0 0 auto;
+  width: 100%;
+  margin-top: auto;
+  padding: 16px 24px 20px;
+  border-top: 1px solid var(--wl-border, var(--border, #dce4eb));
+  background: var(--wl-card, var(--card, #ffffff));
+  color: var(--wl-text, var(--muted-foreground, #475569));
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  .app-shell > .app-main > .carevma-dashboard-footer { padding: 14px 12px 18px; }
+}
+
+
+/* CareVMA personal dark-mode visual consistency — 2026-11-18.
+   Scoped to the effective user mode; does NOT change company presets or light UI.
+   Every role shares AppShell and these common dashboard, table and input elements. */
+html[data-theme-mode="dark"] {
+  --background:var(--wl-background);
+  --card:var(--wl-surface);
+  --foreground:var(--wl-text);
+  --ink-soft:var(--wl-text);
+  --muted-foreground:var(--wl-muted);
+  --border:var(--wl-border);
+  --sidebar-background:var(--wl-background);
+  --surface-2:var(--wl-input-background);
+  --primary:var(--wl-accent);
+  --primary-hover:var(--wl-primary);
+  --primary-foreground:#fff;
+  --primary-soft:#243d4a;
+  --brand-soft:#243d4a;
+  --cv-blue-50:var(--wl-input-background);
+  --cv-blue-100:#243d4a;
+  --cv-surface:var(--wl-surface);
+  --cv-bg:var(--wl-background);
+  --cv-border:var(--wl-border);
+  --cv-navy-900:var(--wl-text);
+  --cv-navy-950:var(--wl-text);
+  --cv-slate-800:var(--wl-text);
+  --cv-slate-950:var(--wl-text);
+  --cv-slate-600:var(--wl-muted);
+  --shadow-panel:0 6px 24px rgba(0,0,0,.14);
+  --shadow-card:0 2px 12px rgba(0,0,0,.10);
+  --shadow-raised:0 12px 32px rgba(0,0,0,.25);
+}
+html[data-theme-mode="dark"] body,
+html[data-theme-mode="dark"] .app-shell,
+html[data-theme-mode="dark"] .app-main,
+html[data-theme-mode="dark"] .content,
+html[data-theme-mode="dark"] .admin-ops-dashboard { background:var(--wl-background)!important; color:var(--wl-text)!important; }
+/* Dashboard metric cards (previously an independent hard-coded white gradient). */
+html[data-theme-mode="dark"] .metric-card,
+html[data-theme-mode="dark"] .admin-ops-dashboard .metric-card,
+html[data-theme-mode="dark"] .finance-kpi-row > div,
+html[data-theme-mode="dark"] .billing-cycle-summary > div,
+html[data-theme-mode="dark"] .birthday-dashboard-person,
+html[data-theme-mode="dark"] .shift-live-summary-card,
+html[data-theme-mode="dark"] .shift-live-summary-card .dual-timezone-clock > div,
+html[data-theme-mode="dark"] .timezone-summary-card,
+html[data-theme-mode="dark"] .live-metric-card,
+html[data-theme-mode="dark"] .dashboard-notice-grid > .card,
+html[data-theme-mode="dark"] .dashboard-grid > .card {
+  background:var(--wl-surface)!important;
+  background-image:none!important;
+  color:var(--wl-text)!important;
+  border-color:var(--wl-border)!important;
+  box-shadow:var(--shadow-card)!important;
+}
+html[data-theme-mode="dark"] .metric-card::after { background:color-mix(in srgb,var(--wl-accent) 10%,transparent); }
+html[data-theme-mode="dark"] .metric-icon,
+html[data-theme-mode="dark"] .empty-mark,
+html[data-theme-mode="dark"] .notification-icon,
+html[data-theme-mode="dark"] .client-avatar,
+html[data-theme-mode="dark"] .avatar {
+  background:var(--wl-input-background)!important;
+  background-image:none!important;
+  color:var(--wl-accent)!important;
+  border-color:var(--wl-border)!important;
+}
+html[data-theme-mode="dark"] .metric-copy strong,
+html[data-theme-mode="dark"] .finance-kpi-row strong,
+html[data-theme-mode="dark"] .billing-cycle-summary strong,
+html[data-theme-mode="dark"] .shift-live-summary-head strong,
+html[data-theme-mode="dark"] .birthday-dashboard-person strong,
+html[data-theme-mode="dark"] .person-cell strong,
+html[data-theme-mode="dark"] .empty-state h3,
+html[data-theme-mode="dark"] .empty-compact strong,
+html[data-theme-mode="dark"] .card-head h3,
+html[data-theme-mode="dark"] .dashboard-finance-card h3 { color:var(--wl-text)!important; }
+html[data-theme-mode="dark"] .metric-copy span,
+html[data-theme-mode="dark"] .metric-copy small,
+html[data-theme-mode="dark"] .finance-kpi-row span,
+html[data-theme-mode="dark"] .billing-cycle-summary span,
+html[data-theme-mode="dark"] .birthday-dashboard-person span,
+html[data-theme-mode="dark"] .person-cell span,
+html[data-theme-mode="dark"] .card-head p,
+html[data-theme-mode="dark"] .page-header p,
+html[data-theme-mode="dark"] .muted,
+html[data-theme-mode="dark"] .empty-state,
+html[data-theme-mode="dark"] .empty-compact,
+html[data-theme-mode="dark"] .field > span,
+html[data-theme-mode="dark"] .field small { color:var(--wl-muted)!important; }
+/* Navbar: search, buttons, user menu and live clock must all use dark surfaces. */
+html[data-theme-mode="dark"] .topbar,
+html[data-theme-mode="dark"] .topbar .search-box,
+html[data-theme-mode="dark"] .topbar .search-box input,
+html[data-theme-mode="dark"] .topbar .profile-menu-trigger,
+html[data-theme-mode="dark"] .topbar .icon-btn,
+html[data-theme-mode="dark"] .topbar .navbar-live-clock,
+html[data-theme-mode="dark"] .topbar .navbar-live-clock-icon,
+html[data-theme-mode="dark"] .topbar .personal-theme-toggle,
+html[data-theme-mode="dark"] .topbar .topbar-search,
+html[data-theme-mode="dark"] .topbar .topbar-search input {
+  background:var(--wl-navbar)!important;
+  background-image:none!important;
+  color:var(--wl-navbar-text)!important;
+  border-color:var(--wl-border)!important;
+}
+html[data-theme-mode="dark"] .topbar .profile-menu-trigger-copy strong,
+html[data-theme-mode="dark"] .topbar .profile-menu-trigger-copy small,
+html[data-theme-mode="dark"] .topbar .topbar-context strong,
+html[data-theme-mode="dark"] .topbar .topbar-context span,
+html[data-theme-mode="dark"] .topbar .navbar-live-clock strong,
+html[data-theme-mode="dark"] .topbar .navbar-live-clock small { color:var(--wl-navbar-text)!important; }
+html[data-theme-mode="dark"] input::placeholder,
+html[data-theme-mode="dark"] textarea::placeholder { color:var(--wl-muted)!important; opacity:1; }
+/* Tables, forms, dropdowns, pagination and searchable selects across roles. */
+html[data-theme-mode="dark"] .searchable-select-popover,
+html[data-theme-mode="dark"] .searchable-select-option,
+html[data-theme-mode="dark"] .searchable-select-trigger,
+html[data-theme-mode="dark"] .notification-dropdown,
+html[data-theme-mode="dark"] .notification-dropdown-head,
+html[data-theme-mode="dark"] .notification-dropdown-item,
+html[data-theme-mode="dark"] .profile-dropdown,
+html[data-theme-mode="dark"] .profile-dropdown > button,
+html[data-theme-mode="dark"] .row-actions button,
+html[data-theme-mode="dark"] .table-wrap,
+html[data-theme-mode="dark"] .form-control,
+html[data-theme-mode="dark"] .icon-field > div,
+html[data-theme-mode="dark"] .filter-grid,
+html[data-theme-mode="dark"] .search-box,
+html[data-theme-mode="dark"] .search-box input,
+html[data-theme-mode="dark"] .field input,
+html[data-theme-mode="dark"] .field select,
+html[data-theme-mode="dark"] .field textarea {
+  background:var(--wl-input-background)!important;
+  background-image:none!important;
+  color:var(--wl-text)!important;
+  border-color:var(--wl-border)!important;
+}
+html[data-theme-mode="dark"] .notification-dropdown-head strong,
+html[data-theme-mode="dark"] .notification-item strong,
+html[data-theme-mode="dark"] .profile-dropdown-head strong,
+html[data-theme-mode="dark"] .profile-dropdown > button,
+html[data-theme-mode="dark"] .searchable-select-option strong {color:var(--wl-text)!important;}
+html[data-theme-mode="dark"] .notification-dropdown-head span,
+html[data-theme-mode="dark"] .notification-item p,
+html[data-theme-mode="dark"] .notification-item span,
+html[data-theme-mode="dark"] .profile-dropdown-head span,
+html[data-theme-mode="dark"] .searchable-select-option small {color:var(--wl-muted)!important;}
+html[data-theme-mode="dark"] .notification-item.unread,
+html[data-theme-mode="dark"] .notification-item,
+html[data-theme-mode="dark"] .searchable-select-option:hover,
+html[data-theme-mode="dark"] .searchable-select-option.is-selected,
+html[data-theme-mode="dark"] tbody tr:hover,
+html[data-theme-mode="dark"] .profile-dropdown > button:hover {
+  background:var(--wl-surface)!important;
+  color:var(--wl-text)!important;
+}
+html[data-theme-mode="dark"] th {background:var(--wl-input-background)!important;color:var(--wl-muted)!important;}
+html[data-theme-mode="dark"] td,
+html[data-theme-mode="dark"] .person-cell strong,
+html[data-theme-mode="dark"] .table-wrap table {background:var(--wl-surface);color:var(--wl-text)!important;border-color:var(--wl-border)!important;}
+html[data-theme-mode="dark"] .btn-secondary,
+html[data-theme-mode="dark"] .btn-ghost,
+html[data-theme-mode="dark"] .row-actions button,
+html[data-theme-mode="dark"] .pagination button {background:var(--wl-input-background)!important;color:var(--wl-text)!important;border-color:var(--wl-border)!important;}
+html[data-theme-mode="dark"] .empty-state,
+html[data-theme-mode="dark"] .empty-compact {background:transparent!important;color:var(--wl-muted)!important;}
+html[data-theme-mode="dark"] .carevma-dashboard-footer {background:var(--wl-surface)!important;color:var(--wl-muted)!important;border-color:var(--wl-border)!important;}
+/* Preserve explicit semantic status meaning instead of flattening all badges. */
+html[data-theme-mode="dark"] .badge:not(.badge-success):not(.badge-warning):not(.badge-danger){background:var(--wl-input-background);color:var(--wl-text);}
+html[data-theme-mode="dark"] .badge-success {background:#153f32;color:#84efbb;}
+html[data-theme-mode="dark"] .badge-warning {background:#4e381b;color:#ffd392;}
+html[data-theme-mode="dark"] .badge-danger {background:#4b2529;color:#ffb4bd;}
+
+
+/* 2026-11-18: Personal dark mode — Live Workforce counter and 6/6 dashboard refinement.
+   Scoped to personal appearance only; preserves Original White and company presets. */
+html[data-theme-mode="dark"] .sidebar .live-count-badge,
+html[data-theme-mode="dark"] .sidebar .nav-link.active .live-count-badge,
+html[data-theme-mode="dark"] .sidebar .nav-link:hover .live-count-badge {
+  color:#e5fff1!important;
+  background:#203c35!important;
+  background-image:none!important;
+  border:1px solid #3c6758!important;
+  box-shadow:none!important;
+  text-shadow:none!important;
+  font-variant-numeric:tabular-nums;
+}
+html[data-theme-mode="dark"] .sidebar .live-count-badge i,
+html[data-theme-mode="dark"] .sidebar .nav-link.active .live-count-badge i {
+  background:#4ade80!important;
+  box-shadow:0 0 0 2px rgba(74,222,128,.12);
+}
+html[data-theme-mode="dark"] .sidebar .live-count-badge-mini {
+  background:#203c35!important;
+  color:#e5fff1!important;
+  border-color:#3c6758!important;
+}
+/* Keep the animation subtle, and respect reduced-motion preferences. */
+@media (prefers-reduced-motion:reduce){
+  html[data-theme-mode="dark"] .sidebar .live-count-badge i{animation:none!important;}
+}
+/* Timezones left, birthdays right: one 50/50 row at desktop widths. */
+.admin-dashboard-timezone-birthday-row {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:18px;
+  align-items:stretch;
+}
+.admin-dashboard-timezone-half,.admin-dashboard-birthday-half {min-width:0;}
+.admin-dashboard-timezone-birthday-row .admin-timezone-clocks-card,
+.admin-dashboard-timezone-birthday-row .birthday-dashboard-card {height:100%;margin-bottom:0;}
+.admin-dashboard-timezone-birthday-row .admin-timezone-clock-grid {
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;
+}
+@media(max-width:900px){
+  .admin-dashboard-timezone-birthday-row {grid-template-columns:minmax(0,1fr);}
+}
+@media(max-width:520px){
+  .admin-dashboard-timezone-birthday-row .admin-timezone-clock-grid {grid-template-columns:minmax(0,1fr);}
+}
+/* Match both panels and their inner cards to the user's dark appearance. */
+html[data-theme-mode="dark"] .admin-dashboard-timezone-birthday-row .admin-timezone-clocks-card,
+html[data-theme-mode="dark"] .admin-dashboard-timezone-birthday-row .birthday-dashboard-card,
+html[data-theme-mode="dark"] .admin-dashboard-timezone-birthday-row .admin-timezone-clock-card,
+html[data-theme-mode="dark"] .admin-dashboard-timezone-birthday-row .assigned-timezone-clock,
+html[data-theme-mode="dark"] .admin-dashboard-timezone-birthday-row .birthday-dashboard-person,
+html[data-theme-mode="dark"] .admin-dashboard-timezone-birthday-row .birthday-dashboard-empty {
+  background:var(--wl-surface)!important;
+  background-image:none!important;
+  color:var(--wl-text)!important;
+  border-color:var(--wl-border)!important;
+}
+html[data-theme-mode="dark"] .admin-dashboard-timezone-birthday-row .admin-timezone-clock-card,
+html[data-theme-mode="dark"] .admin-dashboard-timezone-birthday-row .assigned-timezone-clock {
+  background:var(--wl-input-background)!important;
+}
+html[data-theme-mode="dark"] .admin-dashboard-timezone-birthday-row .admin-timezone-clock-heading strong,
+html[data-theme-mode="dark"] .admin-dashboard-timezone-birthday-row .assigned-timezone-clock strong,
+html[data-theme-mode="dark"] .admin-dashboard-timezone-birthday-row .birthday-dashboard-person strong,
+html[data-theme-mode="dark"] .admin-dashboard-timezone-birthday-row .birthday-dashboard-empty strong {
+  color:var(--wl-text)!important;
+}
+html[data-theme-mode="dark"] .admin-dashboard-timezone-birthday-row .admin-timezone-clock-heading span,
+html[data-theme-mode="dark"] .admin-dashboard-timezone-birthday-row .admin-timezone-clock-heading small,
+html[data-theme-mode="dark"] .admin-dashboard-timezone-birthday-row .assigned-timezone-clock small,
+html[data-theme-mode="dark"] .admin-dashboard-timezone-birthday-row .birthday-dashboard-person span,
+html[data-theme-mode="dark"] .admin-dashboard-timezone-birthday-row .birthday-dashboard-empty span {
+  color:var(--wl-muted)!important;
+}
+/* Avoid white KPI sub-pills within the dark admin dashboard. */
+html[data-theme-mode="dark"] .admin-ops-dashboard .metric-live-label {
+  background:#173e31!important;color:#9cf2bb!important;
+  border-color:#2f6350!important;
+}
+html[data-theme-mode="dark"] .admin-ops-dashboard .metric-live-label i {
+  background:#4ade80!important;
+}
+
+
+/* CareVMA dark-mode notifications: black dropdown and toasts */
+/* Scope to personal Dark Mode only. Keep semantic status colors and Light Mode unchanged. */
+html[data-theme-mode="dark"] .notification-dropdown,
+html[data-theme-mode="dark"] .notification-dropdown-head,
+html[data-theme-mode="dark"] .notification-dropdown-body,
+html[data-theme-mode="dark"] .notification-dropdown-item,
+html[data-theme-mode="dark"] .notification-dropdown-footer,
+html[data-theme-mode="dark"] .notification-dropdown-state {
+  background:#0b0f14!important;
+  background-image:none!important;
+  color:#f8fafc!important;
+  border-color:#293341!important;
+}
+html[data-theme-mode="dark"] .notification-dropdown::before {
+  background:#0b0f14!important;
+  border-color:#293341!important;
+}
+html[data-theme-mode="dark"] .notification-dropdown-item.unread,
+html[data-theme-mode="dark"] .notification-dropdown-item:hover,
+html[data-theme-mode="dark"] .notification-dropdown-footer:hover {
+  background:#19232e!important;
+}
+html[data-theme-mode="dark"] .notification-dropdown-head strong,
+html[data-theme-mode="dark"] .notification-dropdown-copy strong,
+html[data-theme-mode="dark"] .notification-dropdown-state strong {
+  color:#f8fafc!important;
+}
+html[data-theme-mode="dark"] .notification-dropdown-head span,
+html[data-theme-mode="dark"] .notification-dropdown-copy > span,
+html[data-theme-mode="dark"] .notification-dropdown-copy small,
+html[data-theme-mode="dark"] .notification-dropdown-state {
+  color:#b9c7d4!important;
+}
+html[data-theme-mode="dark"] .notification-dropdown-head button,
+html[data-theme-mode="dark"] .notification-dropdown-footer {
+  background:#17232d!important;
+  color:#e3f4ff!important;
+}
+html[data-theme-mode="dark"] .notification-dropdown-icon {
+  background:#20323d!important;
+  color:#83dfca!important;
+}
+html[data-theme-mode="dark"] .notification-dropdown-item > i {
+  background:#4ade80!important;
+}
+html[data-theme-mode="dark"] .carevma-toast {
+  background:#0b0f14!important;
+  background-image:none!important;
+  color:#f8fafc!important;
+  border-color:#344252!important;
+}
+html[data-theme-mode="dark"] .carevma-toast strong,
+html[data-theme-mode="dark"] .carevma-toast span,
+html[data-theme-mode="dark"] .carevma-toast p { color:#f8fafc!important; }
+html[data-theme-mode="dark"] .carevma-toast button { color:#b9c7d4!important; }
+html[data-theme-mode="dark"] .carevma-toast button:hover {
+  background:#19232e!important;
+  color:#fff!important;
+}
+html[data-theme-mode="dark"] .carevma-toast-success { border-left-color:#4ade80!important; }
+html[data-theme-mode="dark"] .carevma-toast-error { border-left-color:#fb7185!important; }
+html[data-theme-mode="dark"] .carevma-toast-warning { border-left-color:#fbbf24!important; }
+html[data-theme-mode="dark"] .carevma-toast-info { border-left-color:#60a5fa!important; }
+
+
+/* VA dashboard dark-mode contrast: timer digits and Doctor clock. */
+html[data-theme-mode="dark"] .employee-dashboard-pro .live-session-counter,
+html[data-theme-mode="dark"] .employee-dashboard-pro .live-session-counter.is-break {
+  background:var(--wl-surface,#152832)!important;
+  background-image:none!important;
+  color:var(--wl-text,#edf5fa)!important;
+  border-color:var(--wl-border,#334653)!important;
+}
+html[data-theme-mode="dark"] .employee-dashboard-pro .live-counter-segment {
+  background:#1c3540!important;
+  background-image:none!important;
+  color:#f5fbff!important;
+  border:1px solid #365462!important;
+  box-shadow:none!important;
+  overflow:hidden;
+}
+html[data-theme-mode="dark"] .employee-dashboard-pro .live-counter-segment strong {color:#f5fbff!important;}
+html[data-theme-mode="dark"] .employee-dashboard-pro .live-counter-segment span {
+  background:#1c3540!important;
+  color:#b9d0df!important;
+  border:0!important;
+}
+html[data-theme-mode="dark"] .employee-dashboard-pro .live-counter-digits > b {color:#a6c3d3!important;}
+html[data-theme-mode="dark"] .employee-dashboard-pro .doctor-current-time-block {
+  background:#1c3540!important;
+  background-image:none!important;
+  border:1px solid #365462!important;
+  color:#f5fbff!important;
+}
+html[data-theme-mode="dark"] .employee-dashboard-pro .doctor-current-time-block strong {color:#f5fbff!important;}
+html[data-theme-mode="dark"] .employee-dashboard-pro .doctor-current-time-block span {color:#d2e3ec!important;}
+html[data-theme-mode="dark"] .employee-dashboard-pro .doctor-current-time-block small {color:#a9c2d1!important;}
+html[data-theme-mode="dark"] .employee-dashboard-pro .doctor-live-card .dual-timezone-clock > div,
+html[data-theme-mode="dark"] .employee-dashboard-pro .shift-live-summary-card .dual-timezone-clock > div {
+  background:#1c3540!important;
+  background-image:none!important;
+  border-color:#365462!important;
+  color:#f5fbff!important;
+}
+html[data-theme-mode="dark"] .employee-dashboard-pro .doctor-live-card .dual-timezone-clock strong,
+html[data-theme-mode="dark"] .employee-dashboard-pro .shift-live-summary-card .dual-timezone-clock strong {color:#f5fbff!important;}
+html[data-theme-mode="dark"] .employee-dashboard-pro .doctor-live-card .dual-timezone-clock span,
+html[data-theme-mode="dark"] .employee-dashboard-pro .doctor-live-card .dual-timezone-clock small,
+html[data-theme-mode="dark"] .employee-dashboard-pro .shift-live-summary-card .dual-timezone-clock span,
+html[data-theme-mode="dark"] .employee-dashboard-pro .shift-live-summary-card .dual-timezone-clock small {color:#bbd0dc!important;}
+/* Avoid generic form/card rules bleaching critical countdown labels. */
+html[data-theme-mode="dark"] .employee-dashboard-pro .session-counter h3,
+html[data-theme-mode="dark"] .employee-dashboard-pro .session-counter .eyebrow,
+html[data-theme-mode="dark"] .employee-dashboard-pro .session-ring-center strong,
+html[data-theme-mode="dark"] .employee-dashboard-pro .session-end-tiles strong {color:#f5fbff!important;}
+html[data-theme-mode="dark"] .employee-dashboard-pro .session-end-tiles > div {
+  background:#192e38!important;
+  border-color:#365462!important;
+}
+html[data-theme-mode="dark"] .employee-dashboard-pro .session-end-tiles span,
+html[data-theme-mode="dark"] .employee-dashboard-pro .session-hub-note {color:#bbd0dc!important;}

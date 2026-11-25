@@ -6,6 +6,10 @@ use Illuminate\Database\Eloquent\Model;
 
 class EmployeeSalary extends Model
 {
+    protected $casts = [
+        'pdf_snapshot' => 'array',
+    ];
+
     protected $fillable = [
         'employee_id',
         'client_id',
@@ -16,6 +20,7 @@ class EmployeeSalary extends Model
         'period_end',
         'total_late',
         'total_overtime',
+        'pdf_snapshot',
     ];
 
     public function employee()

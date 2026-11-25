@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { CakeSlice, PartyPopper, X } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import api from '../api';
+import { AvatarMedia } from './ui';
 
 function dashboardPathFor(role) {
   if (role === 'employee') return '/employee/dashboard';
@@ -58,7 +59,7 @@ export default function BirthdayPopup({ user }) {
       <p>Wishing you a wonderful birthday and a great year ahead from the CareVMA team.</p>
       <div className="birthday-people">
         {popupPeople.map(person => <div className="birthday-person" key={person.id}>
-          <div className="birthday-avatar">{String(person.name || 'VA').split(' ').map(part => part[0]).slice(0,2).join('').toUpperCase()}</div>
+          <div className="birthday-avatar"><AvatarMedia src={person.profile_picture} alt={person.name||'Birthday'} fallback={String(person.name || 'VA').split(' ').map(part => part[0]).slice(0,2).join('').toUpperCase()}/></div>
           <div><strong>{person.name}</strong><span>{person.timezone}</span></div>
         </div>)}
       </div>

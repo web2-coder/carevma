@@ -1,20 +1,22 @@
-import { useEffect, useMemo, useRef, useState, Fragment } from 'react';
-import { can, ADMIN_ROLES } from '../permissions';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, Fragment } from 'react';
+import { can, ADMIN_ROLES, referenceModule } from '../permissions';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, UserRoundCog, CalendarDays, Clock3, FileCheck2, TimerReset,
   ReceiptText, SlidersHorizontal, Bell, UserCircle2, Settings, LogOut, Menu, X, BriefcaseBusiness,
-  Stethoscope, ClipboardList, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, Activity, CircleDollarSign, BookOpenText, ScrollText, Settings2, ShieldCheck, LifeBuoy
+  Stethoscope, ClipboardList, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, Activity, CircleDollarSign, BookOpenText, ScrollText, Settings2, ShieldCheck, LifeBuoy, MonitorCog, Sun, Moon
 } from 'lucide-react';
 import { NotificationIcon } from '../notificationIcon';
 import { useAuth } from '../context/AuthContext';
 import api from '../api';
 import { subscribeToCareVmaNotifications } from '../pusher';
+import { installNotificationSoundUnlock, playNotificationSoundOnce } from '../notificationSound';
 import BrandLogo from './BrandLogo';
 import LiveNavbarClock from './LiveNavbarClock';
+import {activeThemeMode, setPersonalThemeMode, cachePersonalMode} from '../branding';
 import TopbarSearch from './TopbarSearch';
 import BirthdayPopup from './BirthdayPopup';
-import { AvatarMedia } from './ui';
+import { AvatarMedia, Loading } from './ui';
 import { formatDate } from '../timezone';
 import { emitToast } from '../feedback';
 import '../../css/live-workforce-badge.css';
@@ -37,7 +39,7 @@ const ADMIN_CONFIG = [
   ['Shift Types','shift-types'], ['Designations','designations'], ['Employee Status','employee-statuses'],
   ['Expertise','expertises'], ['Reporting Managers','reporting-managers'], ['Services','services'], ['Contract Types','contracts'],
 ];
-const HR_CONFIG = ADMIN_CONFIG.filter(([, slug]) => !['services', 'contracts'].includes(slug));
+
 
 // Staff navigation is driven by module grants (Roles & Permissions). Shared modules live under the
 // role's own prefix; admin-only modules keep their /admin paths and appear for any role granted them.
@@ -45,6 +47,7 @@ function staffNav(user) {
   const admin = ADMIN_ROLES.includes(user.role);
   const base = admin ? '/admin' : '/hr';
   const allow = module => can(user, module);
+  const configItems = ADMIN_CONFIG.filter(([, slug]) => allow(referenceModule(slug)));
   return [
     { group: 'Overview', label: 'Dashboard', to: `${base}/dashboard`, icon: LayoutDashboard },
     allow('live-users') && { group: 'Overview', label: 'Live Workforce', to: `${base}/live-users`, icon: Activity },
@@ -60,13 +63,14 @@ function staffNav(user) {
     allow('invoice-settings') && { group: 'Billing', label: 'Invoice Settings', to: '/admin/invoice-settings', icon: Settings2 },
     allow('notebook') && { group: 'Documents', label: 'Notebook', to: `${base}/notebook`, icon: BookOpenText },
     allow('activity-logs') && { group: 'Logs', label: 'Activity Logs', to: '/admin/activity-logs', icon: ScrollText },
-    allow('configuration') && {
+    configItems.length > 0 && {
       group: 'Setup', label: admin ? 'Configuration' : 'HR Configuration', icon: SlidersHorizontal,
-      children: (admin ? ADMIN_CONFIG : HR_CONFIG).map(([label, slug]) => ({ label, to: `${base}/options/${slug}` })),
+      children: configItems.map(([label, slug]) => ({ label, to: `${base}/options/${slug}` })),
     },
     admin && { group: 'Setup', label: 'Roles & Permissions', to: '/admin/roles-permissions', icon: ShieldCheck },
     { group: 'Help', label: 'Docs', to: `${base}/docs`, icon: LifeBuoy },   // documentation is never gated
     { group: 'Account', label: 'Notifications', to: `${base}/notifications`, icon: Bell },
+    allow('branding') && { group: 'Setup', label: 'Branding', to: `${base}/branding`, icon: MonitorCog },
     { group: 'Account', label: 'My Account', to: `${base}/account`, icon: UserCircle2 },
   ].filter(Boolean);
 }
@@ -89,6 +93,7 @@ function navFor(user) {
       { label: 'Shared Documents', to: '/employee/documents', icon: BookOpenText },
       { label: 'Notifications', to: '/employee/notifications', icon: Bell },
       { label: 'Settings', to: '/employee/settings', icon: Settings },
+      { label: 'Help Guide', to: '/employee/docs', icon: LifeBuoy },
     ];
   }
   if (user.role === 'client') {
@@ -97,9 +102,125 @@ function navFor(user) {
       { label: 'Shared Documents', to: '/doctor/documents', icon: BookOpenText },
       { label: 'Notifications', to: '/doctor/notifications', icon: Bell },
       { label: 'My Profile', to: '/doctor/profile', icon: UserCircle2 },
+      { label: 'Help Guide', to: '/doctor/docs', icon: LifeBuoy },
     ];
   }
   return [];
+}
+
+function RouteLoadingOutlet() {
+  const location = useLocation();
+  const [loading, setLoading] = useState(true);
+  const loadingRef = useRef(true);
+  const pendingRef = useRef(new Set());
+  const sawRequestRef = useRef(false);
+  const startedAtRef = useRef(Date.now());
+  const timersRef = useRef({ idle: null, finish: null, max: null });
+
+  const clearTimer = name => {
+    if (timersRef.current[name]) {
+      clearTimeout(timersRef.current[name]);
+      timersRef.current[name] = null;
+    }
+  };
+
+  const finish = () => {
+    if (!loadingRef.current) return;
+    clearTimer('finish');
+    const elapsed = Date.now() - startedAtRef.current;
+    const wait = Math.max(80, 220 - elapsed);
+    timersRef.current.finish = setTimeout(() => {
+      loadingRef.current = false;
+      setLoading(false);
+      clearTimer('max');
+    }, wait);
+  };
+
+  useEffect(() => {
+    const onStart = event => {
+      if (!loadingRef.current) return;
+      const id = String(event?.detail?.id || '');
+      if (!id) return;
+      sawRequestRef.current = true;
+      pendingRef.current.add(id);
+      clearTimer('idle');
+      clearTimer('finish');
+    };
+    const onEnd = event => {
+      if (!loadingRef.current) return;
+      const id = String(event?.detail?.id || '');
+      if (!id || !pendingRef.current.has(id)) return;
+      pendingRef.current.delete(id);
+      if (sawRequestRef.current && pendingRef.current.size === 0) finish();
+    };
+    const onPaginationNavigation = event => {
+      const server = event?.detail?.server !== false;
+
+      clearTimer('idle');
+      clearTimer('finish');
+      clearTimer('max');
+      pendingRef.current.clear();
+      sawRequestRef.current = false;
+      startedAtRef.current = Date.now();
+      loadingRef.current = true;
+      setLoading(true);
+
+      if (server) {
+        // Server pagination normally starts a GET request immediately after the
+        // page state changes. Wait for that request to finish, with a small
+        // fallback in case a page does not need to refetch for any reason.
+        timersRef.current.idle = setTimeout(() => {
+          if (!sawRequestRef.current) finish();
+        }, 700);
+        timersRef.current.max = setTimeout(() => finish(), 10000);
+        return;
+      }
+
+      // Local/in-memory pagination has no network request. Keep the existing
+      // CareVMA skeleton visible briefly so the page transition still reads as
+      // an intentional data-page change rather than an abrupt table jump.
+      timersRef.current.idle = setTimeout(() => finish(), 260);
+      timersRef.current.max = setTimeout(() => finish(), 1200);
+    };
+
+    window.addEventListener('carevma:page-request-start', onStart);
+    window.addEventListener('carevma:page-request-end', onEnd);
+    window.addEventListener('carevma:pagination-navigation', onPaginationNavigation);
+    return () => {
+      window.removeEventListener('carevma:page-request-start', onStart);
+      window.removeEventListener('carevma:page-request-end', onEnd);
+      window.removeEventListener('carevma:pagination-navigation', onPaginationNavigation);
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    clearTimer('idle');
+    clearTimer('finish');
+    clearTimer('max');
+    pendingRef.current.clear();
+    sawRequestRef.current = false;
+    startedAtRef.current = Date.now();
+    loadingRef.current = true;
+    setLoading(true);
+
+    timersRef.current.idle = setTimeout(() => {
+      if (!sawRequestRef.current) finish();
+    }, 260);
+    timersRef.current.max = setTimeout(() => finish(), 10000);
+
+    return () => {
+      clearTimer('idle');
+      clearTimer('finish');
+      clearTimer('max');
+    };
+  }, [location.pathname]);
+
+  return <div className="route-loading-stage">
+    <div className={`route-loading-content ${loading ? 'is-loading' : ''}`} aria-hidden={loading ? 'true' : undefined}>
+      <Outlet/>
+    </div>
+    {loading && <div className="route-loading-overlay"><Loading/></div>}
+  </div>;
 }
 
 function NavItem({ item, collapsed, mobileClose, liveCount = 0 }) {
@@ -124,6 +245,32 @@ function NavItem({ item, collapsed, mobileClose, liveCount = 0 }) {
 
 export default function AppShell() {
   const { user, logout } = useAuth();
+  const [personalAppearance, setPersonalAppearance] = useState(() => activeThemeMode());
+  const [appearanceSaving, setAppearanceSaving] = useState(false);
+  useEffect(() => {
+    const sync = () => setPersonalAppearance(activeThemeMode());
+    window.addEventListener('carevma:theme-changed',sync);
+    return () => window.removeEventListener('carevma:theme-changed',sync);
+  }, []);
+  const togglePersonalAppearance = async () => {
+    if (appearanceSaving || !user?.id) return;
+    const previous = activeThemeMode();
+    const next = previous === 'dark' ? 'light' : 'dark';
+    setPersonalThemeMode(next);
+    setPersonalAppearance(next);
+    setAppearanceSaving(true);
+    try {
+      const {data} = await api.put('/profile/theme-mode',{mode:next},{carevmaPageLoader:false,carevmaConfirm:false});
+      const saved = data?.mode === 'dark' ? 'dark' : 'light';
+      cachePersonalMode(user.id,saved);
+      setPersonalThemeMode(saved);
+      setPersonalAppearance(saved);
+    } catch {
+      setPersonalThemeMode(previous);
+      setPersonalAppearance(previous);
+      emitToast('Could not save display mode. Please retry.', 'error');
+    } finally { setAppearanceSaving(false); }
+  };
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [unread, setUnread] = useState(0);
@@ -132,6 +279,9 @@ export default function AppShell() {
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [notificationRows, setNotificationRows] = useState([]);
   const [notificationLoading, setNotificationLoading] = useState(false);
+  const latestNotificationIdRef = useRef(0);
+  const notificationBaselineReadyRef = useRef(false);
+  const notificationUserRef = useRef(null);
   const notificationMenuRef = useRef(null);
   const profileMenuRef = useRef(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
@@ -156,6 +306,9 @@ export default function AppShell() {
     }
   };
 
+  // Subscribe once per signed-in user. Initial history is a silent baseline;
+  // only notifications arriving after it play a chime. Polling covers missed
+  // realtime messages, while the notification ID prevents replay.
   useEffect(() => {
     if (!user || employeeProfileIncomplete) {
       setUnread(0);
@@ -163,19 +316,49 @@ export default function AppShell() {
       return undefined;
     }
     let alive = true;
+    if (notificationUserRef.current !== user.id) {
+      notificationUserRef.current = user.id;
+      latestNotificationIdRef.current = 0;
+      notificationBaselineReadyRef.current = false;
+    }
+    const uninstallUnlock = installNotificationSoundUnlock();
     const loadUnread = async () => {
-      try { const {data} = await api.get('/notifications/unread-count'); if (alive) setUnread(data.count || 0); } catch {}
+      try { const {data} = await api.get('/notifications/unread-count', { carevmaPageLoader: false }); if (alive) setUnread(data.count || 0); } catch {}
     };
-
+    const checkNewNotifications = async () => {
+      try {
+        const { data } = await api.get('/notifications?per_page=15', { carevmaPageLoader: false });
+        if (!alive) return;
+        const rows = Array.isArray(data?.data) ? data.data : [];
+        const previous = latestNotificationIdRef.current;
+        const newest = rows.reduce((max, row) => Math.max(max, Number(row?.id) || 0), previous);
+        // No historical sounds on login, refresh or opening the page.
+        if (notificationBaselineReadyRef.current) {
+          const incoming = rows.filter(row => Number(row?.id) > previous && !row?.is_read);
+          if (incoming.length) playNotificationSoundOnce(user.id, incoming[incoming.length - 1].id);
+        }
+        latestNotificationIdRef.current = newest;
+        notificationBaselineReadyRef.current = true;
+      } catch {
+        // If the first load fails, do not treat a later history fetch as new.
+      }
+    };
     loadUnread();
-    const intervalId = setInterval(loadUnread, 60000);
-    const onFocus = () => loadUnread();
+    checkNewNotifications();
+    const intervalId = setInterval(() => { loadUnread(); checkNewNotifications(); }, 60000);
+    const onFocus = () => { loadUnread(); checkNewNotifications(); };
     const onRead = () => setUnread(0);
     window.addEventListener('focus', onFocus);
     window.addEventListener('carevma:notifications-read', onRead);
 
     const unsubscribePusher = subscribeToCareVmaNotifications(user.id, payload => {
       if (!alive) return;
+      const notificationId = Number(payload?.id) || 0;
+      if (notificationId) {
+        // Mark this ID as seen before the next HTTP poll.
+        latestNotificationIdRef.current = Math.max(latestNotificationIdRef.current, notificationId);
+        if (notificationBaselineReadyRef.current) playNotificationSoundOnce(user.id, notificationId);
+      }
       setUnread(Number.isFinite(Number(payload?.unread_count)) ? Number(payload.unread_count) : current => current + 1);
       setRealtimeNotice(payload || null);
       if (payload?.id) {
@@ -190,11 +373,12 @@ export default function AppShell() {
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('carevma:notifications-read', onRead);
       unsubscribePusher?.();
+      uninstallUnlock();
     };
   }, [user?.id, employeeProfileIncomplete]);
 
   useEffect(() => {
-    if (!user || !['admin', 'superadmin', 'hr'].includes(user.role)) {
+    if (!user || !['admin', 'superadmin', 'hr'].includes(user.role) || !can(user, 'live-users')) {
       setLiveCount(0);
       return undefined;
     }
@@ -202,8 +386,10 @@ export default function AppShell() {
     let alive = true;
     const loadLiveCount = async () => {
       try {
-        const { data } = await api.get('/management/live-users');
-        if (alive) setLiveCount(Math.max(0, Number(data?.checked_in) || 0));
+        // Sidebar only needs the live total. Avoid loading/reconciling the full
+        // Live Workforce payload every 15 seconds on every Admin/HR page.
+        const { data } = await api.get('/management/live-count', { carevmaPageLoader: false });
+        if (alive) setLiveCount(Math.max(0, Number(data?.total) || 0));
       } catch {}
     };
 
@@ -220,7 +406,7 @@ export default function AppShell() {
       window.removeEventListener('carevma:notification', realtimeRefresh);
       window.removeEventListener('focus', focusRefresh);
     };
-  }, [user?.id, user?.role]);
+  }, [user?.id, user?.role, user?.permissions]);
 
   useEffect(() => {
     if (!realtimeNotice) return;
@@ -314,6 +500,17 @@ export default function AppShell() {
 
   const signOut = async () => { await logout(); navigate('/login', { replace: true }); };
   const roleLabel = user?.role === 'client' ? 'Client / Doctor' : user?.role === 'employee' ? 'Team Member / VA' : user?.role === 'hr' ? 'Human Resources' : 'Administrator';
+  const [footerBrand, setFooterBrand] = useState(() => window.__carevmaBrand || {});
+  useEffect(() => {
+    const refreshFooter = () => setFooterBrand({ ...(window.__carevmaBrand || {}) });
+    window.addEventListener('carevma:brand-changed', refreshFooter);
+    refreshFooter();
+    return () => window.removeEventListener('carevma:brand-changed', refreshFooter);
+  }, []);
+  const footerCopyright = typeof footerBrand.footer_text === 'string' && footerBrand.footer_text.trim()
+    ? footerBrand.footer_text.trim()
+    : `© ${new Date().getFullYear()} ${footerBrand.company_name || 'CareVMA'}. All rights reserved.`;
+
 
   return <div className={`app-shell ${collapsed ? 'sidebar-collapsed' : ''}`}>
     {mobileOpen && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMobileOpen(false)}/>} 
@@ -348,6 +545,13 @@ export default function AppShell() {
         </div>
         {!employeeProfileIncomplete && <TopbarSearch pages={pages}/>}
         <div className="topbar-right">
+          <button type="button" className="icon-btn personal-theme-toggle"
+            onClick={togglePersonalAppearance} disabled={appearanceSaving}
+            aria-label={personalAppearance === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            title={personalAppearance === 'dark' ? 'Light mode (only for you)' : 'Dark mode (only for you)'}
+            aria-pressed={personalAppearance === 'dark'}>
+            {personalAppearance === 'dark' ? <Sun size={19}/> : <Moon size={19}/>}
+          </button>
           <LiveNavbarClock user={user}/>
           {!employeeProfileIncomplete && <div className="notification-menu-wrap" ref={notificationMenuRef}>
             <button
@@ -357,7 +561,7 @@ export default function AppShell() {
               aria-haspopup="dialog"
               aria-label={`Notifications${unread?` (${unread} unread)`:``}`}
             >
-              <Bell size={18}/>{unread>0&&<span className="notification-count">{unread>99?'99+':unread}</span>}
+              <Bell size={19} strokeWidth={2} aria-hidden="true"/>{unread>0&&<span className="notification-count">{unread>99?'99+':unread}</span>}
             </button>
             {notificationOpen && <div className="notification-dropdown" role="dialog" aria-label="Recent notifications">
               <div className="notification-dropdown-head">
@@ -376,7 +580,7 @@ export default function AppShell() {
           </div>}
           <div className="profile-menu-wrap" ref={profileMenuRef}>
             <button type="button" className={`profile-menu-trigger ${profileMenuOpen ? 'active' : ''}`} onClick={() => setProfileMenuOpen(open => !open)} aria-expanded={profileMenuOpen} aria-haspopup="menu">
-              <span className="avatar small"><AvatarMedia src={user?.profile_picture || user?.employee?.profile_picture || user?.client?.profile_picture} alt={user?.name||'User'} fallback={user?.name?.[0]?.toUpperCase()}/></span>
+              <span className="avatar small"><AvatarMedia src={user?.role==='employee' ? (user?.employee?.profile_picture || user?.profile_picture) : user?.role==='client' ? (user?.client?.profile_picture || user?.profile_picture) : user?.profile_picture} alt={user?.name||'User'} fallback={user?.name?.[0]?.toUpperCase()}/></span>
               <span className="profile-menu-trigger-copy"><strong>{user?.name}</strong><small>{roleLabel}</small></span>
               <ChevronDown size={15}/>
             </button>
@@ -396,8 +600,11 @@ export default function AppShell() {
           <FileCheck2 size={20}/>
           <div><strong>Complete your profile to unlock CareVMA</strong><span>Finish the required personal fields below. Dashboard, schedules, attendance, notifications and settings will unlock automatically after you save a complete profile.</span></div>
         </div>}
-        <Outlet/>
+        <RouteLoadingOutlet/>
       </main>
+      <footer className="carevma-dashboard-footer" role="contentinfo" aria-label="Portal copyright">
+        <span>{footerCopyright}</span>
+      </footer>
     </div>
   </div>;
 }

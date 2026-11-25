@@ -6,6 +6,7 @@ import {
   UserRound, BriefcaseBusiness, Network, HeartHandshake, Clock3, ShieldCheck
 } from 'lucide-react';
 import api, { messageFrom } from '../api';
+import ProfilePhotoPicker from '../components/ProfilePhotoPicker';
 import { useAuth } from '../context/AuthContext';
 import { Button, Card, Input, Select, MaritalStatusSelect, Textarea } from '../components/ui';
 import { emitToast } from '../feedback';
@@ -231,17 +232,13 @@ export default function EmployeeWizardPage() {
         </div>}
 
         {step === 4 && <div className="documents-step">
-          <label className="upload-card">
-            <UploadCloud size={24}/><strong>Profile photo</strong><span>JPG, JPEG or PNG · max 800 KB</span>
-            <input type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" onChange={e => setProfilePicture(e.target.files?.[0] || null)}/>
-            <em>{profilePicture ? profilePicture.name : 'Choose image'}</em>
-          </label>
+          <ProfilePhotoPicker current={null} file={profilePicture} label="New employee photo" fallback={(form.first_name?.[0]||'E').toUpperCase()} onFile={setProfilePicture} onRemove={()=>setProfilePicture(null)}/>
           <label className="upload-card">
             <FileText size={24}/><strong>Employee documents</strong><span>PDF, DOC, DOCX, JPG or PNG · max 5 MB each</span>
             <input type="file" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onChange={e => setDocuments(Array.from(e.target.files || []))}/>
             <em>{documents.length ? `${documents.length} file(s) selected` : 'Choose documents'}</em>
           </label>
-          <div className="wizard-info-box"><ShieldCheck size={18}/><div><strong>Documents are optional during Admin onboarding</strong><p>The VA can upload or update their own permitted documents later from My Profile.</p></div></div>
+          <div className="wizard-info-box"><ShieldCheck size={18}/><div><strong>Documents are optional during Admin onboarding</strong><p>Employee onboarding documents are stored privately and are available only to authorized Admin / HR users.</p></div></div>
         </div>}
 
         {step === 5 && <div className="form-grid one-col">

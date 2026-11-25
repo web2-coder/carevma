@@ -49,7 +49,12 @@ class ActivityLogTest extends TestCase
         $this->assertTrue($actions->contains('Signed in') && $actions->contains('Signed out'));
         $this->assertSame('Signed out', $actions->first(), 'Newest entry should come first.');
         $this->assertContains('Account', $list->json('modules'));
-        $this->assertSame($admin->id, $list->json('actors.0.user_id'));
+        $this->assertSame([], $list->json('actors'), 'Large actor lists must not be embedded in every activity-log response.');
+
+        $actorLookup = $this->actingAs($admin)
+            ->getJson('/api/management/people-options?type=user&q=Admin&limit=10')
+            ->assertOk();
+        $this->assertSame((string) $admin->id, $actorLookup->json('data.0.value'));
 
         $this->actingAs($admin)->getJson('/api/admin/activity-logs?module=Notifications')->assertOk()->assertJsonCount(1, 'data');
     }
